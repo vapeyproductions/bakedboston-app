@@ -29,9 +29,8 @@ export async function POST(request: Request) {
     const db = getDb();
 
     if (kind === "bakery") {
-      const readyTime = normalizeTime(body.readyTime, "Ready time");
-      const arrivalDeadline = normalizeTime(body.arrivalDeadline, "Pickup deadline");
-      if (readyTime >= arrivalDeadline) throw new Error("Pickup deadline must be after the ready time.");
+      const schedule = parseBakerySchedule(body);
+      const activeDays = Object.keys(schedule);
       const [record] = await db.insert(bakeries).values({
       name: required(body.name, "Bakery name"),
       address: required(body.address, "Address"),
@@ -40,9 +39,9 @@ export async function POST(request: Request) {
       contactName: clean(body.contactName),
       contactEmail: clean(body.contactEmail),
       contactPhone: clean(body.contactPhone),
-      recurringDays: required(body.recurringDays, "Recurring days"),
-      readyTime,
-      arrivalDeadline,
+      recurringDays: activeDays.join(", "),
+      readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
+      arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).returning();
       return Response.json({ record }, { status: 201 });
     }
@@ -87,9 +86,8 @@ export async function PATCH(request: Request) {
 
     const db = getDb();
     if (kind === "bakery") {
-      const readyTime = normalizeTime(body.readyTime, "Ready time");
-      const arrivalDeadline = normalizeTime(body.arrivalDeadline, "Pickup deadline");
-      if (readyTime >= arrivalDeadline) throw new Error("Pickup deadline must be after the ready time.");
+      const schedule = parseBakerySchedule(body);
+      const activeDays = Object.keys(schedule);
       const [record] = await db.update(bakeries).set({
         name: required(body.name, "Bakery name"),
         address: required(body.address, "Address"),
@@ -98,9 +96,9 @@ export async function PATCH(request: Request) {
         contactName: clean(body.contactName),
         contactEmail: clean(body.contactEmail),
         contactPhone: clean(body.contactPhone),
-        recurringDays: required(body.recurringDays, "Recurring days"),
-        readyTime,
-        arrivalDeadline,
+        recurringDays: activeDays.join(", "),
+        readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
+        arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).where(eq(bakeries.id, id)).returning();
       if (!record) return Response.json({ error: "Bakery not found." }, { status: 404 });
       return Response.json({ record });
@@ -170,6 +168,20 @@ function optionalNumber(value: unknown) {
   if (value === "" || value === null || value === undefined) return null;
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
+}
+
+function parseBakerySchedule(body: Record<string, string | number | boolean>) {
+  const validDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const activeDays = validDays.filter((day) => body[`bakeryDay_${day}`]);
+  if (!activeDays.length) throw new Error("Choose at least one pickup day.");
+  const schedule: Record<string, { readyTime: string; pickupDeadline: string }> = {};
+  for (const day of activeDays) {
+    const readyTime = normalizeTime(body[`bakeryReady_${day}`], `${day} ready time`);
+    const pickupDeadline = normalizeTime(body[`bakeryDeadline_${day}`], `${day} pickup deadline`);
+    if (readyTime >= pickupDeadline) throw new Error(`${day}: pickup deadline must be after the ready time.`);
+    schedule[day] = { readyTime, pickupDeadline };
+  }
+  return schedule;
 }
 
 type ReceivingWindow = {
