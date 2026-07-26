@@ -34,6 +34,10 @@ type AuditEntry = {
   id: number; actorType: "admin" | "partner" | "system"; actorId: number | null; actorName: string;
   action: string; entityType: string; entityId: number | null; entityName: string; details: string; createdAt: string;
 };
+type OrganizationContact = {
+  id: number; organizationType: PartnerKind; organizationId: number;
+  name: string; email: string; phone: string;
+};
 type PartnerKind = "bakery" | "pantry";
 type Partner = Bakery | Pantry;
 type DayHours = { open: string; close: string; latestArrival: string };
@@ -141,6 +145,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [administrators, setAdministrators] = useState<Administrator[]>([]);
   const [adminInvitations, setAdminInvitations] = useState<AdminInvitation[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
+  const [organizationContacts, setOrganizationContacts] = useState<OrganizationContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -159,6 +164,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setAdministrators(data.administrators ?? []);
       setAdminInvitations(data.adminInvitations ?? []);
       setAuditEntries(data.auditLog ?? []);
+      setOrganizationContacts(data.organizationContacts ?? []);
     }
     setLoading(false);
   };
@@ -262,7 +268,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         )}
       </section>
 
-      {modal && <RecordModal kind={modal.kind} record={modal.record} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
+      {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
     </main>
   );
 }
@@ -363,6 +369,38 @@ function ConnectAccount({ organizationType, organizationId, pendingEmail, onChan
     setSending(false);
   }
   return <div className="connectAccount"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Account email" /><button onClick={connect} disabled={sending || !email}>{sending ? "Sending…" : pendingEmail ? "Resend invitation" : "Connect account"}</button>{pendingEmail && <small>Invitation pending for {pendingEmail}</small>}</div>;
+}
+
+function ContactManager({ organizationType, organizationId, contacts, onChanged, setNotice }: {
+  organizationType: PartnerKind; organizationId: number; contacts: OrganizationContact[];
+  onChanged: () => Promise<void>; setNotice: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState({ name: "", email: "", phone: "" });
+  async function add() {
+    const response = await fetch("/api/contacts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationType, organizationId, ...draft }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setDraft({ name: "", email: "", phone: "" });
+      setNotice("Primary organizational contact added.");
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not add contact.");
+  }
+  async function remove(contact: OrganizationContact) {
+    if (!window.confirm(`Delete ${contact.name} as a primary contact?`)) return;
+    const response = await fetch(`/api/contacts?id=${contact.id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setNotice("Primary organizational contact deleted.");
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not delete contact.");
+  }
+  return <fieldset className="contactManager"><legend>Primary organizational contacts</legend><p>At least one contact is required. Add as many people as the organization needs.</p>
+    <div className="contactCards">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><button type="button" onClick={() => remove(contact)} disabled={contacts.length <= 1}>Delete</button></article>)}</div>
+    <div className="addContactRow"><input aria-label="New contact name" placeholder="Contact name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><input aria-label="New contact email" type="email" placeholder="Contact email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} /><input aria-label="New contact phone" type="tel" placeholder="Contact phone" value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} /><button type="button" onClick={add} disabled={!draft.name || !draft.email || !draft.phone}>+ Add contact</button></div>
+  </fieldset>;
 }
 
 function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, setNotice }: {
@@ -580,9 +618,10 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="smallEmpty"><span>↗</span><div><strong>{title}</strong><p>{body}</p></div></div>;
 }
 
-function RecordModal({ kind, record, saving, onClose, onSave }: {
-  kind: PartnerKind; record?: Partner; saving: boolean; onClose: () => void;
+function RecordModal({ kind, record, contacts, saving, onClose, onSave, onChanged, setNotice }: {
+  kind: PartnerKind; record?: Partner; contacts: OrganizationContact[]; saving: boolean; onClose: () => void;
   onSave: (e: FormEvent<HTMLFormElement>) => void;
+  onChanged: () => Promise<void>; setNotice: (message: string) => void;
 }) {
   const initialDays = record?.recurringDays.split(",").map((day) => day.trim()).filter(Boolean) ?? [];
   const existingBakerySchedule = kind === "bakery" && record ? parseBakerySchedule(record as Bakery) : {};
@@ -613,11 +652,12 @@ function RecordModal({ kind, record, saving, onClose, onSave }: {
         <label className="wide">Street address<input name="address" required defaultValue={record?.address} placeholder="123 Main Street, Boston, MA" /></label>
         <label>Latitude <input name="latitude" type="number" step="any" defaultValue={record?.latitude ?? ""} placeholder="42.3601" /></label>
         <label>Longitude <input name="longitude" type="number" step="any" defaultValue={record?.longitude ?? ""} placeholder="-71.0589" /></label>
-        <label>Legacy contact name<input name="contactName" defaultValue={record?.contactName} /></label>
-        <label>Legacy contact email<input name="contactEmail" type="email" defaultValue={record?.contactEmail} /></label>
-        <label>Legacy contact phone<input name="contactPhone" type="tel" defaultValue={record?.contactPhone} /></label>
-        <label>Displayed business phone<input name="businessPhone" type="tel" defaultValue={record?.businessPhone} /></label>
-        <label>Delivery notification number<input name="notificationPhone" type="tel" defaultValue={record?.notificationPhone} /></label>
+        <label>Contact name <small>Name of the primary organizational contact for BakedBoston administrators.</small><input name="contactName" required defaultValue={record?.contactName} /></label>
+        <label>Contact email <small>Email of the primary organizational contact.</small><input name="contactEmail" type="email" required defaultValue={record?.contactEmail} /></label>
+        <label>Contact phone number <small>Phone number of the primary organizational contact.</small><input name="contactPhone" type="tel" required defaultValue={record?.contactPhone} /></label>
+        <label>Business phone number <small>Visible to drivers and rescue partners for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={record?.businessPhone} /></label>
+        <label>Notification contact <small>Email address or phone number monitored for upcoming delivery confirmations and notifications.</small><input name="notificationPhone" type="text" defaultValue={record?.notificationPhone} /></label>
+        {record && <div className="wide"><ContactManager organizationType={kind} organizationId={record.id} contacts={contacts} onChanged={onChanged} setNotice={setNotice} /></div>}
         {kind === "bakery" ? <fieldset className="wide bakeryHours"><legend>Pickup availability by day</legend><p>Turn on each pickup day and enter that day’s individual ready time and pickup deadline.</p>
           {days.map((day) => {
             const enabled = bakeryDays.includes(day);

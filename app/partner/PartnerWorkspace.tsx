@@ -12,6 +12,7 @@ type Account = {
   id: number; accountEmail: string; administratorName: string; contactEmail: string;
   contactPhone: string;
 };
+type Contact = { id: number; name: string; email: string; phone: string };
 
 const bakeryActivity = [
   { title: "Today’s pickup", detail: "Ready 4:30 PM · pickup by 6:00 PM", status: "Awaiting driver" },
@@ -25,8 +26,8 @@ const pantryActivity = [
   { title: "Tuesday delivery", detail: "Bakey · received 4:05 PM", status: "Completed" },
 ];
 
-export default function PartnerWorkspace({ kind, organization, account }: {
-  kind: Kind; organization: Organization; account: Account;
+export default function PartnerWorkspace({ kind, organization, account, contacts }: {
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[];
 }) {
   const bakery = kind === "bakery";
   const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
@@ -87,14 +88,16 @@ export default function PartnerWorkspace({ kind, organization, account }: {
 
       {section === "schedule" && <ScheduleEditor kind={kind} onSave={() => prototypeAction("Schedule changes are preview-only until secure partner accounts are connected.")} />}
       {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">RESCUE HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed rescues will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
-      {section === "profile" && <ProfileEditor organization={organization} account={account} onSaved={(message) => prototypeAction(message)} />}
+      {section === "profile" && <ProfileEditor organization={organization} account={account} contacts={contacts} onSaved={(message) => prototypeAction(message)} />}
     </section>
   </main>;
 }
 
-function ProfileEditor({ organization, account, onSaved }: {
-  organization: Organization; account: Account; onSaved: (message: string) => void;
+function ProfileEditor({ organization, account, contacts: initialContacts, onSaved }: {
+  organization: Organization; account: Account; contacts: Contact[]; onSaved: (message: string) => void;
 }) {
+  const [contacts, setContacts] = useState(initialContacts);
+  const [draft, setDraft] = useState({ name: "", email: "", phone: "" });
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -104,18 +107,42 @@ function ProfileEditor({ organization, account, onSaved }: {
     const data = await response.json().catch(() => null);
     onSaved(response.ok ? "Profile and contact information saved." : (data?.error ?? "Could not save profile."));
   }
+  async function addContact() {
+    const response = await fetch("/api/contacts", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setContacts((current) => [...current, data.record]);
+      setDraft({ name: "", email: "", phone: "" });
+      onSaved("Primary organizational contact added.");
+    } else onSaved(data?.error ?? "Could not add contact.");
+  }
+  async function deleteContact(contact: Contact) {
+    const response = await fetch(`/api/contacts?id=${contact.id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setContacts((current) => current.filter((item) => item.id !== contact.id));
+      onSaved("Primary organizational contact deleted.");
+    } else onSaved(data?.error ?? "Could not delete contact.");
+  }
   return <div className="profilePage">
     <div className="sectionIntro"><span className="panelKicker">ORGANIZATION SETTINGS</span><h2>Account and contact channels</h2><p>Account credentials are private. Public business details are available to rescue partners; notification details are used for delivery confirmations; administrator contact details are for one-to-one operational support.</p></div>
     <form className="profilePanel" onSubmit={save}>
       <fieldset><legend>Private account</legend>
-        <label>Account email<input name="accountEmail" type="email" required defaultValue={account.accountEmail} /></label>
+        <label>Account email <small>Email address used to log in to this organization’s BakedBoston profile.</small><input name="accountEmail" type="email" required defaultValue={account.accountEmail} /></label>
         <label>New password <input name="newPassword" type="password" minLength={10} placeholder="Leave blank to keep current password" /></label>
       </fieldset>
       <fieldset><legend>Organization channels</legend>
-        <label>Displayed business phone<input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
-        <label>Delivery notification number<input name="notificationPhone" type="tel" defaultValue={organization.notificationPhone} /></label>
+        <label>Business phone number <small>Visible to drivers and rescue partners for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
+        <label>Notification contact <small>Email address or phone number monitored for upcoming deliveries.</small><input name="notificationPhone" type="text" defaultValue={organization.notificationPhone} /></label>
       </fieldset>
-      <fieldset><legend>Your administrator contact</legend>
+      <fieldset className="profileContacts"><legend>Primary organizational contacts</legend>
+        <p>At least one primary contact must remain on the organization.</p>
+        <div className="profileContactList">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><button type="button" disabled={contacts.length <= 1} onClick={() => deleteContact(contact)}>Delete</button></article>)}</div>
+        <div className="profileContactDraft"><input aria-label="Contact name" placeholder="Contact name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><input aria-label="Contact email" type="email" placeholder="Contact email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} /><input aria-label="Contact phone" type="tel" placeholder="Contact phone number" value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} /><button type="button" disabled={!draft.name || !draft.email || !draft.phone} onClick={addContact}>+ Add contact</button></div>
+      </fieldset>
+      <fieldset><legend>Your account administrator contact</legend>
         <label>Administrator name<input name="administratorName" required defaultValue={account.administratorName} /></label>
         <label>Contact email<input name="contactEmail" type="email" required defaultValue={account.contactEmail} /></label>
         <label>Contact phone<input name="contactPhone" type="tel" required defaultValue={account.contactPhone} /></label>

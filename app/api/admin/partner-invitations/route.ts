@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { bakeries, pantries, partnerInvitations } from "../../../../db/schema";
+import { bakeries, organizationContacts, pantries, partnerInvitations } from "../../../../db/schema";
 import { getAdministrator } from "../../../admin-auth";
 import { writeAudit } from "../../../audit";
 
@@ -21,6 +21,11 @@ export async function POST(request: Request) {
     const table = organizationType === "bakery" ? bakeries : pantries;
     const [organization] = await db.select({ name: table.name }).from(table).where(eq(table.id, organizationId)).limit(1);
     if (!organization) throw new Error("Organization not found.");
+    const [{ value: contactCount }] = await db.select({ value: count() }).from(organizationContacts).where(and(
+      eq(organizationContacts.organizationType, organizationType),
+      eq(organizationContacts.organizationId, organizationId),
+    ));
+    if (Number(contactCount) < 1) throw new Error("Add at least one primary organizational contact before connecting an account.");
     await db.delete(partnerInvitations).where(and(
       eq(partnerInvitations.organizationType, organizationType),
       eq(partnerInvitations.organizationId, organizationId),

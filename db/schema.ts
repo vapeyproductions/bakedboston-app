@@ -114,3 +114,14 @@ export const auditLog = pgTable("audit_log", {
   details: text("details").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const organizationContacts = pgTable("organization_contacts", {
+  id: serial("id").primaryKey(),
+  organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),
+  organizationId: integer("organization_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

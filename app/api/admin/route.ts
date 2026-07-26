@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, bakeries, pantries, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, bakeries, organizationContacts, pantries, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -12,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -44,12 +44,14 @@ export async function GET() {
       expiresAt: adminInvitations.expiresAt, acceptedAt: adminInvitations.acceptedAt, createdAt: adminInvitations.createdAt,
     }).from(adminInvitations).orderBy(desc(adminInvitations.createdAt)),
     db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(500),
+    db.select().from(organizationContacts).orderBy(desc(organizationContacts.createdAt)),
   ]);
 
   return Response.json({
     bakeries: bakeryRows, pantries: pantryRows, routes: routeRows,
     partnerAccounts: accountRows, partnerInvitations: invitationRows,
     administrators: administratorRows, adminInvitations: adminInvitationRows, auditLog: auditRows,
+    organizationContacts: contactRows,
   });
 }
 
@@ -65,20 +67,22 @@ export async function POST(request: Request) {
     if (kind === "bakery") {
       const schedule = parseBakerySchedule(body);
       const activeDays = Object.keys(schedule);
+      const contact = parsePrimaryContact(body);
       const [record] = await db.insert(bakeries).values({
       name: required(body.name, "Bakery name"),
       address: required(body.address, "Address"),
       latitude: optionalNumber(body.latitude),
       longitude: optionalNumber(body.longitude),
-      contactName: clean(body.contactName),
-      contactEmail: clean(body.contactEmail),
-      contactPhone: clean(body.contactPhone),
+      contactName: contact.name,
+      contactEmail: contact.email,
+      contactPhone: contact.phone,
       businessPhone: clean(body.businessPhone),
       notificationPhone: clean(body.notificationPhone),
       recurringDays: activeDays.join(", "),
       readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
       arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).returning();
+      await db.insert(organizationContacts).values({ organizationType: "bakery", organizationId: record.id, ...contact });
       await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "created bakery profile", entityType: "bakery", entityId: record.id, entityName: record.name });
       return Response.json({ record }, { status: 201 });
     }
@@ -86,14 +90,15 @@ export async function POST(request: Request) {
     if (kind === "pantry") {
       const schedule = parsePantrySchedule(body);
       const activeDays = [...new Set(schedule.map((window) => window.day))];
+      const contact = parsePrimaryContact(body);
       const [record] = await db.insert(pantries).values({
         name: required(body.name, "Pantry name"),
         address: required(body.address, "Address"),
         latitude: optionalNumber(body.latitude),
         longitude: optionalNumber(body.longitude),
-        contactName: clean(body.contactName),
-        contactEmail: clean(body.contactEmail),
-        contactPhone: clean(body.contactPhone),
+        contactName: contact.name,
+        contactEmail: contact.email,
+        contactPhone: contact.phone,
         businessPhone: clean(body.businessPhone),
         notificationPhone: clean(body.notificationPhone),
         recurringDays: activeDays.join(", "),
@@ -102,6 +107,7 @@ export async function POST(request: Request) {
         latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).returning();
+      await db.insert(organizationContacts).values({ organizationType: "pantry", organizationId: record.id, ...contact });
       await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "created pantry profile", entityType: "pantry", entityId: record.id, entityName: record.name });
       return Response.json({ record }, { status: 201 });
     }
@@ -127,6 +133,7 @@ export async function PATCH(request: Request) {
 
     const db = getDb();
     if (kind === "bakery") {
+      const contact = parsePrimaryContact(body);
       const schedule = parseBakerySchedule(body);
       const activeDays = Object.keys(schedule);
       const [record] = await db.update(bakeries).set({
@@ -134,9 +141,9 @@ export async function PATCH(request: Request) {
         address: required(body.address, "Address"),
         latitude: optionalNumber(body.latitude),
         longitude: optionalNumber(body.longitude),
-        contactName: clean(body.contactName),
-        contactEmail: clean(body.contactEmail),
-        contactPhone: clean(body.contactPhone),
+        contactName: contact.name,
+        contactEmail: contact.email,
+        contactPhone: contact.phone,
         businessPhone: clean(body.businessPhone),
         notificationPhone: clean(body.notificationPhone),
         recurringDays: activeDays.join(", "),
@@ -144,11 +151,13 @@ export async function PATCH(request: Request) {
         arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).where(eq(bakeries.id, id)).returning();
       if (!record) return Response.json({ error: "Bakery not found." }, { status: 404 });
+      await syncFirstContact(db, "bakery", id, contact);
       await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "updated bakery profile", entityType: "bakery", entityId: record.id, entityName: record.name, details: "Organization details, contact channels, location, or pickup schedule updated" });
       return Response.json({ record });
     }
 
     if (kind === "pantry") {
+      const contact = parsePrimaryContact(body);
       const schedule = parsePantrySchedule(body);
       const activeDays = [...new Set(schedule.map((window) => window.day))];
       const [record] = await db.update(pantries).set({
@@ -156,9 +165,9 @@ export async function PATCH(request: Request) {
         address: required(body.address, "Address"),
         latitude: optionalNumber(body.latitude),
         longitude: optionalNumber(body.longitude),
-        contactName: clean(body.contactName),
-        contactEmail: clean(body.contactEmail),
-        contactPhone: clean(body.contactPhone),
+        contactName: contact.name,
+        contactEmail: contact.email,
+        contactPhone: contact.phone,
         businessPhone: clean(body.businessPhone),
         notificationPhone: clean(body.notificationPhone),
         recurringDays: activeDays.join(", "),
@@ -168,6 +177,7 @@ export async function PATCH(request: Request) {
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).where(eq(pantries.id, id)).returning();
       if (!record) return Response.json({ error: "Pantry not found." }, { status: 404 });
+      await syncFirstContact(db, "pantry", id, contact);
       await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "updated pantry profile", entityType: "pantry", entityId: record.id, entityName: record.name, details: "Organization details, contact channels, location, or receiving schedule updated" });
       return Response.json({ record });
     }
@@ -197,6 +207,7 @@ export async function DELETE(request: Request) {
       eq(partnerAccounts.organizationType, "pantry"),
       eq(partnerAccounts.organizationId, id),
     ));
+    await db.delete(organizationContacts).where(and(eq(organizationContacts.organizationType, "pantry"), eq(organizationContacts.organizationId, id)));
     await db.delete(pantries).where(eq(pantries.id, id));
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted pantry profile", entityType: "pantry", entityId: id, entityName: record?.name ?? "" });
   } else if (kind === "bakery") {
@@ -205,6 +216,7 @@ export async function DELETE(request: Request) {
       eq(partnerAccounts.organizationType, "bakery"),
       eq(partnerAccounts.organizationId, id),
     ));
+    await db.delete(organizationContacts).where(and(eq(organizationContacts.organizationType, "bakery"), eq(organizationContacts.organizationId, id)));
     await db.delete(bakeries).where(eq(bakeries.id, id));
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted bakery profile", entityType: "bakery", entityId: id, entityName: record?.name ?? "" });
   } else {
@@ -228,6 +240,24 @@ function optionalNumber(value: unknown) {
   if (value === "" || value === null || value === undefined) return null;
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
+}
+
+function parsePrimaryContact(body: Record<string, string | number | boolean>) {
+  const name = required(body.contactName, "Contact name");
+  const email = required(body.contactEmail, "Contact email").toLowerCase();
+  const phone = required(body.contactPhone, "Contact phone number");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Contact email is invalid.");
+  return { name, email, phone };
+}
+
+type Database = ReturnType<typeof getDb>;
+async function syncFirstContact(db: Database, organizationType: "bakery" | "pantry", organizationId: number, contact: { name: string; email: string; phone: string }) {
+  const [existing] = await db.select({ id: organizationContacts.id }).from(organizationContacts).where(and(
+    eq(organizationContacts.organizationType, organizationType),
+    eq(organizationContacts.organizationId, organizationId),
+  )).orderBy(organizationContacts.createdAt).limit(1);
+  if (existing) await db.update(organizationContacts).set({ ...contact, updatedAt: new Date() }).where(eq(organizationContacts.id, existing.id));
+  else await db.insert(organizationContacts).values({ organizationType, organizationId, ...contact });
 }
 
 function parseBakerySchedule(body: Record<string, string | number | boolean>) {

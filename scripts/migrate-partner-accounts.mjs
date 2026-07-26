@@ -78,5 +78,37 @@ if (!databaseUrl) {
       created_at timestamp with time zone DEFAULT now() NOT NULL
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS organization_contacts (
+      id serial PRIMARY KEY,
+      organization_type text NOT NULL,
+      organization_id integer NOT NULL,
+      name text NOT NULL,
+      email text NOT NULL,
+      phone text NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL,
+      updated_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`
+    INSERT INTO organization_contacts (organization_type, organization_id, name, email, phone)
+    SELECT 'bakery', id, contact_name, contact_email, contact_phone
+    FROM bakeries
+    WHERE contact_name <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM organization_contacts c
+        WHERE c.organization_type = 'bakery' AND c.organization_id = bakeries.id
+      )
+  `;
+  await sql`
+    INSERT INTO organization_contacts (organization_type, organization_id, name, email, phone)
+    SELECT 'pantry', id, contact_name, contact_email, contact_phone
+    FROM pantries
+    WHERE contact_name <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM organization_contacts c
+        WHERE c.organization_type = 'pantry' AND c.organization_id = pantries.id
+      )
+  `;
   console.log("Partner-account database migration complete.");
 }
