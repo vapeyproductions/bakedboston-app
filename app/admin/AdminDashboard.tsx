@@ -118,7 +118,7 @@ function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime"
 }
 
 export default function AdminDashboard({ user }: { user: { name: string; email: string } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "map" | "routes">("overview");
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "map" | "routes">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -199,12 +199,13 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "map", "routes"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "accounts", "map", "routes"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "map" ? "⌖" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "map" ? "⌖" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
+              {item === "accounts" && <small>{partnerAccounts.length}</small>}
             </button>
           ))}
         </nav>
@@ -230,6 +231,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
             {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
           </>
@@ -303,6 +305,59 @@ function PartnerTable({ type, records, accounts, onAdd, onEdit, onDelete, deleti
         : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>}</>;
+}
+
+function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, setNotice }: {
+  accounts: PartnerAccount[]; bakeries: Bakery[]; pantries: Pantry[];
+  onChanged: () => Promise<void>; setNotice: (message: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  async function addAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAdding(true);
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const response = await fetch("/api/admin/partner-accounts", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      event.currentTarget.reset();
+      setNotice("Business administrator account created.");
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not create account.");
+    setAdding(false);
+  }
+  async function removeAccount(account: PartnerAccount) {
+    if (!window.confirm(`Remove login access for ${account.accountEmail}?`)) return;
+    const response = await fetch(`/api/admin/partner-accounts?id=${account.id}`, { method: "DELETE" });
+    if (response.ok) {
+      setNotice("Business administrator account removed.");
+      await onChanged();
+    }
+  }
+  const organizationName = (account: PartnerAccount) =>
+    (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId)?.name ?? "Unknown organization";
+
+  return <div className="accountsWorkspace">
+    <form className="newAccountPanel" onSubmit={addAccount}>
+      <div className="panelTitle"><div><span>BUSINESS ADMINISTRATORS</span><h2>Add account access</h2></div></div>
+      <p>Each person receives an individual login. Passwords are hashed and cannot be retrieved after creation.</p>
+      <div className="accountFormGrid">
+        <label>Organization type<select name="organizationType" required><option value="bakery">Bakery</option><option value="pantry">Pantry</option></select></label>
+        <label>Organization<select name="organizationId" required><optgroup label="Bakeries">{bakeries.map((record) => <option key={`b-${record.id}`} value={record.id}>{record.name}</option>)}</optgroup><optgroup label="Pantries">{pantries.map((record) => <option key={`p-${record.id}`} value={record.id}>{record.name}</option>)}</optgroup></select></label>
+        <label>Administrator name<input name="administratorName" required /></label>
+        <label>Account email<input name="accountEmail" type="email" required /></label>
+        <label>Contact email<input name="contactEmail" type="email" required /></label>
+        <label>Contact phone<input name="contactPhone" type="tel" required /></label>
+        <label className="wide">Temporary password<input name="password" type="password" minLength={10} required /></label>
+      </div>
+      <button className="solidBtn" disabled={adding}>{adding ? "Creating…" : "Create administrator account"}</button>
+    </form>
+    <div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Administrator contact</th><th>Status</th><th>Action</th></tr></thead><tbody>
+      {accounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><strong>{organizationName(account)}</strong><small>{account.organizationType}</small></td><td><strong>{account.administratorName}</strong><small>{account.contactEmail} · {account.contactPhone}</small></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
+      {!accounts.length && <tr><td colSpan={5}>No partner accounts have been created yet.</td></tr>}
+    </tbody></table></div>
+  </div>;
 }
 
 function MapWorkspace({ bakeries, pantries }: { bakeries: Bakery[]; pantries: Pantry[] }) {
