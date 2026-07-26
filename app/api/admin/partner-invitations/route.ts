@@ -70,7 +70,8 @@ async function sendInvitationEmail(input: {
   const from = process.env.PARTNER_INVITE_FROM ?? "BakedBoston Onboarding <onboarding@baked-boston.com>";
   if (!apiKey) return false;
   const organizationName = input.organization.name;
-  const primaryContact = input.contacts[0];
+  const orderedContacts = [...input.contacts].sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
+  const primaryContact = orderedContacts[0];
   const pantry = input.organizationType === "pantry" ? input.organization as typeof pantries.$inferSelect : null;
   const bakery = input.organizationType === "bakery" ? input.organization as typeof bakeries.$inferSelect : null;
   const buttonLabel = pantry ? "Connect Pantry" : "Connect Bakery";
@@ -91,14 +92,14 @@ async function sendInvitationEmail(input: {
             <p style="font-size:17px;line-height:1.6;margin-top:0">Your ${escapeHtml(organizationName)} profile has been prepared. Use the secure link below to confirm the account email and create a password. This link expires in seven days.</p>
             <p style="text-align:center;margin:30px 0"><a href="${escapeHtml(input.invitationUrl)}" style="display:inline-block;background:#e8b84c;color:#173b2d;padding:16px 30px;text-decoration:none;border-radius:8px;font-size:17px;font-weight:bold">${buttonLabel}</a></p>
             ${pantry ? `<div style="margin-top:34px;border-top:4px solid #173b2d;padding-top:22px"><h2 style="margin:0 0 4px;color:#173b2d">Summary of Pantry Information</h2><p style="color:#69756e;line-height:1.5">Please review the information entered during onboarding.</p><table style="width:100%;border-collapse:collapse">
-              ${input.contacts.map((contact, index) => field(index === 0 ? "Primary contact" : `Additional contact ${index + 1}`, `${contact.name} · ${contact.email} · ${contact.phone}`, "A person BakedBoston administrators may contact directly about this pantry.")).join("")}
+              ${orderedContacts.map((contact, index) => field(index === 0 ? "Primary contact" : `Additional contact ${index}`, `${contact.name} · ${contact.email} · ${contact.phone}`, "A person BakedBoston administrators may contact directly about this pantry.")).join("")}
               ${field("Delivery address", pantry.address, `The street address drivers will navigate to for deliveries to ${organizationName}.`)}
               ${field("Drop-off instructions", pantry.dropoffInstructions, "Directions that help drivers locate the exact receiving point after arriving at the delivery address.")}
               ${field("Business phone number", pantry.businessPhone, "The number drivers and partner organizations may call during business hours.")}
               ${field("Notification contact", pantry.notificationPhone, "The email address or phone number monitored for upcoming delivery confirmations and notifications.")}
               ${pantrySchedule.map((window, index) => field(`Receiving window ${index + 1}`, window.summary, `${window.openDescription} ${window.closeDescription} ${window.latestDescription}`)).join("")}
             </table></div>` : bakery ? `<div style="margin-top:34px;border-top:4px solid #173b2d;padding-top:22px"><h2 style="margin:0 0 4px;color:#173b2d">Summary of Bakery Information</h2><p style="color:#69756e;line-height:1.5">Please review the information entered during onboarding.</p><table style="width:100%;border-collapse:collapse">
-              ${input.contacts.map((contact, index) => field(index === 0 ? "Primary contact" : `Additional contact ${index + 1}`, `${contact.name} · ${contact.email} · ${contact.phone}`, "A person BakedBoston administrators may contact directly about this bakery.")).join("")}
+              ${orderedContacts.map((contact, index) => field(index === 0 ? "Primary contact" : `Additional contact ${index}`, `${contact.name} · ${contact.email} · ${contact.phone}`, "A person BakedBoston administrators may contact directly about this bakery.")).join("")}
               ${field("Pickup address", bakery.address, `The street address drivers will navigate to for pickups from ${organizationName}.`)}
               ${field("Pickup instructions", bakery.dropoffInstructions, "Directions that help drivers locate the exact pickup point after arriving at the bakery address.")}
               ${field("Business phone number", bakery.businessPhone, "The number drivers and partner organizations may call during business hours.")}

@@ -1,18 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type Kind = "bakery" | "pantry";
 type Organization = {
   id: number; name: string; address: string; contactName: string; contactEmail: string;
   contactPhone: string; businessPhone: string; notificationPhone: string; dropoffInstructions?: string;
+  recurringDays: string; readyTime?: string; arrivalDeadline?: string;
+  openTime?: string; closeTime?: string; latestArrival?: string;
 };
 type Account = {
   id: number; accountEmail: string; administratorName: string; contactEmail: string;
   contactPhone: string;
 };
-type Contact = { id: number; name: string; email: string; phone: string };
+type Contact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: string };
 
 const bakeryActivity = [
@@ -34,7 +36,9 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
   const [notice, setNotice] = useState("");
   const [available, setAvailable] = useState(true);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const activity = bakery ? bakeryActivity : pantryActivity;
+  const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
 
   function prototypeAction(message: string) {
     setNotice(message);
@@ -54,13 +58,13 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
         <button className={section === "activity" ? "active" : ""} onClick={() => setSection("activity")}><span>↗</span> Delivery activity</button>
         <button className={section === "profile" ? "active" : ""} onClick={() => setSection("profile")}><span>⚙</span> Profile & contacts</button>
       </nav>
-      <div className="sideBottom"><span>{account.administratorName}</span><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>
+      <div className="sideBottom"><span>{account.accountEmail}</span><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>
     </aside>
 
     <section className="workspaceMain">
       <header className="workspaceHeader">
         <div><p>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</p><h1>{section === "overview" ? "Good afternoon." : section === "schedule" ? (bakery ? "Pickup schedule" : "Receiving schedule") : section === "activity" ? "Delivery activity" : "Profile & contacts"}</h1></div>
-        <button className="profileButton" onClick={() => setSection("profile")}>{account.administratorName.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()} <span>⌄</span></button>
+        <div className="accountMenu"><button className="profileButton" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}>{(primaryContact?.name || organization.name).split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()} <span>⌄</span></button>{accountMenuOpen && <div className="accountDropdown"><strong>{organization.name}</strong><small>{account.accountEmail}</small><button onClick={() => { setSection("profile"); setAccountMenuOpen(false); }}>Profile & contacts</button><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>}</div>
       </header>
       {notice && <div className="prototypeNotice">{notice}</div>}
 
@@ -87,7 +91,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
         </div>
       </>}
 
-      {section === "schedule" && <ScheduleEditor kind={kind} onSave={() => prototypeAction("Schedule changes are preview-only until secure partner accounts are connected.")} />}
+      {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} />}
       {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">RESCUE HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed rescues will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
       {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
     </section>
@@ -119,7 +123,7 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
     if (response.ok) {
       setContacts((current) => [...current, data.record]);
       setDraft({ name: "", email: "", phone: "" });
-      onSaved("Primary organizational contact added.");
+      onSaved("Organizational contact added.");
     } else onSaved(data?.error ?? "Could not add contact.");
   }
   async function deleteContact(contact: Contact) {
@@ -127,8 +131,14 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
     const data = await response.json().catch(() => null);
     if (response.ok) {
       setContacts((current) => current.filter((item) => item.id !== contact.id));
-      onSaved("Primary organizational contact deleted.");
+      onSaved("Organizational contact deleted.");
     } else onSaved(data?.error ?? "Could not delete contact.");
+  }
+  async function makePrimary(contact: Contact) {
+    const response = await fetch("/api/contacts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: contact.id }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setContacts((current) => current.map((item) => ({ ...item, isPrimary: item.id === contact.id }))); onSaved(`${contact.name} is now the primary contact.`); }
+    else onSaved(data?.error ?? "Could not change the primary contact.");
   }
   async function addPhoto() {
     if (!photo) return;
@@ -149,11 +159,10 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
     else onSaved(data?.error ?? "Could not delete photo.");
   }
   return <div className="profilePage">
-    <div className="sectionIntro"><span className="panelKicker">ORGANIZATION SETTINGS</span><h2>Account and contact channels</h2><p>Account credentials are private. Public business details are available to rescue partners; notification details are used for delivery confirmations; administrator contact details are for one-to-one operational support.</p></div>
+    <div className="sectionIntro"><span className="panelKicker">ORGANIZATION SETTINGS</span><h2>Profile and contacts</h2><p>Keep operational details and organizational contacts current. The account email is used only to sign in; the primary contact is the person BakedBoston should contact first about the program.</p></div>
     <form className="profilePanel" onSubmit={save}>
-      <fieldset><legend>Private account</legend>
+      <fieldset className="profileSection"><legend>Login</legend>
         <label>Account email <small>Email address used to log in to this organization’s BakedBoston profile.</small><input name="accountEmail" type="email" required defaultValue={account.accountEmail} /></label>
-        <label>New password <input name="newPassword" type="password" minLength={10} placeholder="Leave blank to keep current password" /></label>
       </fieldset>
       <fieldset><legend>Organization channels</legend>
         <label>{kind === "pantry" ? "Delivery address" : "Business address"}<input name="address" required defaultValue={organization.address} /></label>
@@ -166,18 +175,14 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
         {photos.length > 0 && <div className="pantryPhotoGrid">{photos.map((item) => <figure key={item.id}><img src={item.imageUrl} alt={item.caption || "Pantry access"} /><figcaption>{item.caption || "Pantry access photo"}</figcaption><button type="button" onClick={() => deletePhoto(item.id)}>Delete</button></figure>)}</div>}
         <div className="pantryPhotoUpload"><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label><label>Caption<input value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Example: Use the rear entrance" /></label><button type="button" disabled={!photo} onClick={addPhoto}>+ Add photo</button></div>
       </fieldset>
-      <fieldset className="profileContacts"><legend>Primary organizational contacts</legend>
-        <p>At least one primary contact must remain on the organization.</p>
-        <div className="profileContactList">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><button type="button" disabled={contacts.length <= 1} onClick={() => deleteContact(contact)}>Delete</button></article>)}</div>
+      <fieldset className="profileContacts"><legend>Organizational contacts</legend>
+        <p>One contact is marked primary so BakedBoston knows whom to contact first. Add as many additional contacts as needed.</p>
+        <div className="profileContactList">{contacts.map((contact) => <article className={contact.isPrimary ? "primaryContact" : ""} key={contact.id}><div><strong>{contact.isPrimary && <span className="primaryStar">★ PRIMARY</span>}{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><div>{!contact.isPrimary && <button type="button" onClick={() => makePrimary(contact)}>Make primary</button>}<button type="button" disabled={contacts.length <= 1} onClick={() => deleteContact(contact)}>Delete</button></div></article>)}</div>
         <div className="profileContactDraft"><input aria-label="Contact name" placeholder="Contact name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><input aria-label="Contact email" type="email" placeholder="Contact email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} /><input aria-label="Contact phone" type="tel" placeholder="Contact phone number" value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} /><button type="button" disabled={!draft.name || !draft.email || !draft.phone} onClick={addContact}>+ Add contact</button></div>
-      </fieldset>
-      <fieldset><legend>Your account administrator contact</legend>
-        <label>Administrator name<input name="administratorName" required defaultValue={account.administratorName} /></label>
-        <label>Contact email<input name="contactEmail" type="email" required defaultValue={account.contactEmail} /></label>
-        <label>Contact phone<input name="contactPhone" type="tel" required defaultValue={account.contactPhone} /></label>
       </fieldset>
       <div className="profileActions"><button>Save profile</button></div>
     </form>
+    <PasswordPanel onSaved={onSaved} />
   </div>;
 }
 
@@ -188,19 +193,71 @@ function ActivityCard({ activity, onAll }: { activity: typeof bakeryActivity; on
   </article>;
 }
 
-function ScheduleEditor({ kind, onSave }: { kind: Kind; onSave: () => void }) {
+const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const timeOptions = Array.from({ length: 48 }, (_, index) => `${String(Math.floor(index / 2)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`);
+type ScheduleWindow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; readyTime: string; pickupDeadline: string };
+
+function ScheduleEditor({ kind, organization, onSaved }: { kind: Kind; organization: Organization; onSaved: (message: string) => void }) {
   const bakery = kind === "bakery";
-  const [rows, setRows] = useState([
-    { day: bakery ? "Monday" : "Wednesday", detail: bakery ? "4:30 PM — 6:00 PM" : "10:00 AM — 1:00 PM · latest 12:30 PM" },
-    { day: bakery ? "Wednesday" : "Wednesday", detail: bakery ? "4:30 PM — 6:00 PM" : "4:00 PM — 7:00 PM · latest 6:30 PM" },
-    { day: bakery ? "Friday" : "2nd Saturday", detail: bakery ? "3:30 PM — 5:30 PM" : "9:00 AM — 12:00 PM · latest 11:30 AM" },
-  ]);
+  const [rows, setRows] = useState<ScheduleWindow[]>(() => parseOrganizationSchedule(kind, organization));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    fetch("/api/partner/schedule", { cache: "no-store" }).then((response) => response.json()).then((data) => {
+      if (data?.organization) setRows(parseOrganizationSchedule(kind, data.organization));
+    }).catch(() => undefined);
+  }, [kind]);
+  const update = (index: number, patch: Partial<ScheduleWindow>) => setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  async function save() {
+    setSaving(true);
+    const response = await fetch("/api/partner/schedule", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ windows: rows }) });
+    const data = await response.json().catch(() => null);
+    setSaving(false);
+    onSaved(response.ok ? "Schedule saved. BB administrators now see the same schedule." : (data?.error ?? "Could not save schedule."));
+  }
   return <div className="schedulePage">
     <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>{bakery ? "When is surplus ready?" : "When can you receive?"}</h2><p>{bakery ? "Each day may have its own food-ready time and pickup deadline." : "Use multiple daily windows or monthly rules such as the second Saturday."}</p></div>
-    <article className="schedulePanel">
-      {rows.map((row, index) => <div className="scheduleRow" key={`${row.day}-${index}`}><span>{row.day.slice(0, 3).toUpperCase()}</span><div><strong>{row.day}</strong><small>{row.detail}</small></div><button onClick={() => setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}>Remove</button></div>)}
-      <button className="addWindow" onClick={() => setRows((current) => [...current, { day: "New window", detail: "Choose times during account setup" }])}>+ Add {bakery ? "pickup day" : "receiving window"}</button>
-      <div className="scheduleActions"><button onClick={onSave}>Save schedule</button></div>
+    <article className="schedulePanel scheduleEditorPanel">
+      {rows.map((row, index) => <div className="partnerScheduleRow" key={index}><div className="windowHeading"><strong>{bakery ? "Pickup day" : "Receiving window"} {index + 1}</strong>{rows.length > 1 && <button onClick={() => setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}>Remove</button>}</div>
+        {!bakery && <label>Repeats<select value={row.recurrence} onChange={(event) => update(index, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>}
+        {!bakery && row.recurrence === "monthly" && <label>Occurrence<select value={row.ordinal ?? 1} onChange={(event) => update(index, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
+        <label>Day<select value={row.day} onChange={(event) => update(index, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label>
+        {bakery ? <><TimeSelect label="Food ready" value={row.readyTime} onChange={(value) => update(index, { readyTime: value })} /><TimeSelect label="Pickup deadline" value={row.pickupDeadline} onChange={(value) => update(index, { pickupDeadline: value })} /></> : <><TimeSelect label="Opens" value={row.open} onChange={(value) => update(index, { open: value })} /><TimeSelect label="Closes" value={row.close} onChange={(value) => update(index, { close: value })} /><TimeSelect label="Latest permitted arrival" value={row.latestArrival} onChange={(value) => update(index, { latestArrival: value })} /></>}
+      </div>)}
+      <button className="addWindow" onClick={() => setRows((current) => [...current, emptyWindow()])}>+ Add {bakery ? "pickup day" : "receiving window"}</button>
+      <div className="scheduleActions"><button disabled={saving} onClick={save}>{saving ? "Saving…" : "Save schedule"}</button></div>
     </article>
   </div>;
+}
+
+function TimeSelect({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <label>{label}<select value={value} onChange={(event) => onChange(event.target.value)}>{timeOptions.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}</select></label>;
+}
+function formatTime(value: string) { const [hour, minute] = value.split(":").map(Number); return `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour >= 12 ? "PM" : "AM"}`; }
+function emptyWindow(): ScheduleWindow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", readyTime: "15:00", pickupDeadline: "18:00" }; }
+function parseOrganizationSchedule(kind: Kind, organization: Organization): ScheduleWindow[] {
+  try {
+    if (kind === "bakery") {
+      const ready = JSON.parse(organization.readyTime ?? "{}") as Record<string, string>;
+      const deadlines = JSON.parse(organization.arrivalDeadline ?? "{}") as Record<string, string>;
+      const rows = Object.keys(ready).map((day) => ({ ...emptyWindow(), day, readyTime: ready[day], pickupDeadline: deadlines[day] }));
+      return rows.length ? rows : [emptyWindow()];
+    }
+    const opens = JSON.parse(organization.openTime ?? "[]") as Array<{ recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; time: string }>;
+    const closes = JSON.parse(organization.closeTime ?? "[]") as Array<{ time: string }>;
+    const latest = JSON.parse(organization.latestArrival ?? "[]") as Array<{ time: string }>;
+    const rows = opens.map((row, index) => ({ ...emptyWindow(), recurrence: row.recurrence, day: row.day, ordinal: row.ordinal, open: row.time, close: closes[index]?.time ?? "17:00", latestArrival: latest[index]?.time ?? "16:30" }));
+    return rows.length ? rows : [emptyWindow()];
+  } catch { return [emptyWindow()]; }
+}
+
+function PasswordPanel({ onSaved }: { onSaved: (message: string) => void }) {
+  const [password, setPassword] = useState(""); const [confirmation, setConfirmation] = useState(""); const [confirming, setConfirming] = useState(false);
+  async function changePassword() {
+    if (password !== confirmation) return onSaved("New passwords do not match.");
+    const response = await fetch("/api/partner/password", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password, confirmation }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setPassword(""); setConfirmation(""); setConfirming(false); onSaved("Password changed successfully."); }
+    else onSaved(data?.error ?? "Could not change password.");
+  }
+  return <section className="securityPanel"><div><span className="panelKicker">SECURITY</span><h3>Change password</h3><p>Password changes are kept separate from ordinary profile edits.</p></div>{!confirming ? <button onClick={() => setConfirming(true)}>Change password</button> : <div className="passwordConfirmation"><label>New password<input type="password" minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm new password<input type="password" minLength={10} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button disabled={password.length < 10 || confirmation.length < 10} onClick={changePassword}>Confirm password change</button><button className="cancelSecurity" onClick={() => setConfirming(false)}>Cancel</button></div>}</section>;
 }

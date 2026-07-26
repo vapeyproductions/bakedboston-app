@@ -1,6 +1,6 @@
 import { and, count, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { organizationContacts, partnerAccounts } from "../../../db/schema";
+import { bakeries, organizationContacts, pantries, partnerAccounts } from "../../../db/schema";
 import { getAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 import { getPartnerAccountId } from "../../partner-auth";
@@ -17,8 +17,13 @@ export async function POST(request: Request) {
       email: validEmail(body.email),
       phone: required(body.phone, "Contact phone number"),
     };
-    const [record] = await getDb().insert(organizationContacts).values({
-      organizationType, organizationId, ...contact,
+    const db = getDb();
+    const [{ value }] = await db.select({ value: count() }).from(organizationContacts).where(and(
+      eq(organizationContacts.organizationType, organizationType),
+      eq(organizationContacts.organizationId, organizationId),
+    ));
+    const [record] = await db.insert(organizationContacts).values({
+      organizationType, organizationId, ...contact, isPrimary: Number(value) === 0,
     }).returning();
     await writeAudit({
       actorType: access.actorType, actorId: access.actorId, actorName: access.actorName,
@@ -29,6 +34,29 @@ export async function POST(request: Request) {
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not add contact." }, { status: 400 });
   }
+}
+
+export async function PATCH(request: Request) {
+  const access = await resolveAccess();
+  if (!access) return Response.json({ error: "Sign in required." }, { status: 401 });
+  const body = await request.json() as Record<string, unknown>;
+  const id = validId(body.id);
+  const db = getDb();
+  const [contact] = await db.select().from(organizationContacts).where(eq(organizationContacts.id, id)).limit(1);
+  if (!contact) return Response.json({ error: "Contact not found." }, { status: 404 });
+  if (access.actorType === "partner" && (access.organizationType !== contact.organizationType || access.organizationId !== contact.organizationId)) {
+    return Response.json({ error: "You cannot change another organization." }, { status: 403 });
+  }
+  await db.update(organizationContacts).set({ isPrimary: false, updatedAt: new Date() }).where(and(
+    eq(organizationContacts.organizationType, contact.organizationType),
+    eq(organizationContacts.organizationId, contact.organizationId),
+  ));
+  const [record] = await db.update(organizationContacts).set({ isPrimary: true, updatedAt: new Date() }).where(eq(organizationContacts.id, id)).returning();
+  const primaryFields = { contactName: contact.name, contactEmail: contact.email, contactPhone: contact.phone };
+  if (contact.organizationType === "pantry") await db.update(pantries).set(primaryFields).where(eq(pantries.id, contact.organizationId));
+  else await db.update(bakeries).set(primaryFields).where(eq(bakeries.id, contact.organizationId));
+  await writeAudit({ actorType: access.actorType, actorId: access.actorId, actorName: access.actorName, action: "changed primary organizational contact", entityType: contact.organizationType, entityId: contact.organizationId, entityName: contact.name, details: contact.email });
+  return Response.json({ record });
 }
 
 export async function DELETE(request: Request) {
@@ -48,9 +76,21 @@ export async function DELETE(request: Request) {
   ));
   if (Number(value) <= 1) return Response.json({ error: "Every organization must retain at least one primary contact." }, { status: 409 });
   await db.delete(organizationContacts).where(eq(organizationContacts.id, id));
+  if (contact.isPrimary) {
+    const [replacement] = await db.select().from(organizationContacts).where(and(
+      eq(organizationContacts.organizationType, contact.organizationType),
+      eq(organizationContacts.organizationId, contact.organizationId),
+    )).limit(1);
+    if (replacement) {
+      await db.update(organizationContacts).set({ isPrimary: true, updatedAt: new Date() }).where(eq(organizationContacts.id, replacement.id));
+      const primaryFields = { contactName: replacement.name, contactEmail: replacement.email, contactPhone: replacement.phone };
+      if (contact.organizationType === "pantry") await db.update(pantries).set(primaryFields).where(eq(pantries.id, contact.organizationId));
+      else await db.update(bakeries).set(primaryFields).where(eq(bakeries.id, contact.organizationId));
+    }
+  }
   await writeAudit({
     actorType: access.actorType, actorId: access.actorId, actorName: access.actorName,
-    action: "deleted primary organizational contact", entityType: contact.organizationType,
+    action: "deleted organizational contact", entityType: contact.organizationType,
     entityId: contact.organizationId, entityName: contact.name, details: contact.email,
   });
   return Response.json({ ok: true });

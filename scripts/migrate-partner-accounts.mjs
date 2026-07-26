@@ -108,10 +108,12 @@ if (!databaseUrl) {
       name text NOT NULL,
       email text NOT NULL,
       phone text NOT NULL,
+      is_primary boolean DEFAULT false NOT NULL,
       created_at timestamp with time zone DEFAULT now() NOT NULL,
       updated_at timestamp with time zone DEFAULT now() NOT NULL
     )
   `;
+  await sql`ALTER TABLE organization_contacts ADD COLUMN IF NOT EXISTS is_primary boolean DEFAULT false NOT NULL`;
   await sql`
     INSERT INTO organization_contacts (organization_type, organization_id, name, email, phone)
     SELECT 'bakery', id, contact_name, contact_email, contact_phone
@@ -131,6 +133,23 @@ if (!databaseUrl) {
         SELECT 1 FROM organization_contacts c
         WHERE c.organization_type = 'pantry' AND c.organization_id = pantries.id
       )
+  `;
+  await sql`
+    UPDATE organization_contacts c
+    SET is_primary = true
+    WHERE c.id = (
+      SELECT first_contact.id FROM organization_contacts first_contact
+      WHERE first_contact.organization_type = c.organization_type
+        AND first_contact.organization_id = c.organization_id
+      ORDER BY first_contact.created_at, first_contact.id
+      LIMIT 1
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM organization_contacts existing
+      WHERE existing.organization_type = c.organization_type
+        AND existing.organization_id = c.organization_id
+        AND existing.is_primary = true
+    )
   `;
   console.log("Partner-account database migration complete.");
 }

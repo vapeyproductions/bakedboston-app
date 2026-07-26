@@ -1,7 +1,7 @@
 import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bakeries, pantries, partnerAccounts } from "../../../../db/schema";
-import { getPartnerAccountId, hashPartnerPassword } from "../../../partner-auth";
+import { getPartnerAccountId } from "../../../partner-auth";
 import { writeAudit } from "../../../audit";
 
 export async function PATCH(request: Request) {
@@ -11,14 +11,10 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const accountEmail = requiredEmail(body.accountEmail, "Account email");
-    const administratorName = required(body.administratorName, "Administrator name");
-    const contactEmail = requiredEmail(body.contactEmail, "Contact email");
-    const contactPhone = required(body.contactPhone, "Contact phone");
     const businessPhone = clean(body.businessPhone);
     const notificationPhone = clean(body.notificationPhone);
     const address = required(body.address, "Address");
     const dropoffInstructions = clean(body.dropoffInstructions);
-    const newPassword = clean(body.newPassword);
     const db = getDb();
 
     const [account] = await db.select().from(partnerAccounts).where(eq(partnerAccounts.id, accountId)).limit(1);
@@ -28,8 +24,7 @@ export async function PATCH(request: Request) {
     if (duplicate) return Response.json({ error: "That account email is already in use." }, { status: 409 });
 
     await db.update(partnerAccounts).set({
-      accountEmail, administratorName, contactEmail, contactPhone,
-      ...(newPassword ? { passwordHash: hashPartnerPassword(newPassword) } : {}),
+      accountEmail,
       updatedAt: new Date(),
     }).where(eq(partnerAccounts.id, accountId));
 
@@ -43,7 +38,7 @@ export async function PATCH(request: Request) {
       actorType: "partner", actorId: account.id, actorName: account.administratorName,
       action: "updated organization profile", entityType: account.organizationType,
       entityId: account.organizationId, entityName: account.administratorName,
-      details: "Account email, administrator contact, address, drop-off instructions, organization phone channels, or password updated",
+      details: "Account email, address, directions, or organization phone channels updated",
     });
     return Response.json({ ok: true });
   } catch (error) {

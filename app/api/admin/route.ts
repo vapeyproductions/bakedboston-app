@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
       arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).returning();
-      await db.insert(organizationContacts).values({ organizationType: "bakery", organizationId: record.id, ...contact });
+      await db.insert(organizationContacts).values({ organizationType: "bakery", organizationId: record.id, ...contact, isPrimary: true });
       await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "created bakery profile", entityType: "bakery", entityId: record.id, entityName: record.name });
       return Response.json({ record }, { status: 201 });
     }
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
         latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).returning();
-      await db.insert(organizationContacts).values({ organizationType: "pantry", organizationId: record.id, ...contact });
+      await db.insert(organizationContacts).values({ organizationType: "pantry", organizationId: record.id, ...contact, isPrimary: true });
       await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "created pantry profile", entityType: "pantry", entityId: record.id, entityName: record.name });
       return Response.json({ record }, { status: 201 });
     }
@@ -264,9 +264,10 @@ async function syncFirstContact(db: Database, organizationType: "bakery" | "pant
   const [existing] = await db.select({ id: organizationContacts.id }).from(organizationContacts).where(and(
     eq(organizationContacts.organizationType, organizationType),
     eq(organizationContacts.organizationId, organizationId),
-  )).orderBy(organizationContacts.createdAt).limit(1);
+    eq(organizationContacts.isPrimary, true),
+  )).limit(1);
   if (existing) await db.update(organizationContacts).set({ ...contact, updatedAt: new Date() }).where(eq(organizationContacts.id, existing.id));
-  else await db.insert(organizationContacts).values({ organizationType, organizationId, ...contact });
+  else await db.insert(organizationContacts).values({ organizationType, organizationId, ...contact, isPrimary: true });
 }
 
 function parseBakerySchedule(body: Record<string, string | number | boolean>) {

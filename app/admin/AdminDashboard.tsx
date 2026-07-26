@@ -36,7 +36,7 @@ type AuditEntry = {
 };
 type OrganizationContact = {
   id: number; organizationType: PartnerKind; organizationId: number;
-  name: string; email: string; phone: string;
+  name: string; email: string; phone: string; isPrimary: boolean;
 };
 type PantryAccessPhoto = { id: number; pantryId: number; imageUrl: string; pathname: string; caption: string };
 type BakeryAccessPhoto = { id: number; bakeryId: number; imageUrl: string; pathname: string; caption: string };
@@ -345,14 +345,14 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
     <label>Registration<select value={registration} onChange={(event) => setRegistration(event.target.value as typeof registration)}><option value="">All profiles</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option></select></label>
     <span>{visibleRecords.length} of {records.length} shown</span>
   </div>
-  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Account administrators</th><th>Organization phones</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Actions</th></tr></thead><tbody>
+  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Account access</th><th>Organization phones</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Actions</th></tr></thead><tbody>
     {visibleRecords.map((record) => {
       const pantry = type === "pantry" ? record as Pantry : null;
       const schedule = pantry ? parseSchedule(pantry) : null;
       const bakerySchedule = type === "bakery" ? parseBakerySchedule(record as Bakery) : null;
       const organizationAccounts = accounts.filter((account) => account.organizationType === type && account.organizationId === record.id);
       const pendingInvitation = invitations.find((invite) => invite.organizationType === type && invite.organizationId === record.id && !invite.acceptedAt);
-      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>{account.administratorName} · {account.contactEmail} · {account.contactPhone}</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
+      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>Organization profile login</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
         : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
@@ -410,8 +410,14 @@ function ContactManager({ organizationType, organizationId, contacts, onChanged,
       await onChanged();
     } else setNotice(data?.error ?? "Could not delete contact.");
   }
-  return <fieldset className="contactManager"><legend>Primary organizational contacts</legend><p>At least one contact is required. Add as many people as the organization needs.</p>
-    <div className="contactCards">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><button type="button" onClick={() => remove(contact)} disabled={contacts.length <= 1}>Delete</button></article>)}</div>
+  async function makePrimary(contact: OrganizationContact) {
+    const response = await fetch("/api/contacts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: contact.id }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setNotice(`${contact.name} is now the primary contact.`); await onChanged(); }
+    else setNotice(data?.error ?? "Could not change the primary contact.");
+  }
+  return <fieldset className="contactManager"><legend>Organizational contacts</legend><p>One contact is marked primary. Add as many additional contacts as the organization needs.</p>
+    <div className="contactCards">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.isPrimary ? "★ PRIMARY · " : ""}{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><div>{!contact.isPrimary && <button type="button" onClick={() => makePrimary(contact)}>Make primary</button>}<button type="button" onClick={() => remove(contact)} disabled={contacts.length <= 1}>Delete</button></div></article>)}</div>
     <div className="addContactRow"><input aria-label="New contact name" placeholder="Contact name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /><input aria-label="New contact email" type="email" placeholder="Contact email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} /><input aria-label="New contact phone" type="tel" placeholder="Contact phone" value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} /><button type="button" onClick={add} disabled={!draft.name || !draft.email || !draft.phone}>+ Add contact</button></div>
   </fieldset>;
 }
@@ -438,7 +444,7 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       if (!data.emailSent && data.invitationUrl) {
         window.prompt("Email delivery is not configured yet. Copy this secure registration link to send manually:", data.invitationUrl);
       }
-      setNotice(data.emailSent ? "Business administrator invitation sent." : "Invitation created; copy the registration link from the dialog.");
+      setNotice(data.emailSent ? "Organization account invitation sent." : "Invitation created; copy the registration link from the dialog.");
       await onChanged();
     } else setNotice(data?.error ?? "Could not create account.");
     setAdding(false);
@@ -447,7 +453,7 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
     if (!window.confirm(`Remove login access for ${account.accountEmail}?`)) return;
     const response = await fetch(`/api/admin/partner-accounts?id=${account.id}`, { method: "DELETE" });
     if (response.ok) {
-      setNotice("Business administrator account removed.");
+      setNotice("Organization login access removed.");
       await onChanged();
     }
   }
@@ -456,7 +462,7 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
 
   return <div className="accountsWorkspace">
     <form className="newAccountPanel" onSubmit={addAccount}>
-      <div className="panelTitle"><div><span>BUSINESS ADMINISTRATORS</span><h2>Add account access</h2></div></div>
+      <div className="panelTitle"><div><span>ORGANIZATION LOGINS</span><h2>Add account access</h2></div></div>
       <p>Send an invitation to the chosen account email. The recipient creates their own password through a single-use registration link.</p>
       <div className="accountFormGrid">
         <label className="wide">Organization<select name="organizationKey" required><optgroup label="Bakeries">{bakeries.map((record) => <option key={`b-${record.id}`} value={`bakery:${record.id}`}>{record.name}</option>)}</optgroup><optgroup label="Pantries">{pantries.map((record) => <option key={`p-${record.id}`} value={`pantry:${record.id}`}>{record.name}</option>)}</optgroup></select></label>
@@ -464,8 +470,8 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       </div>
       <button className="solidBtn" disabled={adding}>{adding ? "Sending…" : "Send account invitation"}</button>
     </form>
-    <div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Administrator contact</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      {accounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><strong>{organizationName(account)}</strong><small>{account.organizationType}</small></td><td><strong>{account.administratorName}</strong><small>{account.contactEmail} · {account.contactPhone}</small></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
+    <div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
+      {accounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><strong>{organizationName(account)}</strong><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
       {!accounts.length && <tr><td colSpan={5}>No partner accounts have been created yet.</td></tr>}
     </tbody></table></div>
   </div>;
