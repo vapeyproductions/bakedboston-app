@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AdminMap, milesBetween } from "./AdminMap";
 import "./admin.css";
 import "./partner-workspace.css";
+import "../availability-calendar.css";
 
 type Bakery = {
   id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; readyTime: string;
@@ -274,8 +275,8 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
             {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onView={(record) => setWorkspaceRecord({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
-            {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} />}
-            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} />}
+            {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
+            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
             {tab === "change log" && <ChangeLog entries={auditEntries} />}
             {tab === "settings" && <AdminSettings currentUser={user} administrators={administrators} invitations={adminInvitations} onChanged={refresh} setNotice={setNotice} />}
@@ -325,9 +326,11 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
 }) {
   const [filterDay, setFilterDay] = useState("");
   const [filterTime, setFilterTime] = useState("");
+  const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] = useState<"az" | "za" | "priority-high" | "priority-low">("az");
   const [registration, setRegistration] = useState<"" | "registered" | "unregistered">("");
   const visibleRecords = useMemo(() => records
+    .filter((record) => `${record.name} ${record.address}`.toLowerCase().includes(search.trim().toLowerCase()))
     .filter((record) => type === "bakery"
       ? bakeryMatchesAvailability(record as Bakery, filterDay, filterTime)
       : pantryMatchesAvailability(record as Pantry, filterDay, filterTime))
@@ -344,10 +347,11 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
         return scoreDifference || left.name.localeCompare(right.name);
       }
       return sortOrder === "za" ? right.name.localeCompare(left.name) : left.name.localeCompare(right.name);
-    }), [records, accounts, type, filterDay, filterTime, registration, sortOrder]);
+    }), [records, accounts, type, filterDay, filterTime, registration, sortOrder, search]);
 
   if (!records.length) return <div className="adminEmpty"><span>{type === "bakery" ? "B" : "P"}</span><h2>No {type === "bakery" ? "bakeries" : "pantries"} yet</h2><p>Add the first organization you plan to onboard.</p><button className="solidBtn" onClick={onAdd}>+ Add {type}</button></div>;
   return <><div className="filterBar">
+    <label>Search<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${type === "bakery" ? "bakeries" : "pantries"}`} /></label>
     <label>Open day<select value={filterDay} onChange={(event) => setFilterDay(event.target.value)}><option value="">Any day</option>{days.map((day) => <option value={day} key={day}>{day}</option>)}</select></label>
     <label>Open at<select value={filterTime} onChange={(event) => setFilterTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
     <label>Sort by<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="az">Alphabetical: A to Z</option><option value="za">Alphabetical: Z to A</option>{type === "pantry" && <><option value="priority-high">Priority: highest to lowest</option><option value="priority-low">Priority: lowest to highest</option></>}</select></label>
@@ -361,9 +365,9 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
       const bakerySchedule = type === "bakery" ? parseBakerySchedule(record as Bakery) : null;
       const organizationAccounts = accounts.filter((account) => account.organizationType === type && account.organizationId === record.id);
       const pendingInvitation = invitations.find((invite) => invite.organizationType === type && invite.organizationId === record.id && !invite.acceptedAt);
-      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>Organization profile login</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
+      return <tr key={record.id}><td><button className="organizationNameLink" onClick={() => onView(record)}>{record.name}</button><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>Organization profile login</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
-        : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions">{organizationAccounts.length > 0 && <button onClick={() => onView(record)}>View workspace</button>}<button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
+        : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>}</>;
 }
@@ -431,11 +435,12 @@ function ContactManager({ organizationType, organizationId, contacts, onChanged,
   </fieldset>;
 }
 
-function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, setNotice }: {
+function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, setNotice, onView }: {
   accounts: PartnerAccount[]; bakeries: Bakery[]; pantries: Pantry[];
-  onChanged: () => Promise<void>; setNotice: (message: string) => void;
+  onChanged: () => Promise<void>; setNotice: (message: string) => void; onView: (kind: PartnerKind, record: Partner) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
   async function addAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAdding(true);
@@ -468,6 +473,9 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
   }
   const organizationName = (account: PartnerAccount) =>
     (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId)?.name ?? "Unknown organization";
+  const organizationRecord = (account: PartnerAccount) =>
+    (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId);
+  const visibleAccounts = accounts.filter((account) => `${account.accountEmail} ${organizationName(account)}`.toLowerCase().includes(search.trim().toLowerCase()));
 
   return <div className="accountsWorkspace">
     <form className="newAccountPanel" onSubmit={addAccount}>
@@ -479,14 +487,14 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       </div>
       <button className="solidBtn" disabled={adding}>{adding ? "Sending…" : "Send account invitation"}</button>
     </form>
-    <div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      {accounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><strong>{organizationName(account)}</strong><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
-      {!accounts.length && <tr><td colSpan={5}>No partner accounts have been created yet.</td></tr>}
-    </tbody></table></div>
+    <div className="accountListPanel"><label className="accountSearch">Search accounts<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Organization name or account email" /></label><div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
+      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
+      {!visibleAccounts.length && <tr><td colSpan={5}>{accounts.length ? "No accounts match this search." : "No partner accounts have been created yet."}</td></tr>}
+    </tbody></table></div></div>
   </div>;
 }
 
-function MapWorkspace({ bakeries, pantries, accounts }: { bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[] }) {
+function MapWorkspace({ bakeries, pantries, accounts, onView }: { bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[]; onView: (kind: PartnerKind, record: Partner) => void }) {
   const [day, setDay] = useState("");
   const [time, setTime] = useState("");
   const [showBakeries, setShowBakeries] = useState(true);
@@ -540,7 +548,7 @@ function MapWorkspace({ bakeries, pantries, accounts }: { bakeries: Bakery[]; pa
       <label className="mapCheck"><input type="checkbox" checked={showPantries} onChange={(event) => setShowPantries(event.target.checked)} /> Pantries</label>
       <label className="mapCheck radiusCheck"><input type="checkbox" checked={showRadius} disabled={!distanceAnalysis.averageNearest} onChange={(event) => setShowRadius(event.target.checked)} /> Target radius</label>
     </div>
-    <AdminMap bakeries={filteredBakeries} pantries={filteredPantries} showBakeries={showBakeries} showPantries={showPantries} showRadius={showRadius} day={day} time={time} bakeryMatches={bakeryMatchesAvailability} pantryMatches={pantryMatchesAvailability} />
+    <AdminMap bakeries={filteredBakeries} pantries={filteredPantries} showBakeries={showBakeries} showPantries={showPantries} showRadius={showRadius} day={day} time={time} bakeryMatches={bakeryMatchesAvailability} pantryMatches={pantryMatchesAvailability} onOrganizationClick={(kind, id) => { const record = (kind === "bakery" ? bakeries : pantries).find((item) => item.id === id); if (record) onView(kind, record); }} />
     <div className="mapAnalysis">
       <article><span>MAPPED</span><strong>{mappedBakeries.length} bakeries · {mappedPantries.length} pantries</strong><small>{bakeries.length - mappedBakeries.length + pantries.length - mappedPantries.length} records need coordinates</small></article>
       <article><span>TARGET RADIUS</span><strong>{distanceAnalysis.averageNearest ? `${distanceAnalysis.averageNearest.toFixed(2)} mi` : "—"}</strong><small>Average distance from each pantry to its nearest bakery</small></article>
@@ -661,8 +669,18 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, con
 
 function AdminReceivingCalendar({ pantry, availability }: { pantry: Pantry; availability: AvailabilityWindow[] }) {
   const windows = parseSchedule(pantry);
-  return <div className="adminReceivingCalendar">{days.map((day) => <section key={day}><strong>{day}</strong>{windows.filter((window) => window.day === day).map((window, index) => <div key={index}><b>{describeWindow(window)}</b><span>{formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</span></div>)}</section>)}{availability.length > 0 && <aside><strong>One-time availability</strong>{availability.map((window) => <div key={window.id}><b>{new Date(window.startsAt).toLocaleDateString()}{window.paused ? " · Paused" : ""}</b><span>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>)}</aside>}</div>;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const start = new Date(today); start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const dates = Array.from({ length: 28 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
+  return <section className="monthlyReceivingCalendar"><div className="calendarMonthLabel"><strong>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</strong><span>Next four weeks</span></div><header>{days.map((day) => <strong key={day}>{day}</strong>)}</header><div className="calendarMonthGrid">{dates.map((date) => {
+    const day = days[(date.getDay() + 6) % 7]; const occurrence = Math.ceil(date.getDate() / 7);
+    const recurring = windows.filter((window) => window.day === day && (window.recurrence === "weekly" || window.ordinal === occurrence));
+    const oneTime = availability.filter((window) => sameDate(new Date(window.startsAt), date));
+    return <div className={`calendarDate ${sameDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{recurring.map((window, index) => <div className="adminCalendarEvent recurringEvent" key={`r-${index}`}><b>Recurring</b><small>{formatTime(window.open)}–{formatTime(window.close)}</small><small>Latest {formatTime(window.latestArrival)}</small></div>)}{oneTime.map((window) => <div className={`adminCalendarEvent oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></div>)}</div>;
+  })}</div></section>;
 }
+
+function sameDate(left: Date, right: Date) { return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate(); }
 
 function RoutesTable({ routes, compact = false }: { routes: Route[]; compact?: boolean }) {
   if (!routes.length) return <Empty title="No route activity" body="Routes will appear after bakery pickups are reserved." />;

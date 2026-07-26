@@ -24,6 +24,7 @@ type Props = {
   time: string;
   bakeryMatches: (bakery: MapBakery, day: string, time: string) => boolean;
   pantryMatches: (pantry: MapPantry, day: string, time: string) => boolean;
+  onOrganizationClick: (kind: "bakery" | "pantry", id: number) => void;
 };
 
 export function milesBetween(a: { latitude: number | null; longitude: number | null }, b: { latitude: number | null; longitude: number | null }) {
@@ -39,7 +40,7 @@ export function milesBetween(a: { latitude: number | null; longitude: number | n
   return earthMiles * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
-export function AdminMap({ bakeries, pantries, showBakeries, showPantries, showRadius, day, time, bakeryMatches, pantryMatches }: Props) {
+export function AdminMap({ bakeries, pantries, showBakeries, showPantries, showRadius, day, time, bakeryMatches, pantryMatches, onOrganizationClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
 
@@ -101,14 +102,16 @@ export function AdminMap({ bakeries, pantries, showBakeries, showPantries, showR
 
       if (showPantries) {
         for (const pantry of mappedPantries) {
-          L.marker([pantry.latitude!, pantry.longitude!], { icon: pantryIcon, title: pantry.name, alt: `Pantry: ${pantry.name}` })
-            .bindPopup(`<strong>${escapeHtml(pantry.name)}</strong><br>${escapeHtml(pantry.address)}<br><small>Pantry</small>`).addTo(map);
+          const marker = L.marker([pantry.latitude!, pantry.longitude!], { icon: pantryIcon, title: pantry.name, alt: `Pantry: ${pantry.name}` })
+            .bindPopup(`<button class="mapOrganizationLink">${escapeHtml(pantry.name)}</button><br>${escapeHtml(pantry.address)}<br><small>Pantry</small>`).addTo(map);
+          marker.on("popupopen", () => marker.getPopup()?.getElement()?.querySelector(".mapOrganizationLink")?.addEventListener("click", () => onOrganizationClick("pantry", pantry.id), { once: true }));
         }
       }
       if (showBakeries) {
         for (const bakery of mappedBakeries) {
           const marker = L.marker([bakery.latitude!, bakery.longitude!], { icon: bakeryIcon, title: bakery.name, alt: `Bakery: ${bakery.name}` })
-            .bindPopup(`<strong>${escapeHtml(bakery.name)}</strong><br>${escapeHtml(bakery.address)}<br><small>Bakery</small>`).addTo(map);
+            .bindPopup(`<button class="mapOrganizationLink">${escapeHtml(bakery.name)}</button><br>${escapeHtml(bakery.address)}<br><small>Bakery</small>`).addTo(map);
+          marker.on("popupopen", () => marker.getPopup()?.getElement()?.querySelector(".mapOrganizationLink")?.addEventListener("click", () => onOrganizationClick("bakery", bakery.id), { once: true }));
           marker.addTo(map);
           if (highlightedBakeryIds.has(bakery.id)) marker.getElement()?.classList.add("withinTarget");
         }
@@ -123,7 +126,7 @@ export function AdminMap({ bakeries, pantries, showBakeries, showPantries, showR
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [mappedBakeries, mappedPantries, showBakeries, showPantries, showRadius, targetRadiusMiles]);
+  }, [mappedBakeries, mappedPantries, showBakeries, showPantries, showRadius, targetRadiusMiles, onOrganizationClick]);
 
   return <div className="mapCanvasWrap">
     <div ref={containerRef} className="mapCanvas" />
