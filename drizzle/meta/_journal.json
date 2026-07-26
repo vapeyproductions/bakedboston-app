@@ -57,6 +57,13 @@
       "when": 1785102437771,
       "tag": "0007_woozy_molly_hayes",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785103817429,
+      "tag": "0008_lyrical_paibok",
+      "breakpoints": true
     }
   ]
 }

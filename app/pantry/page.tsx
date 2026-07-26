@@ -1,8 +1,8 @@
 import PartnerWorkspace from "../partner/PartnerWorkspace";
 import "../partner.css";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../db";
-import { organizationContacts, pantries, pantryAccessPhotos, partnerAccounts } from "../../db/schema";
+import { organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, rescueRoutes } from "../../db/schema";
 import { requirePartnerAccount } from "../partner-auth";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,8 @@ export default async function PantryWorkspace() {
   if (!organization) return null;
   const contacts = await db.select().from(organizationContacts).where(eq(organizationContacts.organizationId, organization.id));
   const photos = await db.select().from(pantryAccessPhotos).where(eq(pantryAccessPhotos.pantryId, organization.id));
-  return <PartnerWorkspace kind="pantry" organization={organization} account={safeAccount(account)} contacts={contacts.filter((contact) => contact.organizationType === "pantry")} photos={photos} />;
+  const routes = await db.select().from(rescueRoutes).where(eq(rescueRoutes.pantryName, organization.name)).orderBy(desc(rescueRoutes.createdAt));
+  return <PartnerWorkspace kind="pantry" organization={organization} account={safeAccount(account)} contacts={contacts.filter((contact) => contact.organizationType === "pantry")} photos={photos} routes={routes} />;
 }
 
 function safeAccount(account: typeof partnerAccounts.$inferSelect) {

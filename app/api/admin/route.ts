@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, bakeries, bakeryAccessPhotos, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityWindows, bakeries, bakeryAccessPhotos, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -12,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -47,6 +47,7 @@ export async function GET() {
     db.select().from(organizationContacts).orderBy(desc(organizationContacts.createdAt)),
     db.select().from(pantryAccessPhotos).orderBy(desc(pantryAccessPhotos.createdAt)),
     db.select().from(bakeryAccessPhotos).orderBy(desc(bakeryAccessPhotos.createdAt)),
+    db.select().from(availabilityWindows).orderBy(desc(availabilityWindows.createdAt)),
   ]);
 
   return Response.json({
@@ -54,7 +55,7 @@ export async function GET() {
     partnerAccounts: accountRows, partnerInvitations: invitationRows,
     administrators: administratorRows, adminInvitations: adminInvitationRows, auditLog: auditRows,
     organizationContacts: contactRows,
-    pantryAccessPhotos: pantryPhotoRows, bakeryAccessPhotos: bakeryPhotoRows,
+    pantryAccessPhotos: pantryPhotoRows, bakeryAccessPhotos: bakeryPhotoRows, availabilityWindows: availabilityRows,
   });
 }
 

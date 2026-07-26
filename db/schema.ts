@@ -58,6 +58,15 @@ export const pantryAccessPhotos = pgTable("pantry_access_photos", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const availabilityWindows = pgTable("availability_windows", {
+  id: serial("id").primaryKey(),
+  organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),
+  organizationId: integer("organization_id").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const rescueRoutes = pgTable("rescue_routes", {
   id: serial("id").primaryKey(),
   bakeryName: text("bakery_name").notNull(),

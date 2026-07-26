@@ -16,29 +16,39 @@ type Account = {
 };
 type Contact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: string };
+type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string | Date };
 
-const bakeryActivity = [
-  { title: "Today’s pickup", detail: "Ready 4:30 PM · pickup by 6:00 PM", status: "Awaiting driver" },
-  { title: "Tuesday pickup", detail: "Delivered to Community Servings", status: "Completed" },
-  { title: "Monday pickup", detail: "Delivered to Brighton Food Pantry", status: "Completed" },
-];
-
-const pantryActivity = [
-  { title: "Incoming today", detail: "Flour Bakery · arrival by 5:40 PM", status: "Driver reserved" },
-  { title: "Thursday delivery", detail: "Clear Flour Bread · received 3:18 PM", status: "Completed" },
-  { title: "Tuesday delivery", detail: "Bakey · received 4:05 PM", status: "Completed" },
-];
-
-export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [] }: {
-  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[];
+export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [] }: {
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
 }) {
   const bakery = kind === "bakery";
   const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
   const [notice, setNotice] = useState("");
-  const [available, setAvailable] = useState(true);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const activity = bakery ? bakeryActivity : pantryActivity;
+  const [manualUntil, setManualUntil] = useState<Date | null>(null);
+  const [availabilityDialog, setAvailabilityDialog] = useState(false);
+  const [availabilityEnd, setAvailabilityEnd] = useState("");
+  const scheduledOpen = organizationIsOpen(kind, organization, new Date());
+  const temporarilyOpen = Boolean(manualUntil && manualUntil > new Date());
+  const available = scheduledOpen || temporarilyOpen;
+  const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${route.scheduledArrival}`, status: route.status }));
   const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
+  useEffect(() => {
+    fetch("/api/partner/availability", { cache: "no-store" }).then((response) => response.json()).then((data) => {
+      const active = data?.windows?.map((window: { endsAt: string }) => new Date(window.endsAt)).sort((left: Date, right: Date) => right.getTime() - left.getTime())[0];
+      if (active && active > new Date()) setManualUntil(active);
+    }).catch(() => undefined);
+  }, []);
+  async function openTemporarily() {
+    const now = new Date();
+    const [hours, minutes] = availabilityEnd.split(":").map(Number);
+    const endsAt = new Date(now); endsAt.setHours(hours, minutes, 0, 0);
+    if (endsAt <= now) endsAt.setDate(endsAt.getDate() + 1);
+    const response = await fetch("/api/partner/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endsAt: endsAt.toISOString() }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setManualUntil(endsAt); setAvailabilityDialog(false); prototypeAction(`Available for deliveries until ${formatTime(availabilityEnd)}.`); }
+    else prototypeAction(data?.error ?? "Could not create this availability window.");
+  }
 
   function prototypeAction(message: string) {
     setNotice(message);
@@ -54,8 +64,8 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       </div>
       <nav className="workspaceTabs">
         <button className={section === "overview" ? "active" : ""} onClick={() => setSection("overview")}><span>⌂</span> Overview</button>
-        <button className={section === "schedule" ? "active" : ""} onClick={() => setSection("schedule")}><span>◷</span> {bakery ? "Pickup schedule" : "Receiving schedule"}</button>
         <button className={section === "activity" ? "active" : ""} onClick={() => setSection("activity")}><span>↗</span> Delivery activity</button>
+        <button className={section === "schedule" ? "active" : ""} onClick={() => setSection("schedule")}><span>◷</span> {bakery ? "Pickup schedule" : "Receiving schedule"}</button>
         <button className={section === "profile" ? "active" : ""} onClick={() => setSection("profile")}><span>⚙</span> Profile & contacts</button>
       </nav>
       <div className="sideBottom"><span>{account.accountEmail}</span><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>
@@ -70,31 +80,19 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
 
       {section === "overview" && <>
         <div className="statusBanner">
-          <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE TODAY" : "PAUSED TODAY"}</small>
-            <h2>{available ? (bakery ? "Your surplus can be matched." : "You’re ready to receive.") : "Today’s participation is paused."}</h2>
-            <p>{bakery ? "Food ready at 4:30 PM · pickup deadline 6:00 PM" : "Open 10:00 AM–7:00 PM · latest arrival 6:30 PM"}</p></div>
-          <button onClick={() => setAvailable((value) => !value)}>{available ? "Pause today" : "Resume today"}</button>
+          <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
+            <h2>{available ? (bakery ? "A scheduled pickup window is open." : temporarilyOpen && !scheduledOpen ? "Open for a temporary receiving window." : "Open according to your receiving schedule.") : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
+            <p>{temporarilyOpen && manualUntil ? `Available until ${manualUntil.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : available ? "Availability is based on the saved organization schedule." : "You can add a temporary receiving window if the pantry is able to accept deliveries today."}</p></div>
+          {!bakery && !available && <button onClick={() => { const end = new Date(Date.now() + 2 * 60 * 60 * 1000); setAvailabilityEnd(`${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes() >= 30 ? 30 : 0).padStart(2, "0")}`); setAvailabilityDialog(true); }}>Open to accept deliveries</button>}
         </div>
-        <div className="metricGrid">
-          <article><small>{bakery ? "RESCUES THIS MONTH" : "DELIVERIES THIS MONTH"}</small><strong>{bakery ? "12" : "8"}</strong><p>{bakery ? "3 more than last month" : "Across 6 receiving windows"}</p></article>
-          <article><small>{bakery ? "PICKUP SUCCESS" : "ARRIVALS RECEIVED"}</small><strong>{bakery ? "92%" : "100%"}</strong><p>{bakery ? "11 of 12 completed" : "8 of 8 completed"}</p></article>
-          <article><small>{bakery ? "NEXT PICKUP" : "NEXT ARRIVAL"}</small><strong>Today</strong><p>{bakery ? "Ready at 4:30 PM" : "Expected by 5:40 PM"}</p></article>
-        </div>
-        <div className="workspaceGrid">
-          <article className="actionPanel">
-            <span className="panelKicker">{bakery ? "TODAY’S SURPLUS" : "TODAY’S CAPACITY"}</span>
-            <h2>{bakery ? "Have food ready to rescue?" : "Can you accept a delivery?"}</h2>
-            <p>{bakery ? "Create a pickup using today’s saved hours. A driver will see it once the optimizer selects a pantry." : "Confirm that today’s receiving window and latest permitted arrival are still accurate."}</p>
-            <button onClick={() => prototypeAction(bakery ? "Pickup publishing will activate when partner accounts are connected." : "Receiving confirmation will activate when partner accounts are connected.")}>{bakery ? "Publish today’s pickup" : "Confirm today’s window"} <span>→</span></button>
-          </article>
-          <ActivityCard activity={activity.slice(0, 2)} onAll={() => setSection("activity")} />
-        </div>
+        <div className="workspaceGrid singleActivity"><ActivityCard activity={activity.slice(0, 3)} onAll={() => setSection("activity")} /></div>
       </>}
 
-      {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} />}
-      {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">RESCUE HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed rescues will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
+      {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} onAddToday={() => { const end = new Date(Date.now() + 2 * 60 * 60 * 1000); setAvailabilityEnd(`${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes() >= 30 ? 30 : 0).padStart(2, "0")}`); setAvailabilityDialog(true); }} />}
+      {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
       {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
     </section>
+    {availabilityDialog && <div className="availabilityBackdrop"><section className="availabilityDialog"><span className="panelKicker">ADD TODAY’S AVAILABILITY</span><h2>Open to accept deliveries?</h2><p>This pantry is currently closed according to its saved schedule. Confirm that it can accept deliveries now and choose when today’s additional availability ends.</p><TimeSelect label="Accept deliveries until" value={availabilityEnd} onChange={setAvailabilityEnd} /><div><button onClick={() => setAvailabilityDialog(false)}>Cancel</button><button className="confirmAvailability" onClick={openTemporarily}>Confirm availability</button></div></section></div>}
   </main>;
 }
 
@@ -167,11 +165,11 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
       <fieldset><legend>Organization channels</legend>
         <label>{kind === "pantry" ? "Delivery address" : "Business address"}<input name="address" required defaultValue={organization.address} /></label>
         <label>{kind === "pantry" ? "Drop-off instructions" : "Pickup instructions"} <small>Help drivers find the exact {kind === "pantry" ? "receiving" : "pickup"} point after reaching the address.</small><textarea name="dropoffInstructions" rows={3} defaultValue={organization.dropoffInstructions ?? ""} placeholder={kind === "pantry" ? "Example: Community fridge is in the church parking lot" : "Example: Use the side entrance and ask at the pickup counter"} /></label>
-        <label>Business phone number <small>Visible to drivers and rescue partners for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
+        <label>Business phone number <small>Visible to drivers and partner organizations for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
         <label>Notification contact <small>Email address or phone number monitored for upcoming deliveries.</small><input name="notificationPhone" type="text" defaultValue={organization.notificationPhone} /></label>
       </fieldset>
       <fieldset><legend>{kind === "pantry" ? "Pantry" : "Bakery"} access photos <small>Optional</small></legend>
-        <p>Post photos that help drivers locate the {kind === "pantry" ? "drop-off" : "pickup"} point. Photos are not included in the onboarding email.</p>
+        <p>Post photos that help drivers locate the {kind === "pantry" ? "drop-off" : "pickup"} point.</p>
         {photos.length > 0 && <div className="pantryPhotoGrid">{photos.map((item) => <figure key={item.id}><img src={item.imageUrl} alt={item.caption || "Pantry access"} /><figcaption>{item.caption || "Pantry access photo"}</figcaption><button type="button" onClick={() => deletePhoto(item.id)}>Delete</button></figure>)}</div>}
         <div className="pantryPhotoUpload"><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label><label>Caption<input value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Example: Use the rear entrance" /></label><button type="button" disabled={!photo} onClick={addPhoto}>+ Add photo</button></div>
       </fieldset>
@@ -186,10 +184,10 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
   </div>;
 }
 
-function ActivityCard({ activity, onAll }: { activity: typeof bakeryActivity; onAll?: () => void }) {
+function ActivityCard({ activity, onAll }: { activity: Array<{ title: string; detail: string; status: string }>; onAll?: () => void }) {
   return <article className="activityPanel">
-    <div className="panelHeading"><div><span className="panelKicker">RECENT ACTIVITY</span><h2>Rescue updates</h2></div>{onAll && <button onClick={onAll}>View all</button>}</div>
-    {activity.map((item) => <div className="activityRow" key={`${item.title}-${item.detail}`}><span className={item.status === "Completed" ? "activityDot complete" : "activityDot"} /><div><strong>{item.title}</strong><small>{item.detail}</small></div><b>{item.status}</b></div>)}
+    <div className="panelHeading"><div><span className="panelKicker">RECENT ACTIVITY</span><h2>Delivery updates</h2></div>{onAll && <button onClick={onAll}>View all</button>}</div>
+    {!activity.length ? <div className="emptyActivity"><strong>No deliveries yet</strong><p>Real delivery activity will appear here when routes are reserved or completed.</p></div> : activity.map((item) => <div className="activityRow" key={`${item.title}-${item.detail}`}><span className={item.status === "completed" ? "activityDot complete" : "activityDot"} /><div><strong>{item.title}</strong><small>{item.detail}</small></div><b>{item.status}</b></div>)}
   </article>;
 }
 
@@ -197,10 +195,11 @@ const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => `${String(Math.floor(index / 2)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`);
 type ScheduleWindow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; readyTime: string; pickupDeadline: string };
 
-function ScheduleEditor({ kind, organization, onSaved }: { kind: Kind; organization: Organization; onSaved: (message: string) => void }) {
+function ScheduleEditor({ kind, organization, onSaved, onAddToday }: { kind: Kind; organization: Organization; onSaved: (message: string) => void; onAddToday: () => void }) {
   const bakery = kind === "bakery";
   const [rows, setRows] = useState<ScheduleWindow[]>(() => parseOrganizationSchedule(kind, organization));
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => {
     fetch("/api/partner/schedule", { cache: "no-store" }).then((response) => response.json()).then((data) => {
       if (data?.organization) setRows(parseOrganizationSchedule(kind, data.organization));
@@ -214,6 +213,19 @@ function ScheduleEditor({ kind, organization, onSaved }: { kind: Kind; organizat
     setSaving(false);
     onSaved(response.ok ? "Schedule saved. BB administrators now see the same schedule." : (data?.error ?? "Could not save schedule."));
   }
+  if (!bakery) return <div className="schedulePage">
+    <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>Receiving calendar</h2><p>View receiving windows by day. Select a window to edit or delete it.</p></div>
+    <div className="calendarToolbar"><button className="secondaryCalendarAction" onClick={onAddToday}>+ Add availability for today</button><button onClick={() => { setRows((current) => [...current, emptyWindow()]); setSelected(rows.length); }}>+ Add recurring window</button></div>
+    <ReceivingCalendar rows={rows} onSelect={setSelected} />
+    {selected !== null && rows[selected] && <article className="calendarWindowEditor"><div className="windowHeading"><div><span className="panelKicker">EDIT WINDOW</span><h3>{rows[selected].day} receiving window</h3></div><button onClick={() => setSelected(null)}>×</button></div>
+      <label>Repeats<select value={rows[selected].recurrence} onChange={(event) => update(selected, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>
+      {rows[selected].recurrence === "monthly" && <label>Occurrence<select value={rows[selected].ordinal ?? 1} onChange={(event) => update(selected, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
+      <label>Day<select value={rows[selected].day} onChange={(event) => update(selected, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label>
+      <TimeSelect label="Opens" value={rows[selected].open} onChange={(value) => update(selected, { open: value })} /><TimeSelect label="Closes" value={rows[selected].close} onChange={(value) => update(selected, { close: value })} /><TimeSelect label="Latest permitted arrival" value={rows[selected].latestArrival} onChange={(value) => update(selected, { latestArrival: value })} />
+      <div className="calendarEditorActions"><button className="deleteWindow" disabled={rows.length <= 1} onClick={() => { setRows((current) => current.filter((_, index) => index !== selected)); setSelected(null); }}>Delete window</button><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save schedule"}</button></div>
+    </article>}
+    {selected === null && <div className="calendarSave"><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save schedule"}</button></div>}
+  </div>;
   return <div className="schedulePage">
     <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>{bakery ? "When is surplus ready?" : "When can you receive?"}</h2><p>{bakery ? "Each day may have its own food-ready time and pickup deadline." : "Use multiple daily windows or monthly rules such as the second Saturday."}</p></div>
     <article className="schedulePanel scheduleEditorPanel">
@@ -227,6 +239,10 @@ function ScheduleEditor({ kind, organization, onSaved }: { kind: Kind; organizat
       <div className="scheduleActions"><button disabled={saving} onClick={save}>{saving ? "Saving…" : "Save schedule"}</button></div>
     </article>
   </div>;
+}
+
+function ReceivingCalendar({ rows, onSelect }: { rows: ScheduleWindow[]; onSelect: (index: number) => void }) {
+  return <section className="receivingCalendar"><header>{days.map((day) => <strong key={day}>{day}</strong>)}</header><div className="calendarWeek">{days.map((day) => <div className="calendarDay" key={day}><span>{day}</span>{rows.map((row, index) => row.day === day && <button key={index} onClick={() => onSelect(index)}><b>{row.recurrence === "monthly" ? `${row.ordinal ?? 1}${row.ordinal === 1 ? "st" : row.ordinal === 2 ? "nd" : row.ordinal === 3 ? "rd" : "th"} monthly` : "Weekly"}</b><small>{formatTime(row.open)}–{formatTime(row.close)}</small><small>Latest {formatTime(row.latestArrival)}</small></button>)}</div>)}</div></section>;
 }
 
 function TimeSelect({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
@@ -248,6 +264,20 @@ function parseOrganizationSchedule(kind: Kind, organization: Organization): Sche
     const rows = opens.map((row, index) => ({ ...emptyWindow(), recurrence: row.recurrence, day: row.day, ordinal: row.ordinal, open: row.time, close: closes[index]?.time ?? "17:00", latestArrival: latest[index]?.time ?? "16:30" }));
     return rows.length ? rows : [emptyWindow()];
   } catch { return [emptyWindow()]; }
+}
+
+function organizationIsOpen(kind: Kind, organization: Organization, now: Date) {
+  const day = days[(now.getDay() + 6) % 7];
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const rows = parseOrganizationSchedule(kind, organization);
+  return rows.some((row) => {
+    if (row.day !== day) return false;
+    if (row.recurrence === "monthly") {
+      const occurrence = Math.ceil(now.getDate() / 7);
+      if (occurrence !== (row.ordinal ?? 1)) return false;
+    }
+    return kind === "bakery" ? row.readyTime <= time && time <= row.pickupDeadline : row.open <= time && time <= row.latestArrival;
+  });
 }
 
 function PasswordPanel({ onSaved }: { onSaved: (message: string) => void }) {

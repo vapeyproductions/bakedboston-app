@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminMap, milesBetween } from "./AdminMap";
 import "./admin.css";
+import "./partner-workspace.css";
 
 type Bakery = {
   id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; readyTime: string;
@@ -55,6 +56,7 @@ type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
   scheduledArrival: string; status: "reserved" | "ongoing" | "completed";
 };
+type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => {
@@ -151,8 +153,10 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [organizationContacts, setOrganizationContacts] = useState<OrganizationContact[]>([]);
   const [pantryAccessPhotos, setPantryAccessPhotos] = useState<PantryAccessPhoto[]>([]);
   const [bakeryAccessPhotos, setBakeryAccessPhotos] = useState<BakeryAccessPhoto[]>([]);
+  const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindow[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
+  const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
@@ -172,6 +176,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setOrganizationContacts(data.organizationContacts ?? []);
       setPantryAccessPhotos(data.pantryAccessPhotos ?? []);
       setBakeryAccessPhotos(data.bakeryAccessPhotos ?? []);
+      setAvailabilityWindows(data.availabilityWindows ?? []);
     }
     setLoading(false);
   };
@@ -264,8 +269,8 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         {loading ? <div className="adminEmpty">Loading your network…</div> : (
           <>
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
-            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
-            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onView={(record) => setWorkspaceRecord({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
@@ -276,6 +281,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       </section>
 
       {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={!modal.record ? [] : modal.kind === "pantry" ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : bakeryAccessPhotos.filter((photo) => photo.bakeryId === modal.record!.id)} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
+      {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
 }
@@ -309,10 +315,10 @@ function Progress({ label, value, target, color }: { label: string; value: numbe
   return <div className="progress"><div><strong>{label}</strong><span>{value} of {target}</span></div><div className="bar"><i style={{ width: `${Math.min(value / target, 1) * 100}%`, background: color }} /></div></div>;
 }
 
-function PartnerTable({ type, records, accounts, invitations, onChanged, setNotice, onAdd, onEdit, onDelete, deletingId }: {
+function PartnerTable({ type, records, accounts, invitations, onChanged, setNotice, onAdd, onEdit, onView, onDelete, deletingId }: {
   type: PartnerKind; records: Partner[]; onAdd: () => void; onEdit: (record: Partner) => void;
   accounts: PartnerAccount[]; invitations: PartnerInvitation[]; onChanged: () => Promise<void>;
-  setNotice: (message: string) => void; onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
+  setNotice: (message: string) => void; onView: (record: Partner) => void; onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
 }) {
   const [filterDay, setFilterDay] = useState("");
   const [filterTime, setFilterTime] = useState("");
@@ -354,7 +360,7 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
       const pendingInvitation = invitations.find((invite) => invite.organizationType === type && invite.organizationId === record.id && !invite.acceptedAt);
       return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>Organization profile login</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
-        : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
+        : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions">{organizationAccounts.length > 0 && <button onClick={() => onView(record)}>View workspace</button>}<button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>}</>;
 }
@@ -624,6 +630,34 @@ function AdminSettings({ currentUser, administrators, invitations, onChanged, se
     </div>
     <div className="tablePanel administratorTable"><table><thead><tr><th>Administrator</th><th>Role</th><th>Status</th><th>Controls</th></tr></thead><tbody>{administrators.map((admin) => <tr key={admin.id}><td><strong>{admin.displayName}</strong><small>{admin.email}</small></td><td><span className={admin.isMaster ? "masterPill" : "activePill"}>{admin.isMaster ? "Master administrator" : "Administrator"}</span></td><td>{admin.active ? "Active" : "Paused"}</td><td><div className="rowActions">{currentUser.isMaster && !admin.isMaster && <><button onClick={() => transfer(admin)}>Make master</button><button className="deleteAction" onClick={() => remove(admin)}>Remove</button></>}</div></td></tr>)}</tbody></table></div>
   </div>;
+}
+
+function AdminPartnerWorkspace({ kind, record, routes, availability, contacts, onClose, onEdit }: {
+  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; contacts: OrganizationContact[]; onClose: () => void; onEdit: () => void;
+}) {
+  const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">("overview");
+  const now = new Date();
+  const activeAdditional = availability.filter((window) => new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
+  const recurringOpen = kind === "pantry"
+    ? pantryMatchesAvailability(record as Pantry, days[(now.getDay() + 6) % 7], `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`)
+    : bakeryMatchesAvailability(record as Bakery, days[(now.getDay() + 6) % 7], `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+  const open = recurringOpen || activeAdditional.length > 0;
+  const completed = routes.filter((route) => route.status === "completed").length;
+  return <div className="modalBackdrop"><section className="adminPartnerWorkspace">
+    <header><div><span>{kind.toUpperCase()} WORKSPACE</span><h2>{record.name}</h2></div><button onClick={onClose}>×</button></header>
+    <nav>{(["overview", "deliveries", "schedule", "profile"] as const).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{item}</button>)}</nav>
+    <main>
+      {section === "overview" && <><article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : "Closed right now"}</h3><p>{activeAdditional.length ? `Additional availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}` : recurringOpen ? "Open according to the recurring schedule." : "No recurring or additional window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>Additional windows</small><strong>{availability.length}</strong></article></div></>}
+      {section === "deliveries" && <RoutesTable routes={routes} />}
+      {section === "schedule" && <div className="adminScheduleView"><div className="panelTitle"><div><span>RECURRING SCHEDULE</span><h2>Saved availability</h2></div><button className="solidBtn" onClick={onEdit}>Edit schedule</button></div>{kind === "pantry" ? <AdminReceivingCalendar pantry={record as Pantry} availability={availability} /> : <div className="hoursSummary">{Object.entries(parseBakerySchedule(record as Bakery)).map(([day, window]) => <small key={day}><b>{day}</b> ready {formatTime(window!.readyTime)} · deadline {formatTime(window!.pickupDeadline)}</small>)}</div>}</div>}
+      {section === "profile" && <div className="adminProfileSummary"><article><small>ADDRESS</small><strong>{record.address}</strong></article><article><small>BUSINESS PHONE</small><strong>{record.businessPhone || "—"}</strong></article><article><small>NOTIFICATION CONTACT</small><strong>{record.notificationPhone || "—"}</strong></article><article><small>ORGANIZATIONAL CONTACTS</small>{contacts.map((contact) => <div key={contact.id}><strong>{contact.isPrimary ? "★ Primary · " : ""}{contact.name}</strong><span>{contact.email} · {contact.phone}</span></div>)}</article><button className="solidBtn" onClick={onEdit}>Edit organization profile</button></div>}
+    </main>
+  </section></div>;
+}
+
+function AdminReceivingCalendar({ pantry, availability }: { pantry: Pantry; availability: AvailabilityWindow[] }) {
+  const windows = parseSchedule(pantry);
+  return <div className="adminReceivingCalendar">{days.map((day) => <section key={day}><strong>{day}</strong>{windows.filter((window) => window.day === day).map((window, index) => <div key={index}><b>{describeWindow(window)}</b><span>{formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</span></div>)}</section>)}{availability.length > 0 && <aside><strong>Additional dated availability</strong>{availability.map((window) => <div key={window.id}><b>{new Date(window.startsAt).toLocaleDateString()}</b><span>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>)}</aside>}</div>;
 }
 
 function RoutesTable({ routes, compact = false }: { routes: Route[]; compact?: boolean }) {
