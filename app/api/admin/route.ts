@@ -71,6 +71,63 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
+
+  try {
+    const body = await request.json() as Record<string, string | number | boolean>;
+    const kind = String(body.kind ?? "");
+    const id = Number(body.id);
+    if (!Number.isInteger(id) || id < 1) {
+      return Response.json({ error: "A valid record id is required." }, { status: 400 });
+    }
+
+    const db = getDb();
+    if (kind === "bakery") {
+      const [record] = await db.update(bakeries).set({
+        name: required(body.name, "Bakery name"),
+        address: required(body.address, "Address"),
+        latitude: optionalNumber(body.latitude),
+        longitude: optionalNumber(body.longitude),
+        contactName: clean(body.contactName),
+        contactEmail: clean(body.contactEmail),
+        contactPhone: clean(body.contactPhone),
+        recurringDays: required(body.recurringDays, "Recurring days"),
+        readyTime: required(body.readyTime, "Ready time"),
+        arrivalDeadline: required(body.arrivalDeadline, "Arrival deadline"),
+      }).where(eq(bakeries.id, id)).returning();
+      if (!record) return Response.json({ error: "Bakery not found." }, { status: 404 });
+      return Response.json({ record });
+    }
+
+    if (kind === "pantry") {
+      const schedule = parsePantrySchedule(body);
+      const activeDays = Object.keys(schedule);
+      const [record] = await db.update(pantries).set({
+        name: required(body.name, "Pantry name"),
+        address: required(body.address, "Address"),
+        latitude: optionalNumber(body.latitude),
+        longitude: optionalNumber(body.longitude),
+        contactName: clean(body.contactName),
+        contactEmail: clean(body.contactEmail),
+        contactPhone: clean(body.contactPhone),
+        recurringDays: activeDays.join(", "),
+        openTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].open]))),
+        closeTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].close]))),
+        latestArrival: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].latestArrival]))),
+        deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
+      }).where(eq(pantries.id, id)).returning();
+      if (!record) return Response.json({ error: "Pantry not found." }, { status: 404 });
+      return Response.json({ record });
+    }
+
+    return Response.json({ error: "Unknown record type" }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not update this record.";
+    return Response.json({ error: message }, { status: 400 });
+  }
+}
+
 export async function DELETE(request: Request) {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 

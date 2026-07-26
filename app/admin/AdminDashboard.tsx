@@ -5,12 +5,17 @@ import "./admin.css";
 
 type Bakery = {
   id: number; name: string; address: string; recurringDays: string; readyTime: string;
-  arrivalDeadline: string; active: boolean;
+  arrivalDeadline: string; active: boolean; latitude: number | null; longitude: number | null;
+  contactName: string; contactEmail: string; contactPhone: string;
 };
 type Pantry = {
   id: number; name: string; address: string; recurringDays: string; openTime: string;
   closeTime: string; latestArrival: string; deliveriesSevenDays: number; active: boolean;
+  latitude: number | null; longitude: number | null; contactName: string; contactEmail: string;
+  contactPhone: string;
 };
+type PartnerKind = "bakery" | "pantry";
+type Partner = Bakery | Pantry;
 type DayHours = { open: string; close: string; latestArrival: string };
 type PantrySchedule = Partial<Record<string, DayHours>>;
 type Route = {
@@ -48,8 +53,9 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<"bakery" | "pantry" | null>(null);
+  const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
 
   const refresh = async () => {
@@ -80,14 +86,15 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
     setNotice("");
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(form.entries());
-    payload.kind = modal ?? "";
+    payload.kind = modal?.kind ?? "";
+    if (modal?.record) payload.id = String(modal.record.id);
     const response = await fetch("/api/admin", {
-      method: "POST",
+      method: modal?.record ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (response.ok) {
-      setNotice(`${modal === "bakery" ? "Bakery" : "Pantry"} saved.`);
+      setNotice(`${modal?.kind === "bakery" ? "Bakery" : "Pantry"} ${modal?.record ? "updated" : "saved"}.`);
       setModal(null);
       await refresh();
     } else {
@@ -95,6 +102,21 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setNotice(data?.error ?? `Could not save this record (${response.status}).`);
     }
     setSaving(false);
+  };
+
+  const deleteRecord = async (kind: PartnerKind, record: Partner) => {
+    if (!window.confirm(`Delete ${record.name}? This cannot be undone.`)) return;
+    setDeletingId(record.id);
+    setNotice("");
+    const response = await fetch(`/api/admin?kind=${kind}&id=${record.id}`, { method: "DELETE" });
+    if (response.ok) {
+      setNotice(`${kind === "bakery" ? "Bakery" : "Pantry"} deleted.`);
+      await refresh();
+    } else {
+      const data = await response.json().catch(() => null);
+      setNotice(data?.error ?? `Could not delete this record (${response.status}).`);
+    }
+    setDeletingId(null);
   };
 
   return (
@@ -124,22 +146,22 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
           <div><p>BAKEDBOSTON NETWORK</p><h1>{tab === "overview" ? "Good evening." : tab}</h1></div>
           <div className="headerActions">
             {notice && <span className="notice">{notice}</span>}
-            <button className="outlineBtn" onClick={() => setModal("pantry")}>+ Add pantry</button>
-            <button className="solidBtn" onClick={() => setModal("bakery")}>+ Add bakery</button>
+            <button className="outlineBtn" onClick={() => setModal({ kind: "pantry" })}>+ Add pantry</button>
+            <button className="solidBtn" onClick={() => setModal({ kind: "bakery" })}>+ Add bakery</button>
           </div>
         </header>
 
         {loading ? <div className="adminEmpty">Loading your network…</div> : (
           <>
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
-            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} onAdd={() => setModal("bakery")} />}
-            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} onAdd={() => setModal("pantry")} />}
+            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
           </>
         )}
       </section>
 
-      {modal && <RecordModal kind={modal} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
+      {modal && <RecordModal kind={modal.kind} record={modal.record} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
     </main>
   );
 }
@@ -173,15 +195,18 @@ function Progress({ label, value, target, color }: { label: string; value: numbe
   return <div className="progress"><div><strong>{label}</strong><span>{value} of {target}</span></div><div className="bar"><i style={{ width: `${Math.min(value / target, 1) * 100}%`, background: color }} /></div></div>;
 }
 
-function PartnerTable({ type, records, onAdd }: { type: "bakery" | "pantry"; records: (Bakery | Pantry)[]; onAdd: () => void }) {
+function PartnerTable({ type, records, onAdd, onEdit, onDelete, deletingId }: {
+  type: PartnerKind; records: Partner[]; onAdd: () => void; onEdit: (record: Partner) => void;
+  onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
+}) {
   if (!records.length) return <div className="adminEmpty"><span>{type === "bakery" ? "B" : "P"}</span><h2>No {type === "bakery" ? "bakeries" : "pantries"} yet</h2><p>Add the first organization you plan to onboard.</p><button className="solidBtn" onClick={onAdd}>+ Add {type}</button></div>;
-  return <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Recurring days</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Status</th></tr></thead><tbody>
+  return <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Recurring days</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Status</th><th>Actions</th></tr></thead><tbody>
     {records.map((record) => {
       const pantry = type === "pantry" ? record as Pantry : null;
       const schedule = pantry ? parseSchedule(pantry) : null;
       return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small></td><td>{record.recurringDays}</td><td>{pantry && schedule
         ? <div className="hoursSummary">{days.filter((day) => schedule[day]).map((day) => <small key={day}><b>{day}</b> {formatTime(schedule[day]!.open)}–{formatTime(schedule[day]!.close)} · latest {formatTime(schedule[day]!.latestArrival)}</small>)}</div>
-        : `${(record as Bakery).readyTime}–${(record as Bakery).arrivalDeadline}`}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><span className="activePill">Active</span></td></tr>;
+        : `${formatTime((record as Bakery).readyTime)}–${formatTime((record as Bakery).arrivalDeadline)}`}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><span className="activePill">Active</span></td><td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>;
 }
@@ -197,8 +222,13 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="smallEmpty"><span>↗</span><div><strong>{title}</strong><p>{body}</p></div></div>;
 }
 
-function RecordModal({ kind, saving, onClose, onSave }: { kind: "bakery" | "pantry"; saving: boolean; onClose: () => void; onSave: (e: FormEvent<HTMLFormElement>) => void }) {
-  const [enabledDays, setEnabledDays] = useState<string[]>([]);
+function RecordModal({ kind, record, saving, onClose, onSave }: {
+  kind: PartnerKind; record?: Partner; saving: boolean; onClose: () => void;
+  onSave: (e: FormEvent<HTMLFormElement>) => void;
+}) {
+  const pantrySchedule = kind === "pantry" && record ? parseSchedule(record as Pantry) : {};
+  const initialDays = record?.recurringDays.split(",").map((day) => day.trim()).filter(Boolean) ?? [];
+  const [enabledDays, setEnabledDays] = useState<string[]>(initialDays);
   const toggleDay = (day: string, enabled: boolean) => {
     setEnabledDays((current) => enabled
       ? [...current, day]
@@ -206,37 +236,37 @@ function RecordModal({ kind, saving, onClose, onSave }: { kind: "bakery" | "pant
   };
 
   return <div className="modalBackdrop" role="presentation"><div className="recordModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-    <div className="modalTitle"><div><span>NEW PARTNER</span><h2 id="modal-title">Add a {kind}</h2></div><button onClick={onClose} aria-label="Close">×</button></div>
+    <div className="modalTitle"><div><span>{record ? "EDIT PARTNER" : "NEW PARTNER"}</span><h2 id="modal-title">{record ? "Edit" : "Add"} a {kind}</h2></div><button onClick={onClose} aria-label="Close">×</button></div>
     <form onSubmit={onSave}>
       <div className="formGrid">
-        <label className="wide">Organization name<input name="name" required placeholder={kind === "bakery" ? "Flour & Field Bakery" : "Community Food Pantry"} /></label>
-        <label className="wide">Street address<input name="address" required placeholder="123 Main Street, Boston, MA" /></label>
-        <label>Latitude <input name="latitude" type="number" step="any" placeholder="42.3601" /></label>
-        <label>Longitude <input name="longitude" type="number" step="any" placeholder="-71.0589" /></label>
-        <label>Contact name<input name="contactName" /></label>
-        <label>Contact email<input name="contactEmail" type="email" /></label>
-        <label className="wide">Contact phone<input name="contactPhone" type="tel" /></label>
-        {kind === "bakery" && <fieldset className="wide"><legend>Recurring days</legend><div className="dayChecks">{days.map((day) => <label key={day}><input type="checkbox" name="day" value={day} onChange={(e) => {
+        <label className="wide">Organization name<input name="name" required defaultValue={record?.name} placeholder={kind === "bakery" ? "Flour & Field Bakery" : "Community Food Pantry"} /></label>
+        <label className="wide">Street address<input name="address" required defaultValue={record?.address} placeholder="123 Main Street, Boston, MA" /></label>
+        <label>Latitude <input name="latitude" type="number" step="any" defaultValue={record?.latitude ?? ""} placeholder="42.3601" /></label>
+        <label>Longitude <input name="longitude" type="number" step="any" defaultValue={record?.longitude ?? ""} placeholder="-71.0589" /></label>
+        <label>Contact name<input name="contactName" defaultValue={record?.contactName} /></label>
+        <label>Contact email<input name="contactEmail" type="email" defaultValue={record?.contactEmail} /></label>
+        <label className="wide">Contact phone<input name="contactPhone" type="tel" defaultValue={record?.contactPhone} /></label>
+        {kind === "bakery" && <fieldset className="wide"><legend>Recurring days</legend><div className="dayChecks">{days.map((day) => <label key={day}><input type="checkbox" name="day" value={day} defaultChecked={initialDays.includes(day)} onChange={(e) => {
           const form = e.currentTarget.form;
           if (form) {
             const selected = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="day"]:checked')).map((input) => input.value);
             (form.elements.namedItem("recurringDays") as HTMLInputElement).value = selected.join(", ");
           }
-        }} /><span>{day}</span></label>)}</div><input type="hidden" name="recurringDays" required /></fieldset>}
-        {kind === "bakery" ? <><label>Ready time<input name="readyTime" type="time" required /></label><label>Latest permitted arrival<input name="arrivalDeadline" type="time" required /></label></> :
+        }} /><span>{day}</span></label>)}</div><input type="hidden" name="recurringDays" required defaultValue={record?.recurringDays} /></fieldset>}
+        {kind === "bakery" ? <><label>Ready time<input name="readyTime" type="time" required defaultValue={(record as Bakery | undefined)?.readyTime} /></label><label>Latest permitted arrival<input name="arrivalDeadline" type="time" required defaultValue={(record as Bakery | undefined)?.arrivalDeadline} /></label></> :
           <><fieldset className="wide dailyHours"><legend>Receiving hours by day</legend><p>Turn on each day the pantry accepts deliveries. The latest arrival can be earlier than closing.</p>
             {days.map((day) => {
               const enabled = enabledDays.includes(day);
               return <div className={`dayHoursRow ${enabled ? "enabled" : ""}`} key={day}>
                 <label className="dayToggle"><input type="checkbox" name={`day_${day}`} checked={enabled} onChange={(event) => toggleDay(day, event.target.checked)} /><span>{day}</span></label>
-                <label>Opens<input name={`openTime_${day}`} aria-label={`${day} opening time`} type="text" inputMode="text" placeholder="9:00 AM" disabled={!enabled} required={enabled} /></label>
-                <label>Closes<input name={`closeTime_${day}`} aria-label={`${day} closing time`} type="text" inputMode="text" placeholder="5:00 PM" disabled={!enabled} required={enabled} /></label>
-                <label>Latest arrival<input name={`latestArrival_${day}`} aria-label={`${day} latest arrival`} type="text" inputMode="text" placeholder="4:30 PM" disabled={!enabled} required={enabled} /></label>
+                <label>Opens<input name={`openTime_${day}`} aria-label={`${day} opening time`} type="text" inputMode="text" defaultValue={pantrySchedule[day]?.open ? formatTime(pantrySchedule[day]!.open) : ""} placeholder="9:00 AM" disabled={!enabled} required={enabled} /></label>
+                <label>Closes<input name={`closeTime_${day}`} aria-label={`${day} closing time`} type="text" inputMode="text" defaultValue={pantrySchedule[day]?.close ? formatTime(pantrySchedule[day]!.close) : ""} placeholder="5:00 PM" disabled={!enabled} required={enabled} /></label>
+                <label>Latest arrival<input name={`latestArrival_${day}`} aria-label={`${day} latest arrival`} type="text" inputMode="text" defaultValue={pantrySchedule[day]?.latestArrival ? formatTime(pantrySchedule[day]!.latestArrival) : ""} placeholder="4:30 PM" disabled={!enabled} required={enabled} /></label>
               </div>;
             })}
-          </fieldset><label className="wide">Deliveries in last 7 days<input name="deliveriesSevenDays" type="number" min="0" defaultValue="0" /></label></>}
+          </fieldset><label className="wide">Deliveries in last 7 days<input name="deliveriesSevenDays" type="number" min="0" defaultValue={(record as Pantry | undefined)?.deliveriesSevenDays ?? 0} /></label></>}
       </div>
-      <div className="modalActions"><button type="button" onClick={onClose}>Cancel</button><button className="solidBtn" disabled={saving}>{saving ? "Saving…" : `Save ${kind}`}</button></div>
+      <div className="modalActions"><button type="button" onClick={onClose}>Cancel</button><button className="solidBtn" disabled={saving}>{saving ? "Saving…" : `${record ? "Update" : "Save"} ${kind}`}</button></div>
     </form>
   </div></div>;
 }
