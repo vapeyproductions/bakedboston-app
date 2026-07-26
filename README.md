@@ -1,4 +1,35 @@
-# vinext-starter
+# BakedBoston
+
+BakedBoston is a food-rescue logistics platform connecting bakery surplus,
+volunteer drivers, and nearby food pantries.
+
+The repository now contains two product surfaces:
+
+- `app/`: the web application and administrator workspace deployed on Vercel
+- `mobile/`: the native Expo/React Native app for drivers, bakeries, and
+  pantries
+
+The first mobile milestone includes role selection, driver registration,
+approved-partner sign-in, and bakery/pantry access-request screens. These
+screens define the onboarding flow; authentication and API writes are the next
+backend milestone.
+
+## Native app
+
+```bash
+cd mobile
+npm install
+npm run ios
+# or: npm run android
+```
+
+Store-ready build profiles live in `mobile/eas.json`. Expo account and Apple or
+Google developer credentials are required before producing and submitting
+store binaries.
+
+See `docs/account-and-approval-model.md` for the role and approval design.
+
+## Web application
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
