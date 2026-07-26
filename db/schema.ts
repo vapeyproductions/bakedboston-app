@@ -154,6 +154,16 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const driverAccounts = pgTable("driver_accounts", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  displayName: text("display_name").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("driver_accounts_email_unique").on(table.email),
+]);
+
 export const organizationContacts = pgTable("organization_contacts", {
   id: serial("id").primaryKey(),
   organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),

@@ -59,6 +59,7 @@ type Route = {
 };
 type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };
+type DriverAccount = { id: number; email: string; displayName: string; active: boolean };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => {
@@ -157,6 +158,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [bakeryAccessPhotos, setBakeryAccessPhotos] = useState<BakeryAccessPhoto[]>([]);
   const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindow[]>([]);
   const [availabilityPauses, setAvailabilityPauses] = useState<AvailabilityPause[]>([]);
+  const [drivers, setDrivers] = useState<DriverAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
@@ -181,6 +183,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setBakeryAccessPhotos(data.bakeryAccessPhotos ?? []);
       setAvailabilityWindows(data.availabilityWindows ?? []);
       setAvailabilityPauses(data.availabilityPauses ?? []);
+      setDrivers(data.drivers ?? []);
     }
     setLoading(false);
   };
@@ -272,7 +275,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
 
         {loading ? <div className="adminEmpty">Loading your network…</div> : (
           <>
-            {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
+            {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} drivers={drivers} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
             {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onView={(record) => setWorkspaceRecord({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
@@ -285,38 +288,41 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       </section>
 
       {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={!modal.record ? [] : modal.kind === "pantry" ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : bakeryAccessPhotos.filter((photo) => photo.bakeryId === modal.record!.id)} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
-      {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
+      {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
 }
 
-function Overview({ bakeries, pantries, routes, completed, activeRoutes, averagePriority }: {
-  bakeries: Bakery[]; pantries: Pantry[]; routes: Route[]; completed: number; activeRoutes: number; averagePriority: string;
+function Overview({ bakeries, pantries, accounts, drivers, routes, completed, activeRoutes, averagePriority }: {
+  bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[]; drivers: DriverAccount[]; routes: Route[]; completed: number; activeRoutes: number; averagePriority: string;
 }) {
+  const registeredBakeries = new Set(accounts.filter((account) => account.organizationType === "bakery" && account.active).map((account) => account.organizationId)).size;
+  const registeredPantries = new Set(accounts.filter((account) => account.organizationType === "pantry" && account.active).map((account) => account.organizationId)).size;
+  const registeredDrivers = drivers.filter((driver) => driver.active).length;
   return <>
     <div className="metricGrid">
       <article><span>PARTNER BAKERIES</span><strong>{bakeries.length}</strong><small>{bakeries.length ? "Approved network" : "Ready for onboarding"}</small></article>
       <article><span>PARTNER PANTRIES</span><strong>{pantries.length}</strong><small>Average priority {averagePriority}</small></article>
       <article><span>ACTIVE ROUTES</span><strong>{activeRoutes}</strong><small>Reserved + ongoing</small></article>
-      <article className="coralMetric"><span>COMPLETED RESCUES</span><strong>{completed}</strong><small>All-time total</small></article>
+      <article className="coralMetric"><span>COMPLETED ORDERS</span><strong>{completed}</strong><small>All-time total</small></article>
     </div>
     <div className="overviewGrid">
       <article className="panel">
-        <div className="panelTitle"><div><span>ROUTE ACTIVITY</span><h2>Today’s rescue board</h2></div><i className="liveDot">LIVE</i></div>
+        <div className="panelTitle"><div><span>ROUTE ACTIVITY</span><h2>Today’s delivery board</h2></div><i className="liveDot">LIVE</i></div>
         {routes.length ? <RoutesTable routes={routes.slice(0, 5)} compact /> : <Empty title="No routes yet" body="Reserved, ongoing, and completed routes will appear here automatically." />}
       </article>
       <article className="panel onboarding">
         <div className="panelTitle"><div><span>PARTNER SETUP</span><h2>Onboarding progress</h2></div></div>
-        <Progress label="Bakery profiles" value={bakeries.length} target={5} color="#ef6548" />
-        <Progress label="Pantry profiles" value={pantries.length} target={5} color="#f4bf43" />
-        <div className="tip"><b>Next step</b><p>Add addresses and receiving schedules. Coordinates can be added now or geocoded when the mapping connection is enabled.</p></div>
+        <Progress label="Registered bakeries" value={registeredBakeries} target={bakeries.length} color="#ef6548" />
+        <Progress label="Registered pantries" value={registeredPantries} target={pantries.length} color="#f4bf43" />
+        <div className="driverRegistrationCount"><span>REGISTERED DRIVERS</span><strong>{registeredDrivers}</strong><small>Active driver accounts</small></div>
       </article>
     </div>
   </>;
 }
 
 function Progress({ label, value, target, color }: { label: string; value: number; target: number; color: string }) {
-  return <div className="progress"><div><strong>{label}</strong><span>{value} of {target}</span></div><div className="bar"><i style={{ width: `${Math.min(value / target, 1) * 100}%`, background: color }} /></div></div>;
+  return <div className="progress"><div><strong>{label}</strong><span>{value}/{target}</span></div><div className="bar"><i style={{ width: `${target ? Math.min(value / target, 1) * 100 : 0}%`, background: color }} /></div></div>;
 }
 
 function PartnerTable({ type, records, accounts, invitations, onChanged, setNotice, onAdd, onEdit, onView, onDelete, deletingId }: {
@@ -643,8 +649,8 @@ function AdminSettings({ currentUser, administrators, invitations, onChanged, se
   </div>;
 }
 
-function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, contacts, onClose, onEdit }: {
-  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; contacts: OrganizationContact[]; onClose: () => void; onEdit: () => void;
+function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, contacts, onClose, onEdit, onChanged, setNotice }: {
+  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; contacts: OrganizationContact[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void;
 }) {
   const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">("overview");
   const now = new Date();
@@ -661,26 +667,43 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, con
     <main>
       {section === "overview" && <><article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>One-time windows</small><strong>{availability.length}</strong></article></div></>}
       {section === "deliveries" && <RoutesTable routes={routes} />}
-      {section === "schedule" && <div className="adminScheduleView"><div className="panelTitle"><div><span>RECURRING SCHEDULE</span><h2>Saved availability</h2></div><button className="solidBtn" onClick={onEdit}>Edit schedule</button></div>{kind === "pantry" ? <AdminReceivingCalendar pantry={record as Pantry} availability={availability} /> : <div className="hoursSummary">{Object.entries(parseBakerySchedule(record as Bakery)).map(([day, window]) => <small key={day}><b>{day}</b> ready {formatTime(window!.readyTime)} · deadline {formatTime(window!.pickupDeadline)}</small>)}</div>}</div>}
+      {section === "schedule" && <div className="adminScheduleView"><div className="panelTitle"><div><span>RECURRING SCHEDULE</span><h2>Saved availability</h2></div><button className="solidBtn" onClick={onEdit}>Edit recurring schedule</button></div>{kind === "pantry" ? <AdminReceivingCalendar pantry={record as Pantry} availability={availability} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} /> : <div className="hoursSummary">{Object.entries(parseBakerySchedule(record as Bakery)).map(([day, window]) => <small key={day}><b>{day}</b> ready {formatTime(window!.readyTime)} · deadline {formatTime(window!.pickupDeadline)}</small>)}</div>}</div>}
       {section === "profile" && <div className="adminProfileSummary"><article><small>ADDRESS</small><strong>{record.address}</strong></article><article><small>BUSINESS PHONE</small><strong>{record.businessPhone || "—"}</strong></article><article><small>NOTIFICATION CONTACT</small><strong>{record.notificationPhone || "—"}</strong></article><article><small>ORGANIZATIONAL CONTACTS</small>{contacts.map((contact) => <div key={contact.id}><strong>{contact.isPrimary ? "★ Primary · " : ""}{contact.name}</strong><span>{contact.email} · {contact.phone}</span></div>)}</article><button className="solidBtn" onClick={onEdit}>Edit organization profile</button></div>}
     </main>
   </section></div>;
 }
 
-function AdminReceivingCalendar({ pantry, availability }: { pantry: Pantry; availability: AvailabilityWindow[] }) {
+function AdminReceivingCalendar({ pantry, availability, organizationId, onChanged, setNotice }: { pantry: Pantry; availability: AvailabilityWindow[]; organizationId: number; onChanged: () => Promise<void>; setNotice: (message: string) => void }) {
   const windows = parseSchedule(pantry);
+  const [selectedId, setSelectedId] = useState<number | "new" | null>(null);
+  const selected = selectedId === "new" ? null : availability.find((window) => window.id === selectedId);
+  const [draft, setDraft] = useState({ startsAt: "", endsAt: "", latestArrival: "", paused: false });
+  function selectWindow(window: AvailabilityWindow) { setSelectedId(window.id); setDraft({ startsAt: adminLocalInput(new Date(window.startsAt)), endsAt: adminLocalInput(new Date(window.endsAt)), latestArrival: adminLocalInput(new Date(window.latestArrival)), paused: window.paused }); }
+  function addWindow() { const start = new Date(Date.now() + 24 * 60 * 60 * 1000); start.setHours(9, 0, 0, 0); setDraft({ startsAt: adminLocalInput(start), endsAt: adminLocalInput(new Date(start.getTime() + 2 * 60 * 60 * 1000)), latestArrival: adminLocalInput(new Date(start.getTime() + 105 * 60 * 1000)), paused: false }); setSelectedId("new"); }
+  async function saveWindow() {
+    const response = await fetch("/api/admin/availability", { method: selectedId === "new" ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(selectedId === "new" ? { organizationType: "pantry", organizationId } : { id: selectedId }), startsAt: new Date(draft.startsAt).toISOString(), endsAt: new Date(draft.endsAt).toISOString(), latestArrival: new Date(draft.latestArrival).toISOString(), paused: draft.paused }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setSelectedId(null); await onChanged(); setNotice(selected ? "One-time availability updated." : "One-time availability added."); }
+    else setNotice(data?.error ?? "Could not save this availability window.");
+  }
+  async function deleteWindow() {
+    if (typeof selectedId !== "number" || !window.confirm("Delete this one-time availability window?")) return;
+    const response = await fetch(`/api/admin/availability?id=${selectedId}`, { method: "DELETE" });
+    if (response.ok) { setSelectedId(null); await onChanged(); setNotice("One-time availability deleted."); }
+  }
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const start = new Date(today); start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
   const dates = Array.from({ length: 28 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
-  return <section className="monthlyReceivingCalendar"><div className="calendarMonthLabel"><strong>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</strong><span>Next four weeks</span></div><header>{days.map((day) => <strong key={day}>{day}</strong>)}</header><div className="calendarMonthGrid">{dates.map((date) => {
+  return <><div className="adminCalendarToolbar"><button className="solidBtn" onClick={addWindow}>+ Add one-time availability window</button></div><section className="monthlyReceivingCalendar"><div className="calendarMonthLabel"><strong>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</strong><span>Next four weeks</span></div><header>{days.map((day) => <strong key={day}>{day}</strong>)}</header><div className="calendarMonthGrid">{dates.map((date) => {
     const day = days[(date.getDay() + 6) % 7]; const occurrence = Math.ceil(date.getDate() / 7);
     const recurring = windows.filter((window) => window.day === day && (window.recurrence === "weekly" || window.ordinal === occurrence));
     const oneTime = availability.filter((window) => sameDate(new Date(window.startsAt), date));
-    return <div className={`calendarDate ${sameDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{recurring.map((window, index) => <div className="adminCalendarEvent recurringEvent" key={`r-${index}`}><b>Recurring</b><small>{formatTime(window.open)}–{formatTime(window.close)}</small><small>Latest {formatTime(window.latestArrival)}</small></div>)}{oneTime.map((window) => <div className={`adminCalendarEvent oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></div>)}</div>;
-  })}</div></section>;
+    return <div className={`calendarDate ${sameDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{recurring.map((window, index) => <div className="adminCalendarEvent recurringEvent" key={`r-${index}`}><b>Recurring</b><small>{formatTime(window.open)}–{formatTime(window.close)}</small><small>Latest {formatTime(window.latestArrival)}</small></div>)}{oneTime.map((window) => <button className={`adminCalendarEvent oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id} onClick={() => selectWindow(window)}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></button>)}</div>;
+  })}</div></section>{selectedId !== null && <section className="adminOneTimeEditor"><div><span>{selectedId === "new" ? "NEW WINDOW" : "EDIT WINDOW"}</span><h3>One-time availability</h3></div><label>Opens<input type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((current) => ({ ...current, startsAt: event.target.value }))} /></label><label>Closes<input type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft((current) => ({ ...current, endsAt: event.target.value }))} /></label><label>Latest permitted arrival<input type="datetime-local" value={draft.latestArrival} onChange={(event) => setDraft((current) => ({ ...current, latestArrival: event.target.value }))} /></label><label className="adminPauseCheck"><input type="checkbox" checked={draft.paused} onChange={(event) => setDraft((current) => ({ ...current, paused: event.target.checked }))} /> Paused</label><div className="adminOneTimeActions">{selectedId !== "new" && <button className="deleteAction" onClick={deleteWindow}>Delete window</button>}<button onClick={() => setSelectedId(null)}>Cancel</button><button className="solidBtn" onClick={saveWindow}>Save window</button></div></section>}</>;
 }
 
 function sameDate(left: Date, right: Date) { return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate(); }
+function adminLocalInput(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`; }
 
 function RoutesTable({ routes, compact = false }: { routes: Route[]; compact?: boolean }) {
   if (!routes.length) return <Empty title="No route activity" body="Routes will appear after bakery pickups are reserved." />;

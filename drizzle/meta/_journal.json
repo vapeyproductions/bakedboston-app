@@ -71,6 +71,13 @@
       "when": 1785105043293,
       "tag": "0009_dry_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785106860813,
+      "tag": "0010_jazzy_bloodscream",
+      "breakpoints": true
     }
   ]
 }
