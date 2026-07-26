@@ -64,6 +64,16 @@ export const availabilityWindows = pgTable("availability_windows", {
   organizationId: integer("organization_id").notNull(),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  latestArrival: timestamp("latest_arrival", { withTimezone: true }).notNull(),
+  paused: boolean("paused").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const availabilityPauses = pgTable("availability_pauses", {
+  id: serial("id").primaryKey(),
+  organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),
+  organizationId: integer("organization_id").notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

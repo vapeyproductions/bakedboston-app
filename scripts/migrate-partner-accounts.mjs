@@ -54,6 +54,21 @@ if (!databaseUrl) {
       organization_id integer NOT NULL,
       starts_at timestamp with time zone NOT NULL,
       ends_at timestamp with time zone NOT NULL,
+      latest_arrival timestamp with time zone NOT NULL,
+      paused boolean DEFAULT false NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`ALTER TABLE availability_windows ADD COLUMN IF NOT EXISTS latest_arrival timestamp with time zone`;
+  await sql`UPDATE availability_windows SET latest_arrival = ends_at WHERE latest_arrival IS NULL`;
+  await sql`ALTER TABLE availability_windows ALTER COLUMN latest_arrival SET NOT NULL`;
+  await sql`ALTER TABLE availability_windows ADD COLUMN IF NOT EXISTS paused boolean DEFAULT false NOT NULL`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS availability_pauses (
+      id serial PRIMARY KEY,
+      organization_type text NOT NULL,
+      organization_id integer NOT NULL,
+      ends_at timestamp with time zone NOT NULL,
       created_at timestamp with time zone DEFAULT now() NOT NULL
     )
   `;
