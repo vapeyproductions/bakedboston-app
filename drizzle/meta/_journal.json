@@ -22,6 +22,13 @@
       "when": 1785092462915,
       "tag": "0002_charming_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785093850769,
+      "tag": "0003_far_cerise",
+      "breakpoints": true
     }
   ]
 }

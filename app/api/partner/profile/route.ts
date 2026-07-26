@@ -2,6 +2,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bakeries, pantries, partnerAccounts } from "../../../../db/schema";
 import { getPartnerAccountId, hashPartnerPassword } from "../../../partner-auth";
+import { writeAudit } from "../../../audit";
 
 export async function PATCH(request: Request) {
   const accountId = await getPartnerAccountId();
@@ -36,6 +37,12 @@ export async function PATCH(request: Request) {
     } else {
       await db.update(pantries).set(organizationUpdate).where(eq(pantries.id, account.organizationId));
     }
+    await writeAudit({
+      actorType: "partner", actorId: account.id, actorName: account.administratorName,
+      action: "updated organization profile", entityType: account.organizationType,
+      entityId: account.organizationId, entityName: account.administratorName,
+      details: "Account email, administrator contact, organization phone channels, or password updated",
+    });
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not save profile." }, { status: 400 });

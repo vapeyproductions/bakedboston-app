@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "../../../../db";
 import { bakeries, pantries, partnerAccounts, partnerInvitations } from "../../../../db/schema";
 import { createPartnerCookieValue, hashPartnerPassword, partnerCookieName } from "../../../partner-auth";
+import { writeAudit } from "../../../audit";
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -38,6 +39,12 @@ export async function POST(request: NextRequest) {
     contactPhone: organization.contactPhone || "Not provided",
   }).returning({ id: partnerAccounts.id });
   await db.update(partnerInvitations).set({ acceptedAt: new Date() }).where(eq(partnerInvitations.id, invitation.id));
+  await writeAudit({
+    actorType: "partner", actorId: account.id, actorName: organization.contactName || invitation.accountEmail,
+    action: "registered organization account", entityType: invitation.organizationType,
+    entityId: invitation.organizationId, entityName: invitation.accountEmail,
+    details: `${invitation.organizationType} account invitation accepted`,
+  });
 
   const response = NextResponse.redirect(new URL(`/${invitation.organizationType}`, request.url), 303);
   response.cookies.set(partnerCookieName, createPartnerCookieValue(account.id), {

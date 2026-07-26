@@ -39,5 +39,44 @@ if (!databaseUrl) {
     )
   `;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS partner_invitations_token_unique ON partner_invitations (token_hash)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS admin_accounts (
+      id serial PRIMARY KEY,
+      email text NOT NULL,
+      password_hash text NOT NULL,
+      display_name text NOT NULL,
+      is_master boolean DEFAULT false NOT NULL,
+      active boolean DEFAULT true NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL,
+      updated_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS admin_accounts_email_unique ON admin_accounts (email)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS admin_invitations (
+      id serial PRIMARY KEY,
+      email text NOT NULL,
+      token_hash text NOT NULL,
+      invited_by_admin_id integer NOT NULL,
+      expires_at timestamp with time zone NOT NULL,
+      accepted_at timestamp with time zone,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS admin_invitations_token_unique ON admin_invitations (token_hash)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id serial PRIMARY KEY,
+      actor_type text NOT NULL,
+      actor_id integer,
+      actor_name text NOT NULL,
+      action text NOT NULL,
+      entity_type text NOT NULL,
+      entity_id integer,
+      entity_name text DEFAULT '' NOT NULL,
+      details text DEFAULT '' NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
   console.log("Partner-account database migration complete.");
 }

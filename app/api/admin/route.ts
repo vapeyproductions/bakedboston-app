@@ -1,7 +1,8 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { bakeries, pantries, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
-import { isAdministrator } from "../../admin-auth";
+import { adminAccounts, adminInvitations, auditLog, bakeries, pantries, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
+import { getAdministrator, isAdministrator } from "../../admin-auth";
+import { writeAudit } from "../../audit";
 
 async function authorized() {
   return isAdministrator();
@@ -11,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -34,13 +35,27 @@ export async function GET() {
       acceptedAt: partnerInvitations.acceptedAt,
       createdAt: partnerInvitations.createdAt,
     }).from(partnerInvitations).orderBy(desc(partnerInvitations.createdAt)),
+    db.select({
+      id: adminAccounts.id, email: adminAccounts.email, displayName: adminAccounts.displayName,
+      isMaster: adminAccounts.isMaster, active: adminAccounts.active, createdAt: adminAccounts.createdAt,
+    }).from(adminAccounts).orderBy(desc(adminAccounts.createdAt)),
+    db.select({
+      id: adminInvitations.id, email: adminInvitations.email, invitedByAdminId: adminInvitations.invitedByAdminId,
+      expiresAt: adminInvitations.expiresAt, acceptedAt: adminInvitations.acceptedAt, createdAt: adminInvitations.createdAt,
+    }).from(adminInvitations).orderBy(desc(adminInvitations.createdAt)),
+    db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(500),
   ]);
 
-  return Response.json({ bakeries: bakeryRows, pantries: pantryRows, routes: routeRows, partnerAccounts: accountRows, partnerInvitations: invitationRows });
+  return Response.json({
+    bakeries: bakeryRows, pantries: pantryRows, routes: routeRows,
+    partnerAccounts: accountRows, partnerInvitations: invitationRows,
+    administrators: administratorRows, adminInvitations: adminInvitationRows, auditLog: auditRows,
+  });
 }
 
 export async function POST(request: Request) {
-  if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const actor = await getAdministrator();
+  if (!actor) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   try {
     const body = await request.json() as Record<string, string | number | boolean>;
@@ -64,6 +79,7 @@ export async function POST(request: Request) {
       readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
       arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).returning();
+      await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "created bakery profile", entityType: "bakery", entityId: record.id, entityName: record.name });
       return Response.json({ record }, { status: 201 });
     }
 
@@ -86,6 +102,7 @@ export async function POST(request: Request) {
         latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).returning();
+      await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "created pantry profile", entityType: "pantry", entityId: record.id, entityName: record.name });
       return Response.json({ record }, { status: 201 });
     }
 
@@ -97,7 +114,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const actor = await getAdministrator();
+  if (!actor) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   try {
     const body = await request.json() as Record<string, string | number | boolean>;
@@ -126,6 +144,7 @@ export async function PATCH(request: Request) {
         arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).where(eq(bakeries.id, id)).returning();
       if (!record) return Response.json({ error: "Bakery not found." }, { status: 404 });
+      await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "updated bakery profile", entityType: "bakery", entityId: record.id, entityName: record.name, details: "Organization details, contact channels, location, or pickup schedule updated" });
       return Response.json({ record });
     }
 
@@ -149,6 +168,7 @@ export async function PATCH(request: Request) {
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).where(eq(pantries.id, id)).returning();
       if (!record) return Response.json({ error: "Pantry not found." }, { status: 404 });
+      await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "updated pantry profile", entityType: "pantry", entityId: record.id, entityName: record.name, details: "Organization details, contact channels, location, or receiving schedule updated" });
       return Response.json({ record });
     }
 
@@ -160,7 +180,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
+  const actor = await getAdministrator();
+  if (!actor) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const kind = searchParams.get("kind");
@@ -171,17 +192,21 @@ export async function DELETE(request: Request) {
 
   const db = getDb();
   if (kind === "pantry") {
+    const [record] = await db.select({ name: pantries.name }).from(pantries).where(eq(pantries.id, id)).limit(1);
     await db.delete(partnerAccounts).where(and(
       eq(partnerAccounts.organizationType, "pantry"),
       eq(partnerAccounts.organizationId, id),
     ));
     await db.delete(pantries).where(eq(pantries.id, id));
+    await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted pantry profile", entityType: "pantry", entityId: id, entityName: record?.name ?? "" });
   } else if (kind === "bakery") {
+    const [record] = await db.select({ name: bakeries.name }).from(bakeries).where(eq(bakeries.id, id)).limit(1);
     await db.delete(partnerAccounts).where(and(
       eq(partnerAccounts.organizationType, "bakery"),
       eq(partnerAccounts.organizationId, id),
     ));
     await db.delete(bakeries).where(eq(bakeries.id, id));
+    await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted bakery profile", entityType: "bakery", entityId: id, entityName: record?.name ?? "" });
   } else {
     return Response.json({ error: "Unknown record type" }, { status: 400 });
   }

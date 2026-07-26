@@ -76,3 +76,41 @@ export const partnerInvitations = pgTable("partner_invitations", {
 }, (table) => [
   uniqueIndex("partner_invitations_token_unique").on(table.tokenHash),
 ]);
+
+export const adminAccounts = pgTable("admin_accounts", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  displayName: text("display_name").notNull(),
+  isMaster: boolean("is_master").notNull().default(false),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("admin_accounts_email_unique").on(table.email),
+]);
+
+export const adminInvitations = pgTable("admin_invitations", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  invitedByAdminId: integer("invited_by_admin_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("admin_invitations_token_unique").on(table.tokenHash),
+]);
+
+export const auditLog = pgTable("audit_log", {
+  id: serial("id").primaryKey(),
+  actorType: text("actor_type", { enum: ["admin", "partner", "system"] }).notNull(),
+  actorId: integer("actor_id"),
+  actorName: text("actor_name").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id"),
+  entityName: text("entity_name").notNull().default(""),
+  details: text("details").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

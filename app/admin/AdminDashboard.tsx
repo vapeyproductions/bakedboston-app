@@ -24,6 +24,16 @@ type PartnerInvitation = {
   id: number; organizationType: PartnerKind; organizationId: number; accountEmail: string;
   expiresAt: string; acceptedAt: string | null; createdAt: string;
 };
+type Administrator = {
+  id: number; email: string; displayName: string; isMaster: boolean; active: boolean; createdAt: string;
+};
+type AdminInvitation = {
+  id: number; email: string; invitedByAdminId: number; expiresAt: string; acceptedAt: string | null; createdAt: string;
+};
+type AuditEntry = {
+  id: number; actorType: "admin" | "partner" | "system"; actorId: number | null; actorName: string;
+  action: string; entityType: string; entityId: number | null; entityName: string; details: string; createdAt: string;
+};
 type PartnerKind = "bakery" | "pantry";
 type Partner = Bakery | Pantry;
 type DayHours = { open: string; close: string; latestArrival: string };
@@ -121,13 +131,16 @@ function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime"
     (!day || window.day === day) && (!time || (window.open <= time && time <= window.close)));
 }
 
-export default function AdminDashboard({ user }: { user: { name: string; email: string } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "map" | "routes">("overview");
+export default function AdminDashboard({ user }: { user: { name: string; email: string; isMaster: boolean } }) {
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "map" | "routes" | "change log" | "settings">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [partnerAccounts, setPartnerAccounts] = useState<PartnerAccount[]>([]);
   const [partnerInvitations, setPartnerInvitations] = useState<PartnerInvitation[]>([]);
+  const [administrators, setAdministrators] = useState<Administrator[]>([]);
+  const [adminInvitations, setAdminInvitations] = useState<AdminInvitation[]>([]);
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -143,6 +156,9 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setRoutes(data.routes);
       setPartnerAccounts(data.partnerAccounts ?? []);
       setPartnerInvitations(data.partnerInvitations ?? []);
+      setAdministrators(data.administrators ?? []);
+      setAdminInvitations(data.adminInvitations ?? []);
+      setAuditEntries(data.auditLog ?? []);
     }
     setLoading(false);
   };
@@ -205,9 +221,9 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "accounts", "map", "routes"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "accounts", "map", "routes", "change log", "settings"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "map" ? "⌖" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "map" ? "⌖" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
@@ -240,6 +256,8 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
+            {tab === "change log" && <ChangeLog entries={auditEntries} />}
+            {tab === "settings" && <AdminSettings currentUser={user} administrators={administrators} invitations={adminInvitations} onChanged={refresh} setNotice={setNotice} />}
           </>
         )}
       </section>
@@ -477,6 +495,78 @@ function downloadCsv(filename: string, rows: Array<Array<string | number | null>
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function ChangeLog({ entries }: { entries: AuditEntry[] }) {
+  const [query, setQuery] = useState("");
+  const [actorType, setActorType] = useState("");
+  const visible = entries.filter((entry) =>
+    (!actorType || entry.actorType === actorType) &&
+    (!query || `${entry.actorName} ${entry.action} ${entry.entityName} ${entry.details}`.toLowerCase().includes(query.toLowerCase())));
+  return <div className="changeLogWorkspace">
+    <div className="sectionLead"><span>PRIVATE AUDIT TRAIL</span><h2>Change log</h2><p>Database changes made by BakedBoston administrators, bakery and pantry accounts, and system registration flows.</p></div>
+    <div className="filterBar"><label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Person, organization, or action" /></label><label>Actor<select value={actorType} onChange={(event) => setActorType(event.target.value)}><option value="">Everyone</option><option value="admin">Administrators</option><option value="partner">Partners</option><option value="system">System</option></select></label><span>{visible.length} events</span></div>
+    <div className="auditList">{visible.map((entry) => <article key={entry.id}><span className={`auditActor ${entry.actorType}`}>{entry.actorType === "admin" ? "A" : entry.actorType === "partner" ? "P" : "S"}</span><div><strong>{entry.actorName} <b>{entry.action}</b>{entry.entityName ? ` — ${entry.entityName}` : ""}</strong><small>{entry.details || entry.entityType}</small></div><time>{new Date(entry.createdAt).toLocaleString()}</time></article>)}{!visible.length && <div className="filterEmpty">No change-log entries match this filter.</div>}</div>
+  </div>;
+}
+
+function AdminSettings({ currentUser, administrators, invitations, onChanged, setNotice }: {
+  currentUser: { name: string; email: string; isMaster: boolean };
+  administrators: Administrator[]; invitations: AdminInvitation[];
+  onChanged: () => Promise<void>; setNotice: (message: string) => void;
+}) {
+  const [working, setWorking] = useState(false);
+  async function action(payload: Record<string, unknown>) {
+    setWorking(true);
+    const response = await fetch("/api/admin/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => null);
+    setWorking(false);
+    if (!response.ok) {
+      setNotice(data?.error ?? "Could not update administrator settings.");
+      return false;
+    }
+    await onChanged();
+    return data;
+  }
+  async function invite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const email = String(new FormData(event.currentTarget).get("email") ?? "");
+    const data = await action({ action: "invite", email });
+    if (data) {
+      if (!data.emailSent && data.invitationUrl) window.prompt("Email delivery is not configured. Copy this secure admin invitation:", data.invitationUrl);
+      setNotice(data.emailSent ? `Administrator invitation sent to ${email}.` : "Invitation created; copy the link from the dialog.");
+      event.currentTarget.reset();
+    }
+  }
+  async function updateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (await action({ action: "update-profile", ...payload })) {
+      setNotice("Administrator profile updated. Sign in with the new email next time.");
+    }
+  }
+  async function transfer(admin: Administrator) {
+    if (!window.confirm(`Transfer master administrator status to ${admin.displayName}? You will no longer be able to delete administrators.`)) return;
+    if (await action({ action: "transfer-master", adminId: admin.id })) {
+      setNotice(`Master status transferred to ${admin.displayName}.`);
+      window.location.reload();
+    }
+  }
+  async function remove(admin: Administrator) {
+    if (!window.confirm(`Permanently remove administrator access for ${admin.displayName}?`)) return;
+    if (await action({ action: "delete-admin", adminId: admin.id })) setNotice(`${admin.displayName} removed.`);
+  }
+  const pending = invitations.filter((invitation) => !invitation.acceptedAt && new Date(invitation.expiresAt) > new Date());
+  return <div className="settingsWorkspace">
+    <div className="sectionLead"><span>ADMINISTRATION</span><h2>Settings</h2><p>Manage your profile, invite administrators, and protect the required master account.</p></div>
+    <div className="settingsGrid">
+      <form className="settingsCard" onSubmit={updateProfile}><h3>Your administrator profile</h3><label>Display name<input name="displayName" defaultValue={currentUser.name} required /></label><label>Login email<input name="email" type="email" defaultValue={currentUser.email} required /></label><label>New password<input name="newPassword" type="password" minLength={10} placeholder="Leave blank to keep current password" /></label><button className="solidBtn" disabled={working}>Save profile</button></form>
+      <form className="settingsCard" onSubmit={invite}><h3>Invite an administrator</h3><p>Invited administrators receive equivalent database access. Only the master can remove admins or delegate master status.</p><label>Email<input name="email" type="email" required /></label><button className="solidBtn" disabled={working}>Send invitation</button>{pending.map((invitation) => <small key={invitation.id}>Pending: {invitation.email} · expires {new Date(invitation.expiresAt).toLocaleDateString()}</small>)}</form>
+    </div>
+    <div className="tablePanel administratorTable"><table><thead><tr><th>Administrator</th><th>Role</th><th>Status</th><th>Controls</th></tr></thead><tbody>{administrators.map((admin) => <tr key={admin.id}><td><strong>{admin.displayName}</strong><small>{admin.email}</small></td><td><span className={admin.isMaster ? "masterPill" : "activePill"}>{admin.isMaster ? "Master administrator" : "Administrator"}</span></td><td>{admin.active ? "Active" : "Paused"}</td><td><div className="rowActions">{currentUser.isMaster && !admin.isMaster && <><button onClick={() => transfer(admin)}>Make master</button><button className="deleteAction" onClick={() => remove(admin)}>Remove</button></>}</div></td></tr>)}</tbody></table></div>
+  </div>;
 }
 
 function RoutesTable({ routes, compact = false }: { routes: Route[]; compact?: boolean }) {

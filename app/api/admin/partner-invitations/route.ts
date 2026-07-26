@@ -2,10 +2,12 @@ import { createHash, randomBytes } from "crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bakeries, pantries, partnerInvitations } from "../../../../db/schema";
-import { isAdministrator } from "../../../admin-auth";
+import { getAdministrator } from "../../../admin-auth";
+import { writeAudit } from "../../../audit";
 
 export async function POST(request: Request) {
-  if (!(await isAdministrator())) return Response.json({ error: "Sign in required." }, { status: 401 });
+  const actor = await getAdministrator();
+  if (!actor) return Response.json({ error: "Sign in required." }, { status: 401 });
   try {
     const body = await request.json() as Record<string, unknown>;
     const organizationType = String(body.organizationType);
@@ -35,6 +37,11 @@ export async function POST(request: Request) {
     const invitationUrl = `${origin}/register/partner?token=${encodeURIComponent(token)}`;
     const emailSent = await sendInvitationEmail({
       to: accountEmail, organizationName: organization.name, organizationType, invitationUrl,
+    });
+    await writeAudit({
+      actorType: "admin", actorId: actor.id, actorName: actor.displayName,
+      action: "invited partner account", entityType: organizationType,
+      entityId: organizationId, entityName: organization.name, details: accountEmail,
     });
     return Response.json({ ok: true, emailSent, invitationUrl: emailSent ? undefined : invitationUrl });
   } catch (error) {
