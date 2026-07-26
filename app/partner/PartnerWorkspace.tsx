@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import "../availability-calendar.css";
+import "../profile-layout.css";
 
 type Kind = "bakery" | "pantry";
 type Organization = {
