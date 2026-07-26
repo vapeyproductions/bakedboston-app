@@ -63,3 +63,16 @@ export const partnerAccounts = pgTable("partner_accounts", {
 }, (table) => [
   uniqueIndex("partner_accounts_email_unique").on(table.accountEmail),
 ]);
+
+export const partnerInvitations = pgTable("partner_invitations", {
+  id: serial("id").primaryKey(),
+  organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),
+  organizationId: integer("organization_id").notNull(),
+  accountEmail: text("account_email").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("partner_invitations_token_unique").on(table.tokenHash),
+]);

@@ -1,8 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { bakeries, pantries, partnerAccounts, rescueRoutes } from "../../../db/schema";
+import { bakeries, pantries, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
 import { isAdministrator } from "../../admin-auth";
-import { hashPartnerPassword } from "../../partner-auth";
 
 async function authorized() {
   return isAdministrator();
@@ -12,7 +11,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -26,9 +25,18 @@ export async function GET() {
       contactPhone: partnerAccounts.contactPhone,
       active: partnerAccounts.active,
     }).from(partnerAccounts).orderBy(desc(partnerAccounts.createdAt)),
+    db.select({
+      id: partnerInvitations.id,
+      organizationType: partnerInvitations.organizationType,
+      organizationId: partnerInvitations.organizationId,
+      accountEmail: partnerInvitations.accountEmail,
+      expiresAt: partnerInvitations.expiresAt,
+      acceptedAt: partnerInvitations.acceptedAt,
+      createdAt: partnerInvitations.createdAt,
+    }).from(partnerInvitations).orderBy(desc(partnerInvitations.createdAt)),
   ]);
 
-  return Response.json({ bakeries: bakeryRows, pantries: pantryRows, routes: routeRows, partnerAccounts: accountRows });
+  return Response.json({ bakeries: bakeryRows, pantries: pantryRows, routes: routeRows, partnerAccounts: accountRows, partnerInvitations: invitationRows });
 }
 
 export async function POST(request: Request) {
@@ -56,7 +64,6 @@ export async function POST(request: Request) {
       readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
       arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).returning();
-      await createInitialAccount(db, body, "bakery", record.id);
       return Response.json({ record }, { status: 201 });
     }
 
@@ -79,7 +86,6 @@ export async function POST(request: Request) {
         latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).returning();
-      await createInitialAccount(db, body, "pantry", record.id);
       return Response.json({ record }, { status: 201 });
     }
 
@@ -120,7 +126,6 @@ export async function PATCH(request: Request) {
         arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).where(eq(bakeries.id, id)).returning();
       if (!record) return Response.json({ error: "Bakery not found." }, { status: 404 });
-      await upsertInitialAccount(db, body, "bakery", id);
       return Response.json({ record });
     }
 
@@ -144,7 +149,6 @@ export async function PATCH(request: Request) {
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).where(eq(pantries.id, id)).returning();
       if (!record) return Response.json({ error: "Pantry not found." }, { status: 404 });
-      await upsertInitialAccount(db, body, "pantry", id);
       return Response.json({ record });
     }
 
@@ -199,59 +203,6 @@ function optionalNumber(value: unknown) {
   if (value === "" || value === null || value === undefined) return null;
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
-}
-
-type Database = ReturnType<typeof getDb>;
-
-async function createInitialAccount(db: Database, body: Record<string, string | number | boolean>, organizationType: "bakery" | "pantry", organizationId: number) {
-  const accountEmail = clean(body.accountEmail).toLowerCase();
-  const password = clean(body.accountPassword);
-  if (!accountEmail && !password) return;
-  if (!accountEmail || !password) throw new Error("Both account email and temporary password are required.");
-  await db.insert(partnerAccounts).values({
-    organizationType,
-    organizationId,
-    accountEmail: validateEmail(accountEmail, "Account email"),
-    passwordHash: hashPartnerPassword(password),
-    administratorName: required(body.administratorName || body.contactName, "Administrator name"),
-    contactEmail: validateEmail(required(body.administratorContactEmail || body.contactEmail, "Administrator contact email"), "Administrator contact email"),
-    contactPhone: required(body.administratorContactPhone || body.contactPhone, "Administrator contact phone"),
-  });
-}
-
-async function upsertInitialAccount(db: Database, body: Record<string, string | number | boolean>, organizationType: "bakery" | "pantry", organizationId: number) {
-  const accountEmail = clean(body.accountEmail).toLowerCase();
-  const password = clean(body.accountPassword);
-  if (!accountEmail) return;
-  const [existing] = await db.select().from(partnerAccounts)
-    .where(and(
-      eq(partnerAccounts.organizationId, organizationId),
-      eq(partnerAccounts.organizationType, organizationType),
-    ));
-  const values = {
-    accountEmail: validateEmail(accountEmail, "Account email"),
-    administratorName: required(body.administratorName || body.contactName, "Administrator name"),
-    contactEmail: validateEmail(required(body.administratorContactEmail || body.contactEmail, "Administrator contact email"), "Administrator contact email"),
-    contactPhone: required(body.administratorContactPhone || body.contactPhone, "Administrator contact phone"),
-    updatedAt: new Date(),
-  };
-  if (existing && existing.organizationType === organizationType) {
-    await db.update(partnerAccounts).set({
-      ...values,
-      ...(password ? { passwordHash: hashPartnerPassword(password) } : {}),
-    }).where(eq(partnerAccounts.id, existing.id));
-  } else {
-    if (!password) throw new Error("A temporary password is required when creating the first account.");
-    await db.insert(partnerAccounts).values({
-      organizationType, organizationId, ...values, passwordHash: hashPartnerPassword(password),
-    });
-  }
-}
-
-function validateEmail(value: string, label: string) {
-  const email = value.toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(`${label} is invalid.`);
-  return email;
 }
 
 function parseBakerySchedule(body: Record<string, string | number | boolean>) {

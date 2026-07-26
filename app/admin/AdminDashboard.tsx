@@ -20,6 +20,10 @@ type PartnerAccount = {
   id: number; organizationType: PartnerKind; organizationId: number; accountEmail: string;
   administratorName: string; contactEmail: string; contactPhone: string; active: boolean;
 };
+type PartnerInvitation = {
+  id: number; organizationType: PartnerKind; organizationId: number; accountEmail: string;
+  expiresAt: string; acceptedAt: string | null; createdAt: string;
+};
 type PartnerKind = "bakery" | "pantry";
 type Partner = Bakery | Pantry;
 type DayHours = { open: string; close: string; latestArrival: string };
@@ -123,6 +127,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [partnerAccounts, setPartnerAccounts] = useState<PartnerAccount[]>([]);
+  const [partnerInvitations, setPartnerInvitations] = useState<PartnerInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -137,6 +142,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setPantries(data.pantries);
       setRoutes(data.routes);
       setPartnerAccounts(data.partnerAccounts ?? []);
+      setPartnerInvitations(data.partnerInvitations ?? []);
     }
     setLoading(false);
   };
@@ -229,16 +235,16 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         {loading ? <div className="adminEmpty">Loading your network…</div> : (
           <>
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
-            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
-            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} />}
-            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} />}
+            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
           </>
         )}
       </section>
 
-      {modal && <RecordModal kind={modal.kind} record={modal.record} account={modal.record ? partnerAccounts.find((account) => account.organizationType === modal.kind && account.organizationId === modal.record!.id) : undefined} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
+      {modal && <RecordModal kind={modal.kind} record={modal.record} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
     </main>
   );
 }
@@ -272,26 +278,34 @@ function Progress({ label, value, target, color }: { label: string; value: numbe
   return <div className="progress"><div><strong>{label}</strong><span>{value} of {target}</span></div><div className="bar"><i style={{ width: `${Math.min(value / target, 1) * 100}%`, background: color }} /></div></div>;
 }
 
-function PartnerTable({ type, records, accounts, onAdd, onEdit, onDelete, deletingId }: {
+function PartnerTable({ type, records, accounts, invitations, onChanged, setNotice, onAdd, onEdit, onDelete, deletingId }: {
   type: PartnerKind; records: Partner[]; onAdd: () => void; onEdit: (record: Partner) => void;
-  accounts: PartnerAccount[]; onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
+  accounts: PartnerAccount[]; invitations: PartnerInvitation[]; onChanged: () => Promise<void>;
+  setNotice: (message: string) => void; onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
 }) {
   const [filterDay, setFilterDay] = useState("");
   const [filterTime, setFilterTime] = useState("");
   const [sortOrder, setSortOrder] = useState<"az" | "za">("az");
+  const [registration, setRegistration] = useState<"" | "registered" | "unregistered">("");
   const visibleRecords = useMemo(() => records
     .filter((record) => type === "bakery"
       ? bakeryMatchesAvailability(record as Bakery, filterDay, filterTime)
       : pantryMatchesAvailability(record as Pantry, filterDay, filterTime))
+    .filter((record) => {
+      if (!registration) return true;
+      const isRegistered = accounts.some((account) => account.organizationType === type && account.organizationId === record.id);
+      return registration === "registered" ? isRegistered : !isRegistered;
+    })
     .sort((left, right) => sortOrder === "az"
       ? left.name.localeCompare(right.name)
-      : right.name.localeCompare(left.name)), [records, type, filterDay, filterTime, sortOrder]);
+      : right.name.localeCompare(left.name)), [records, accounts, type, filterDay, filterTime, registration, sortOrder]);
 
   if (!records.length) return <div className="adminEmpty"><span>{type === "bakery" ? "B" : "P"}</span><h2>No {type === "bakery" ? "bakeries" : "pantries"} yet</h2><p>Add the first organization you plan to onboard.</p><button className="solidBtn" onClick={onAdd}>+ Add {type}</button></div>;
   return <><div className="filterBar">
     <label>Open day<select value={filterDay} onChange={(event) => setFilterDay(event.target.value)}><option value="">Any day</option>{days.map((day) => <option value={day} key={day}>{day}</option>)}</select></label>
     <label>Open at<select value={filterTime} onChange={(event) => setFilterTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
     <label>Alphabetical<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as "az" | "za")}><option value="az">A to Z</option><option value="za">Z to A</option></select></label>
+    <label>Registration<select value={registration} onChange={(event) => setRegistration(event.target.value as typeof registration)}><option value="">All profiles</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option></select></label>
     <span>{visibleRecords.length} of {records.length} shown</span>
   </div>
   {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Account administrators</th><th>Organization phones</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Actions</th></tr></thead><tbody>
@@ -300,11 +314,37 @@ function PartnerTable({ type, records, accounts, onAdd, onEdit, onDelete, deleti
       const schedule = pantry ? parseSchedule(pantry) : null;
       const bakerySchedule = type === "bakery" ? parseBakerySchedule(record as Bakery) : null;
       const organizationAccounts = accounts.filter((account) => account.organizationType === type && account.organizationId === record.id);
-      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>{account.administratorName} · {account.contactEmail} · {account.contactPhone}</small></div>) : <small>No login account assigned</small>}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
+      const pendingInvitation = invitations.find((invite) => invite.organizationType === type && invite.organizationId === record.id && !invite.acceptedAt);
+      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>{account.administratorName} · {account.contactEmail} · {account.contactPhone}</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
         : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>}</>;
+}
+
+function ConnectAccount({ organizationType, organizationId, pendingEmail, onChanged, setNotice }: {
+  organizationType: PartnerKind; organizationId: number; pendingEmail?: string;
+  onChanged: () => Promise<void>; setNotice: (message: string) => void;
+}) {
+  const [email, setEmail] = useState(pendingEmail ?? "");
+  const [sending, setSending] = useState(false);
+  async function connect() {
+    setSending(true);
+    const response = await fetch("/api/admin/partner-invitations", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationType, organizationId, accountEmail: email }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      if (!data.emailSent && data.invitationUrl) {
+        window.prompt("Email delivery is not configured yet. Copy this secure registration link to send manually:", data.invitationUrl);
+      }
+      setNotice(data.emailSent ? `Invitation sent to ${email}.` : "Invitation created; copy the registration link from the dialog.");
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not connect account.");
+    setSending(false);
+  }
+  return <div className="connectAccount"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Account email" /><button onClick={connect} disabled={sending || !email}>{sending ? "Sending…" : pendingEmail ? "Resend invitation" : "Connect account"}</button>{pendingEmail && <small>Invitation pending for {pendingEmail}</small>}</div>;
 }
 
 function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, setNotice }: {
@@ -316,13 +356,20 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
     event.preventDefault();
     setAdding(true);
     const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
-    const response = await fetch("/api/admin/partner-accounts", {
+    const [organizationType, organizationId] = String(payload.organizationKey ?? "").split(":");
+    payload.organizationType = organizationType;
+    payload.organizationId = organizationId;
+    delete payload.organizationKey;
+    const response = await fetch("/api/admin/partner-invitations", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => null);
     if (response.ok) {
       event.currentTarget.reset();
-      setNotice("Business administrator account created.");
+      if (!data.emailSent && data.invitationUrl) {
+        window.prompt("Email delivery is not configured yet. Copy this secure registration link to send manually:", data.invitationUrl);
+      }
+      setNotice(data.emailSent ? "Business administrator invitation sent." : "Invitation created; copy the registration link from the dialog.");
       await onChanged();
     } else setNotice(data?.error ?? "Could not create account.");
     setAdding(false);
@@ -341,17 +388,12 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
   return <div className="accountsWorkspace">
     <form className="newAccountPanel" onSubmit={addAccount}>
       <div className="panelTitle"><div><span>BUSINESS ADMINISTRATORS</span><h2>Add account access</h2></div></div>
-      <p>Each person receives an individual login. Passwords are hashed and cannot be retrieved after creation.</p>
+      <p>Send an invitation to the chosen account email. The recipient creates their own password through a single-use registration link.</p>
       <div className="accountFormGrid">
-        <label>Organization type<select name="organizationType" required><option value="bakery">Bakery</option><option value="pantry">Pantry</option></select></label>
-        <label>Organization<select name="organizationId" required><optgroup label="Bakeries">{bakeries.map((record) => <option key={`b-${record.id}`} value={record.id}>{record.name}</option>)}</optgroup><optgroup label="Pantries">{pantries.map((record) => <option key={`p-${record.id}`} value={record.id}>{record.name}</option>)}</optgroup></select></label>
-        <label>Administrator name<input name="administratorName" required /></label>
+        <label className="wide">Organization<select name="organizationKey" required><optgroup label="Bakeries">{bakeries.map((record) => <option key={`b-${record.id}`} value={`bakery:${record.id}`}>{record.name}</option>)}</optgroup><optgroup label="Pantries">{pantries.map((record) => <option key={`p-${record.id}`} value={`pantry:${record.id}`}>{record.name}</option>)}</optgroup></select></label>
         <label>Account email<input name="accountEmail" type="email" required /></label>
-        <label>Contact email<input name="contactEmail" type="email" required /></label>
-        <label>Contact phone<input name="contactPhone" type="tel" required /></label>
-        <label className="wide">Temporary password<input name="password" type="password" minLength={10} required /></label>
       </div>
-      <button className="solidBtn" disabled={adding}>{adding ? "Creating…" : "Create administrator account"}</button>
+      <button className="solidBtn" disabled={adding}>{adding ? "Sending…" : "Send account invitation"}</button>
     </form>
     <div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Administrator contact</th><th>Status</th><th>Action</th></tr></thead><tbody>
       {accounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><strong>{organizationName(account)}</strong><small>{account.organizationType}</small></td><td><strong>{account.administratorName}</strong><small>{account.contactEmail} · {account.contactPhone}</small></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
@@ -360,14 +402,22 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
   </div>;
 }
 
-function MapWorkspace({ bakeries, pantries }: { bakeries: Bakery[]; pantries: Pantry[] }) {
+function MapWorkspace({ bakeries, pantries, accounts }: { bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[] }) {
   const [day, setDay] = useState("");
   const [time, setTime] = useState("");
   const [showBakeries, setShowBakeries] = useState(true);
   const [showPantries, setShowPantries] = useState(true);
   const [showRadius, setShowRadius] = useState(false);
-  const mappedBakeries = bakeries.filter((bakery) => bakery.latitude != null && bakery.longitude != null);
-  const mappedPantries = pantries.filter((pantry) => pantry.latitude != null && pantry.longitude != null);
+  const [registration, setRegistration] = useState<"" | "registered" | "unregistered">("");
+  const registrationMatch = (type: PartnerKind, id: number) => {
+    if (!registration) return true;
+    const registered = accounts.some((account) => account.organizationType === type && account.organizationId === id);
+    return registration === "registered" ? registered : !registered;
+  };
+  const filteredBakeries = bakeries.filter((bakery) => registrationMatch("bakery", bakery.id));
+  const filteredPantries = pantries.filter((pantry) => registrationMatch("pantry", pantry.id));
+  const mappedBakeries = filteredBakeries.filter((bakery) => bakery.latitude != null && bakery.longitude != null);
+  const mappedPantries = filteredPantries.filter((pantry) => pantry.latitude != null && pantry.longitude != null);
 
   const distanceAnalysis = useMemo(() => {
     const pairs = mappedPantries.flatMap((pantry) => mappedBakeries.map((bakery) => ({
@@ -400,12 +450,13 @@ function MapWorkspace({ bakeries, pantries }: { bakeries: Bakery[]; pantries: Pa
   return <div className="mapWorkspace">
     <div className="mapToolbar">
       <label>Open day<select value={day} onChange={(event) => setDay(event.target.value)}><option value="">Any day</option>{days.map((filterDay) => <option key={filterDay} value={filterDay}>{filterDay}</option>)}</select></label>
-      <label>Open at<select value={time} onChange={(event) => setTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+    <label>Open at<select value={time} onChange={(event) => setTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+    <label>Registration<select value={registration} onChange={(event) => setRegistration(event.target.value as typeof registration)}><option value="">All profiles</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option></select></label>
       <label className="mapCheck"><input type="checkbox" checked={showBakeries} onChange={(event) => setShowBakeries(event.target.checked)} /> Bakeries</label>
       <label className="mapCheck"><input type="checkbox" checked={showPantries} onChange={(event) => setShowPantries(event.target.checked)} /> Pantries</label>
       <label className="mapCheck radiusCheck"><input type="checkbox" checked={showRadius} disabled={!distanceAnalysis.averageNearest} onChange={(event) => setShowRadius(event.target.checked)} /> Target radius</label>
     </div>
-    <AdminMap bakeries={bakeries} pantries={pantries} showBakeries={showBakeries} showPantries={showPantries} showRadius={showRadius} day={day} time={time} bakeryMatches={bakeryMatchesAvailability} pantryMatches={pantryMatchesAvailability} />
+    <AdminMap bakeries={filteredBakeries} pantries={filteredPantries} showBakeries={showBakeries} showPantries={showPantries} showRadius={showRadius} day={day} time={time} bakeryMatches={bakeryMatchesAvailability} pantryMatches={pantryMatchesAvailability} />
     <div className="mapAnalysis">
       <article><span>MAPPED</span><strong>{mappedBakeries.length} bakeries · {mappedPantries.length} pantries</strong><small>{bakeries.length - mappedBakeries.length + pantries.length - mappedPantries.length} records need coordinates</small></article>
       <article><span>TARGET RADIUS</span><strong>{distanceAnalysis.averageNearest ? `${distanceAnalysis.averageNearest.toFixed(2)} mi` : "—"}</strong><small>Average distance from each pantry to its nearest bakery</small></article>
@@ -439,8 +490,8 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="smallEmpty"><span>↗</span><div><strong>{title}</strong><p>{body}</p></div></div>;
 }
 
-function RecordModal({ kind, record, account, saving, onClose, onSave }: {
-  kind: PartnerKind; record?: Partner; account?: PartnerAccount; saving: boolean; onClose: () => void;
+function RecordModal({ kind, record, saving, onClose, onSave }: {
+  kind: PartnerKind; record?: Partner; saving: boolean; onClose: () => void;
   onSave: (e: FormEvent<HTMLFormElement>) => void;
 }) {
   const initialDays = record?.recurringDays.split(",").map((day) => day.trim()).filter(Boolean) ?? [];
@@ -477,13 +528,6 @@ function RecordModal({ kind, record, account, saving, onClose, onSave }: {
         <label>Legacy contact phone<input name="contactPhone" type="tel" defaultValue={record?.contactPhone} /></label>
         <label>Displayed business phone<input name="businessPhone" type="tel" defaultValue={record?.businessPhone} /></label>
         <label>Delivery notification number<input name="notificationPhone" type="tel" defaultValue={record?.notificationPhone} /></label>
-        <fieldset className="wide accountFields"><legend>{account ? "Primary business administrator" : "Create first business administrator"}</legend><p>Account email is used only for login. Contact email and phone are used by BakedBoston for one-to-one administrative communication. Passwords are stored as one-way hashes and can never be viewed.</p>
-          <label>Administrator name<input name="administratorName" defaultValue={account?.administratorName ?? record?.contactName} /></label>
-          <label>Account email<input name="accountEmail" type="email" defaultValue={account?.accountEmail} /></label>
-          <label>Administrator contact email<input name="administratorContactEmail" type="email" defaultValue={account?.contactEmail ?? record?.contactEmail} /></label>
-          <label>Administrator contact phone<input name="administratorContactPhone" type="tel" defaultValue={account?.contactPhone ?? record?.contactPhone} /></label>
-          <label className="wide">{account ? "Reset password (optional)" : "Temporary password"}<input name="accountPassword" type="password" minLength={10} required={!record && Boolean(account?.accountEmail)} placeholder={account ? "Leave blank to keep current password" : "At least 10 characters"} /></label>
-        </fieldset>
         {kind === "bakery" ? <fieldset className="wide bakeryHours"><legend>Pickup availability by day</legend><p>Turn on each pickup day and enter that day’s individual ready time and pickup deadline.</p>
           {days.map((day) => {
             const enabled = bakeryDays.includes(day);

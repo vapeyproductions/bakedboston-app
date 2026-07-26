@@ -15,6 +15,13 @@
       "when": 1785089937224,
       "tag": "0001_sturdy_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785092462915,
+      "tag": "0002_charming_franklin_richards",
+      "breakpoints": true
     }
   ]
 }
