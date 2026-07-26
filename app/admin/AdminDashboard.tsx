@@ -17,7 +17,11 @@ type Pantry = {
 type PartnerKind = "bakery" | "pantry";
 type Partner = Bakery | Pantry;
 type DayHours = { open: string; close: string; latestArrival: string };
-type PantrySchedule = Partial<Record<string, DayHours>>;
+type ReceivingWindow = DayHours & {
+  recurrence: "weekly" | "monthly";
+  day: string;
+  ordinal: number | null;
+};
 type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
   scheduledArrival: string; status: "reserved" | "ongoing" | "completed";
@@ -25,18 +29,32 @@ type Route = {
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function parseSchedule(pantry: Pantry): PantrySchedule {
+function parseSchedule(pantry: Pantry): ReceivingWindow[] {
   try {
-    const open = JSON.parse(pantry.openTime) as Record<string, string>;
-    const close = JSON.parse(pantry.closeTime) as Record<string, string>;
-    const latest = JSON.parse(pantry.latestArrival) as Record<string, string>;
-    return Object.fromEntries(Object.keys(open).map((day) => [day, {
-      open: open[day], close: close[day], latestArrival: latest[day],
-    }]));
+    const open = JSON.parse(pantry.openTime) as Record<string, string> | Array<{ recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; time: string }>;
+    const close = JSON.parse(pantry.closeTime) as Record<string, string> | Array<{ time: string }>;
+    const latest = JSON.parse(pantry.latestArrival) as Record<string, string> | Array<{ time: string }>;
+    if (Array.isArray(open) && Array.isArray(close) && Array.isArray(latest)) {
+      return open.map((window, index) => ({
+        recurrence: window.recurrence,
+        day: window.day,
+        ordinal: window.ordinal,
+        open: window.time,
+        close: close[index]?.time ?? "",
+        latestArrival: latest[index]?.time ?? "",
+      }));
+    }
+    const legacyOpen = open as Record<string, string>;
+    return Object.keys(legacyOpen).map((day) => ({
+      recurrence: "weekly" as const, day, ordinal: null,
+      open: legacyOpen[day], close: (close as Record<string, string>)[day],
+      latestArrival: (latest as Record<string, string>)[day],
+    }));
   } catch {
-    return Object.fromEntries(pantry.recurringDays.split(",").map((day) => [day.trim(), {
+    return pantry.recurringDays.split(",").map((day) => ({
+      recurrence: "weekly" as const, day: day.trim(), ordinal: null,
       open: pantry.openTime, close: pantry.closeTime, latestArrival: pantry.latestArrival,
-    }]));
+    }));
   }
 }
 
@@ -45,6 +63,14 @@ function formatTime(value: string) {
   const [hours, minutes] = value.split(":").map(Number);
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" })
     .format(new Date(2000, 0, 1, hours, minutes));
+}
+
+const ordinalLabels = ["", "1st", "2nd", "3rd", "4th", "5th"];
+
+function describeWindow(window: ReceivingWindow) {
+  return window.recurrence === "monthly"
+    ? `${ordinalLabels[window.ordinal ?? 1]} ${window.day} monthly`
+    : `Every ${window.day}`;
 }
 
 export default function AdminDashboard({ user }: { user: { name: string; email: string } }) {
@@ -205,7 +231,7 @@ function PartnerTable({ type, records, onAdd, onEdit, onDelete, deletingId }: {
       const pantry = type === "pantry" ? record as Pantry : null;
       const schedule = pantry ? parseSchedule(pantry) : null;
       return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small></td><td>{record.recurringDays}</td><td>{pantry && schedule
-        ? <div className="hoursSummary">{days.filter((day) => schedule[day]).map((day) => <small key={day}><b>{day}</b> {formatTime(schedule[day]!.open)}–{formatTime(schedule[day]!.close)} · latest {formatTime(schedule[day]!.latestArrival)}</small>)}</div>
+        ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
         : `${formatTime((record as Bakery).readyTime)}–${formatTime((record as Bakery).arrivalDeadline)}`}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><span className="activePill">Active</span></td><td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>;
@@ -226,14 +252,24 @@ function RecordModal({ kind, record, saving, onClose, onSave }: {
   kind: PartnerKind; record?: Partner; saving: boolean; onClose: () => void;
   onSave: (e: FormEvent<HTMLFormElement>) => void;
 }) {
-  const pantrySchedule = kind === "pantry" && record ? parseSchedule(record as Pantry) : {};
   const initialDays = record?.recurringDays.split(",").map((day) => day.trim()).filter(Boolean) ?? [];
-  const [enabledDays, setEnabledDays] = useState<string[]>(initialDays);
-  const toggleDay = (day: string, enabled: boolean) => {
-    setEnabledDays((current) => enabled
-      ? [...current, day]
-      : current.filter((currentDay) => currentDay !== day));
+  const existingWindows = kind === "pantry" && record ? parseSchedule(record as Pantry) : [];
+  const displayWindows = existingWindows.map((window) => ({
+    ...window,
+    open: formatTime(window.open),
+    close: formatTime(window.close),
+    latestArrival: formatTime(window.latestArrival),
+  }));
+  const [pantryWindows, setPantryWindows] = useState<ReceivingWindow[]>(displayWindows.length ? displayWindows : [{
+    recurrence: "weekly", day: "Mon", ordinal: null, open: "", close: "", latestArrival: "",
+  }]);
+  const updateWindow = (index: number, patch: Partial<ReceivingWindow>) => {
+    setPantryWindows((current) => current.map((window, windowIndex) => windowIndex === index ? { ...window, ...patch } : window));
   };
+  const addWindow = () => setPantryWindows((current) => [...current, {
+    recurrence: "weekly", day: "Mon", ordinal: null, open: "", close: "", latestArrival: "",
+  }]);
+  const removeWindow = (index: number) => setPantryWindows((current) => current.filter((_, windowIndex) => windowIndex !== index));
 
   return <div className="modalBackdrop" role="presentation"><div className="recordModal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div className="modalTitle"><div><span>{record ? "EDIT PARTNER" : "NEW PARTNER"}</span><h2 id="modal-title">{record ? "Edit" : "Add"} a {kind}</h2></div><button onClick={onClose} aria-label="Close">×</button></div>
@@ -253,18 +289,20 @@ function RecordModal({ kind, record, saving, onClose, onSave }: {
             (form.elements.namedItem("recurringDays") as HTMLInputElement).value = selected.join(", ");
           }
         }} /><span>{day}</span></label>)}</div><input type="hidden" name="recurringDays" required defaultValue={record?.recurringDays} /></fieldset>}
-        {kind === "bakery" ? <><label>Ready time<input name="readyTime" type="time" required defaultValue={(record as Bakery | undefined)?.readyTime} /></label><label>Latest permitted arrival<input name="arrivalDeadline" type="time" required defaultValue={(record as Bakery | undefined)?.arrivalDeadline} /></label></> :
-          <><fieldset className="wide dailyHours"><legend>Receiving hours by day</legend><p>Turn on each day the pantry accepts deliveries. The latest arrival can be earlier than closing.</p>
-            {days.map((day) => {
-              const enabled = enabledDays.includes(day);
-              return <div className={`dayHoursRow ${enabled ? "enabled" : ""}`} key={day}>
-                <label className="dayToggle"><input type="checkbox" name={`day_${day}`} checked={enabled} onChange={(event) => toggleDay(day, event.target.checked)} /><span>{day}</span></label>
-                <label>Opens<input name={`openTime_${day}`} aria-label={`${day} opening time`} type="text" inputMode="text" defaultValue={pantrySchedule[day]?.open ? formatTime(pantrySchedule[day]!.open) : ""} placeholder="9:00 AM" disabled={!enabled} required={enabled} /></label>
-                <label>Closes<input name={`closeTime_${day}`} aria-label={`${day} closing time`} type="text" inputMode="text" defaultValue={pantrySchedule[day]?.close ? formatTime(pantrySchedule[day]!.close) : ""} placeholder="5:00 PM" disabled={!enabled} required={enabled} /></label>
-                <label>Latest arrival<input name={`latestArrival_${day}`} aria-label={`${day} latest arrival`} type="text" inputMode="text" defaultValue={pantrySchedule[day]?.latestArrival ? formatTime(pantrySchedule[day]!.latestArrival) : ""} placeholder="4:30 PM" disabled={!enabled} required={enabled} /></label>
-              </div>;
-            })}
-          </fieldset><label className="wide">Deliveries in last 7 days<input name="deliveriesSevenDays" type="number" min="0" defaultValue={(record as Pantry | undefined)?.deliveriesSevenDays ?? 0} /></label></>}
+        {kind === "bakery" ? <><label>Ready time<input name="readyTime" type="text" inputMode="text" placeholder="3:00 PM" required defaultValue={(record as Bakery | undefined)?.readyTime ? formatTime((record as Bakery).readyTime) : ""} /></label><label>Pickup deadline<input name="arrivalDeadline" type="text" inputMode="text" placeholder="6:00 PM" required defaultValue={(record as Bakery | undefined)?.arrivalDeadline ? formatTime((record as Bakery).arrivalDeadline) : ""} /></label></> :
+          <><fieldset className="wide receivingWindows"><legend>Receiving schedule</legend><p>Add as many windows as needed. A pantry can have two windows on one day or rules such as “2nd Saturday monthly.”</p>
+            <input type="hidden" name="windowCount" value={pantryWindows.length} />
+            {pantryWindows.map((window, index) => <div className="receivingWindow" key={index}>
+              <div className="windowHeading"><strong>Window {index + 1}</strong>{pantryWindows.length > 1 && <button type="button" onClick={() => removeWindow(index)}>Remove</button>}</div>
+              <label>Repeats<select name={`windowRecurrence_${index}`} value={window.recurrence} onChange={(event) => updateWindow(index, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? (window.ordinal ?? 1) : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>
+              {window.recurrence === "monthly" && <label>Occurrence<select name={`windowOrdinal_${index}`} value={window.ordinal ?? 1} onChange={(event) => updateWindow(index, { ordinal: Number(event.target.value) })}>{ordinalLabels.slice(1).map((label, ordinalIndex) => <option key={label} value={ordinalIndex + 1}>{label}</option>)}</select></label>}
+              <label>Day<select name={`windowDay_${index}`} value={window.day} onChange={(event) => updateWindow(index, { day: event.target.value })}>{days.map((day) => <option key={day} value={day}>{day}</option>)}</select></label>
+              <label>Opens<input name={`windowOpen_${index}`} type="text" inputMode="text" value={window.open} onChange={(event) => updateWindow(index, { open: event.target.value })} placeholder="9:00 AM" required /></label>
+              <label>Closes<input name={`windowClose_${index}`} type="text" inputMode="text" value={window.close} onChange={(event) => updateWindow(index, { close: event.target.value })} placeholder="5:00 PM" required /></label>
+              <label>Latest arrival<input name={`windowLatest_${index}`} type="text" inputMode="text" value={window.latestArrival} onChange={(event) => updateWindow(index, { latestArrival: event.target.value })} placeholder="4:30 PM" required /></label>
+            </div>)}
+            <button className="addWindowButton" type="button" onClick={addWindow}>+ Add another receiving window</button>
+          </fieldset><label className="wide">Deliveries during recent receiving opportunities<input name="deliveriesSevenDays" type="number" min="0" defaultValue={(record as Pantry | undefined)?.deliveriesSevenDays ?? 0} /></label></>}
       </div>
       <div className="modalActions"><button type="button" onClick={onClose}>Cancel</button><button className="solidBtn" disabled={saving}>{saving ? "Saving…" : `${record ? "Update" : "Save"} ${kind}`}</button></div>
     </form>

@@ -29,6 +29,9 @@ export async function POST(request: Request) {
     const db = getDb();
 
     if (kind === "bakery") {
+      const readyTime = normalizeTime(body.readyTime, "Ready time");
+      const arrivalDeadline = normalizeTime(body.arrivalDeadline, "Pickup deadline");
+      if (readyTime >= arrivalDeadline) throw new Error("Pickup deadline must be after the ready time.");
       const [record] = await db.insert(bakeries).values({
       name: required(body.name, "Bakery name"),
       address: required(body.address, "Address"),
@@ -38,15 +41,15 @@ export async function POST(request: Request) {
       contactEmail: clean(body.contactEmail),
       contactPhone: clean(body.contactPhone),
       recurringDays: required(body.recurringDays, "Recurring days"),
-      readyTime: required(body.readyTime, "Ready time"),
-      arrivalDeadline: required(body.arrivalDeadline, "Arrival deadline"),
+      readyTime,
+      arrivalDeadline,
       }).returning();
       return Response.json({ record }, { status: 201 });
     }
 
     if (kind === "pantry") {
       const schedule = parsePantrySchedule(body);
-      const activeDays = Object.keys(schedule);
+      const activeDays = [...new Set(schedule.map((window) => window.day))];
       const [record] = await db.insert(pantries).values({
         name: required(body.name, "Pantry name"),
         address: required(body.address, "Address"),
@@ -56,9 +59,9 @@ export async function POST(request: Request) {
         contactEmail: clean(body.contactEmail),
         contactPhone: clean(body.contactPhone),
         recurringDays: activeDays.join(", "),
-        openTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].open]))),
-        closeTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].close]))),
-        latestArrival: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].latestArrival]))),
+        openTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
+        closeTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
+        latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).returning();
       return Response.json({ record }, { status: 201 });
@@ -84,6 +87,9 @@ export async function PATCH(request: Request) {
 
     const db = getDb();
     if (kind === "bakery") {
+      const readyTime = normalizeTime(body.readyTime, "Ready time");
+      const arrivalDeadline = normalizeTime(body.arrivalDeadline, "Pickup deadline");
+      if (readyTime >= arrivalDeadline) throw new Error("Pickup deadline must be after the ready time.");
       const [record] = await db.update(bakeries).set({
         name: required(body.name, "Bakery name"),
         address: required(body.address, "Address"),
@@ -93,8 +99,8 @@ export async function PATCH(request: Request) {
         contactEmail: clean(body.contactEmail),
         contactPhone: clean(body.contactPhone),
         recurringDays: required(body.recurringDays, "Recurring days"),
-        readyTime: required(body.readyTime, "Ready time"),
-        arrivalDeadline: required(body.arrivalDeadline, "Arrival deadline"),
+        readyTime,
+        arrivalDeadline,
       }).where(eq(bakeries.id, id)).returning();
       if (!record) return Response.json({ error: "Bakery not found." }, { status: 404 });
       return Response.json({ record });
@@ -102,7 +108,7 @@ export async function PATCH(request: Request) {
 
     if (kind === "pantry") {
       const schedule = parsePantrySchedule(body);
-      const activeDays = Object.keys(schedule);
+      const activeDays = [...new Set(schedule.map((window) => window.day))];
       const [record] = await db.update(pantries).set({
         name: required(body.name, "Pantry name"),
         address: required(body.address, "Address"),
@@ -112,9 +118,9 @@ export async function PATCH(request: Request) {
         contactEmail: clean(body.contactEmail),
         contactPhone: clean(body.contactPhone),
         recurringDays: activeDays.join(", "),
-        openTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].open]))),
-        closeTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].close]))),
-        latestArrival: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].latestArrival]))),
+        openTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
+        closeTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
+        latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).where(eq(pantries.id, id)).returning();
       if (!record) return Response.json({ error: "Pantry not found." }, { status: 404 });
@@ -166,22 +172,57 @@ function optionalNumber(value: unknown) {
   return Number.isFinite(result) ? result : null;
 }
 
-function parsePantrySchedule(body: Record<string, string | number | boolean>) {
+type ReceivingWindow = {
+  recurrence: "weekly" | "monthly";
+  day: string;
+  ordinal: number | null;
+  open: string;
+  close: string;
+  latestArrival: string;
+};
+
+function parsePantrySchedule(body: Record<string, string | number | boolean>): ReceivingWindow[] {
   const validDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const windowCount = Number(body.windowCount);
+  if (Number.isInteger(windowCount) && windowCount > 0) {
+    const schedule: ReceivingWindow[] = [];
+    for (let index = 0; index < windowCount; index += 1) {
+      const recurrence = clean(body[`windowRecurrence_${index}`]);
+      const day = clean(body[`windowDay_${index}`]);
+      const ordinalValue = Number(body[`windowOrdinal_${index}`]);
+      if (recurrence !== "weekly" && recurrence !== "monthly") {
+        throw new Error(`Window ${index + 1}: choose weekly or monthly.`);
+      }
+      if (!validDays.includes(day)) throw new Error(`Window ${index + 1}: choose a weekday.`);
+      const ordinal = recurrence === "monthly" ? ordinalValue : null;
+      if (recurrence === "monthly" && (!Number.isInteger(ordinalValue) || ordinalValue < 1 || ordinalValue > 5)) {
+        throw new Error(`Window ${index + 1}: choose which occurrence of the weekday.`);
+      }
+      const open = normalizeTime(body[`windowOpen_${index}`], `Window ${index + 1} opening time`);
+      const close = normalizeTime(body[`windowClose_${index}`], `Window ${index + 1} closing time`);
+      const latestArrival = normalizeTime(body[`windowLatest_${index}`], `Window ${index + 1} latest arrival`);
+      validateWindow(open, close, latestArrival, `Window ${index + 1}`);
+      schedule.push({ recurrence, day, ordinal, open, close, latestArrival });
+    }
+    return schedule;
+  }
+
   const activeDays = validDays.filter((day) => body[`day_${day}`]);
   if (!activeDays.length) throw new Error("Choose at least one receiving day.");
-  const schedule: Record<string, { open: string; close: string; latestArrival: string }> = {};
-  for (const day of activeDays) {
+  return activeDays.map((day) => {
     const open = normalizeTime(body[`openTime_${day}`], `${day} opening time`);
     const close = normalizeTime(body[`closeTime_${day}`], `${day} closing time`);
     const latestArrival = normalizeTime(body[`latestArrival_${day}`], `${day} latest arrival`);
-    if (open >= close) throw new Error(`${day}: closing time must be after opening time.`);
-    if (latestArrival < open || latestArrival > close) {
-      throw new Error(`${day}: latest arrival must fall between opening and closing.`);
-    }
-    schedule[day] = { open, close, latestArrival };
+    validateWindow(open, close, latestArrival, day);
+    return { recurrence: "weekly" as const, day, ordinal: null, open, close, latestArrival };
+  });
+}
+
+function validateWindow(open: string, close: string, latestArrival: string, label: string) {
+  if (open >= close) throw new Error(`${label}: closing time must be after opening time.`);
+  if (latestArrival < open || latestArrival > close) {
+    throw new Error(`${label}: latest arrival must fall between opening and closing.`);
   }
-  return schedule;
 }
 
 function normalizeTime(value: unknown, label: string) {
