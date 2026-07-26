@@ -72,8 +72,10 @@ async function sendInvitationEmail(input: {
   const organizationName = input.organization.name;
   const primaryContact = input.contacts[0];
   const pantry = input.organizationType === "pantry" ? input.organization as typeof pantries.$inferSelect : null;
+  const bakery = input.organizationType === "bakery" ? input.organization as typeof bakeries.$inferSelect : null;
   const buttonLabel = pantry ? "Connect Pantry" : "Connect Bakery";
-  const schedule = pantry ? describePantrySchedule(pantry) : [];
+  const pantrySchedule = pantry ? describePantrySchedule(pantry) : [];
+  const bakerySchedule = bakery ? describeBakerySchedule(bakery) : [];
   const field = (label: string, value: string, explanation: string) => `<tr><td style="padding:14px 0;border-bottom:1px solid #e7e0d2"><strong style="display:block;color:#173b2d">${escapeHtml(label)}</strong><span style="display:block;margin:4px 0;color:#2e4038">${escapeHtml(value || "Not yet provided")}</span><small style="color:#69756e;line-height:1.45">${escapeHtml(explanation)}</small></td></tr>`;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -94,9 +96,16 @@ async function sendInvitationEmail(input: {
               ${field("Drop-off instructions", pantry.dropoffInstructions, "Directions that help drivers locate the exact receiving point after arriving at the delivery address.")}
               ${field("Business phone number", pantry.businessPhone, "The number drivers and partner organizations may call during business hours.")}
               ${field("Notification contact", pantry.notificationPhone, "The email address or phone number monitored for upcoming delivery confirmations and notifications.")}
-              ${schedule.map((window, index) => field(`Receiving window ${index + 1}`, window.summary, `${window.openDescription} ${window.closeDescription} ${window.latestDescription}`)).join("")}
+              ${pantrySchedule.map((window, index) => field(`Receiving window ${index + 1}`, window.summary, `${window.openDescription} ${window.closeDescription} ${window.latestDescription}`)).join("")}
+            </table></div>` : bakery ? `<div style="margin-top:34px;border-top:4px solid #173b2d;padding-top:22px"><h2 style="margin:0 0 4px;color:#173b2d">Summary of Bakery Information</h2><p style="color:#69756e;line-height:1.5">Please review the information entered during onboarding.</p><table style="width:100%;border-collapse:collapse">
+              ${input.contacts.map((contact, index) => field(index === 0 ? "Primary contact" : `Additional contact ${index + 1}`, `${contact.name} · ${contact.email} · ${contact.phone}`, "A person BakedBoston administrators may contact directly about this bakery.")).join("")}
+              ${field("Pickup address", bakery.address, `The street address drivers will navigate to for pickups from ${organizationName}.`)}
+              ${field("Pickup instructions", bakery.dropoffInstructions, "Directions that help drivers locate the exact pickup point after arriving at the bakery address.")}
+              ${field("Business phone number", bakery.businessPhone, "The number drivers and partner organizations may call during business hours.")}
+              ${field("Notification contact", bakery.notificationPhone, "The email address or phone number monitored for upcoming pickup confirmations and notifications.")}
+              ${bakerySchedule.map((window, index) => field(`Pickup window ${index + 1}`, window.summary, `${window.readyDescription} ${window.deadlineDescription}`)).join("")}
             </table></div>` : ""}
-            <p style="margin-top:28px;line-height:1.6">All of this information can be reviewed and adjusted in the partner portal after the account is connected. Access photos may also be added there to help drivers locate the pantry’s drop-off point.</p>
+            <p style="margin-top:28px;line-height:1.6">All of this information can be reviewed and adjusted in the partner portal after the account is connected. Access photos may also be added there to help drivers locate the ${pantry ? "pantry’s drop-off" : "bakery’s pickup"} point.</p>
             <p style="line-height:1.6">Thank you for joining BakedBoston. We’re excited to help strengthen connections among local businesses, food pantries, volunteers, and the wider community.</p>
             <p style="margin-bottom:0"><strong>BakedBoston</strong></p>
           </div>
@@ -105,6 +114,24 @@ async function sendInvitationEmail(input: {
     }),
   });
   return response.ok;
+}
+
+function describeBakerySchedule(bakery: typeof bakeries.$inferSelect) {
+  try {
+    const ready = JSON.parse(bakery.readyTime) as Record<string, string>;
+    const deadlines = JSON.parse(bakery.arrivalDeadline) as Record<string, string>;
+    return Object.keys(ready).map((day) => ({
+      summary: `Every ${day}: ready ${formatTime(ready[day])}; pickup deadline ${formatTime(deadlines[day] ?? "")}`,
+      readyDescription: `Food ready is when surplus from ${bakery.name} becomes available for collection.`,
+      deadlineDescription: `Pickup deadline is the latest time a driver may collect it from ${bakery.name}.`,
+    }));
+  } catch {
+    return [{
+      summary: `${bakery.recurringDays}: ready ${formatTime(bakery.readyTime)}; pickup deadline ${formatTime(bakery.arrivalDeadline)}`,
+      readyDescription: `Food ready is when surplus from ${bakery.name} becomes available for collection.`,
+      deadlineDescription: `Pickup deadline is the latest time a driver may collect it from ${bakery.name}.`,
+    }];
+  }
 }
 
 function describePantrySchedule(pantry: typeof pantries.$inferSelect) {

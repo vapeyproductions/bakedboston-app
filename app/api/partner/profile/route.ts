@@ -35,7 +35,7 @@ export async function PATCH(request: Request) {
 
     const organizationUpdate = { address, businessPhone, notificationPhone };
     if (account.organizationType === "bakery") {
-      await db.update(bakeries).set(organizationUpdate).where(eq(bakeries.id, account.organizationId));
+      await db.update(bakeries).set({ ...organizationUpdate, dropoffInstructions }).where(eq(bakeries.id, account.organizationId));
     } else {
       await db.update(pantries).set({ ...organizationUpdate, dropoffInstructions }).where(eq(pantries.id, account.organizationId));
     }

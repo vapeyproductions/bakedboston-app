@@ -13,7 +13,7 @@ type Account = {
   contactPhone: string;
 };
 type Contact = { id: number; name: string; email: string; phone: string };
-type PantryAccessPhoto = { id: number; pantryId: number; imageUrl: string; pathname: string; caption: string };
+type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: string };
 
 const bakeryActivity = [
   { title: "Today’s pickup", detail: "Ready 4:30 PM · pickup by 6:00 PM", status: "Awaiting driver" },
@@ -28,7 +28,7 @@ const pantryActivity = [
 ];
 
 export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [] }: {
-  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: PantryAccessPhoto[];
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[];
 }) {
   const bakery = kind === "bakery";
   const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
@@ -95,7 +95,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
 }
 
 function ProfileEditor({ kind, organization, account, contacts: initialContacts, photos: initialPhotos, onSaved }: {
-  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos: PantryAccessPhoto[]; onSaved: (message: string) => void;
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos: AccessPhoto[]; onSaved: (message: string) => void;
 }) {
   const [contacts, setContacts] = useState(initialContacts);
   const [photos, setPhotos] = useState(initialPhotos);
@@ -135,17 +135,17 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
     const form = new FormData();
     form.set("photo", photo);
     form.set("caption", caption);
-    const response = await fetch("/api/pantry-photos", { method: "POST", body: form });
+    const response = await fetch("/api/access-photos", { method: "POST", body: form });
     const data = await response.json().catch(() => null);
     if (response.ok) {
       setPhotos((current) => [data.record, ...current]); setPhoto(null); setCaption("");
-      onSaved("Pantry access photo added.");
+      onSaved(`${kind === "pantry" ? "Pantry" : "Bakery"} access photo added.`);
     } else onSaved(data?.error ?? "Could not upload photo.");
   }
   async function deletePhoto(id: number) {
-    const response = await fetch(`/api/pantry-photos?id=${id}`, { method: "DELETE" });
+    const response = await fetch(`/api/access-photos?id=${id}&organizationType=${kind}`, { method: "DELETE" });
     const data = await response.json().catch(() => null);
-    if (response.ok) { setPhotos((current) => current.filter((item) => item.id !== id)); onSaved("Pantry access photo deleted."); }
+    if (response.ok) { setPhotos((current) => current.filter((item) => item.id !== id)); onSaved(`${kind === "pantry" ? "Pantry" : "Bakery"} access photo deleted.`); }
     else onSaved(data?.error ?? "Could not delete photo.");
   }
   return <div className="profilePage">
@@ -157,15 +157,15 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
       </fieldset>
       <fieldset><legend>Organization channels</legend>
         <label>{kind === "pantry" ? "Delivery address" : "Business address"}<input name="address" required defaultValue={organization.address} /></label>
-        {kind === "pantry" && <label>Drop-off instructions <small>Help drivers find the exact receiving point after they reach the delivery address.</small><textarea name="dropoffInstructions" rows={3} defaultValue={organization.dropoffInstructions ?? ""} placeholder="Example: Community fridge is in the church parking lot" /></label>}
+        <label>{kind === "pantry" ? "Drop-off instructions" : "Pickup instructions"} <small>Help drivers find the exact {kind === "pantry" ? "receiving" : "pickup"} point after reaching the address.</small><textarea name="dropoffInstructions" rows={3} defaultValue={organization.dropoffInstructions ?? ""} placeholder={kind === "pantry" ? "Example: Community fridge is in the church parking lot" : "Example: Use the side entrance and ask at the pickup counter"} /></label>
         <label>Business phone number <small>Visible to drivers and rescue partners for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
         <label>Notification contact <small>Email address or phone number monitored for upcoming deliveries.</small><input name="notificationPhone" type="text" defaultValue={organization.notificationPhone} /></label>
       </fieldset>
-      {kind === "pantry" && <fieldset><legend>Pantry access photos <small>Optional</small></legend>
-        <p>Post photos that help drivers locate the drop-off point. Photos are not included in the onboarding email.</p>
+      <fieldset><legend>{kind === "pantry" ? "Pantry" : "Bakery"} access photos <small>Optional</small></legend>
+        <p>Post photos that help drivers locate the {kind === "pantry" ? "drop-off" : "pickup"} point. Photos are not included in the onboarding email.</p>
         {photos.length > 0 && <div className="pantryPhotoGrid">{photos.map((item) => <figure key={item.id}><img src={item.imageUrl} alt={item.caption || "Pantry access"} /><figcaption>{item.caption || "Pantry access photo"}</figcaption><button type="button" onClick={() => deletePhoto(item.id)}>Delete</button></figure>)}</div>}
         <div className="pantryPhotoUpload"><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label><label>Caption<input value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Example: Use the rear entrance" /></label><button type="button" disabled={!photo} onClick={addPhoto}>+ Add photo</button></div>
-      </fieldset>}
+      </fieldset>
       <fieldset className="profileContacts"><legend>Primary organizational contacts</legend>
         <p>At least one primary contact must remain on the organization.</p>
         <div className="profileContactList">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><button type="button" disabled={contacts.length <= 1} onClick={() => deleteContact(contact)}>Delete</button></article>)}</div>

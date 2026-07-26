@@ -4,6 +4,7 @@ export const bakeries = pgTable("bakeries", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   address: text("address").notNull(),
+  dropoffInstructions: text("dropoff_instructions").notNull().default(""),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
   contactName: text("contact_name").notNull().default(""),
@@ -15,6 +16,15 @@ export const bakeries = pgTable("bakeries", {
   readyTime: text("ready_time").notNull(),
   arrivalDeadline: text("arrival_deadline").notNull(),
   active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bakeryAccessPhotos = pgTable("bakery_access_photos", {
+  id: serial("id").primaryKey(),
+  bakeryId: integer("bakery_id").notNull(),
+  imageUrl: text("image_url").notNull(),
+  pathname: text("pathname").notNull(),
+  caption: text("caption").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
