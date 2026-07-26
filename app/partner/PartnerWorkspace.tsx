@@ -251,7 +251,6 @@ function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, onWindows
   if (!bakery) return <div className="schedulePage">
     <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>Receiving calendar</h2><p>View receiving windows by day. Select a window to edit or delete it.</p></div>
     <div className="calendarToolbar"><button className="secondaryCalendarAction" onClick={onAddOneTime}>+ Add one-time availability window</button><button onClick={() => { setRows((current) => [...current, emptyWindow()]); setSelected(rows.length); setSelectedOneTime(null); }}>+ Add recurring window</button></div>
-    <ReceivingCalendar rows={rows} oneTimeWindows={oneTimeWindows} onSelect={(index) => { setSelected(index); setSelectedOneTime(null); }} onSelectOneTime={(id) => { setSelectedOneTime(id); setSelected(null); }} />
     {selected !== null && rows[selected] && <article className="calendarWindowEditor"><div className="windowHeading"><div><span className="panelKicker">EDIT WINDOW</span><h3>{rows[selected].day} receiving window</h3></div><button onClick={() => setSelected(null)}>×</button></div>
       <label>Repeats<select value={rows[selected].recurrence} onChange={(event) => update(selected, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>
       {rows[selected].recurrence === "monthly" && <label>Occurrence<select value={rows[selected].ordinal ?? 1} onChange={(event) => update(selected, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
@@ -260,6 +259,7 @@ function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, onWindows
       <div className="calendarEditorActions"><button className="deleteWindow" disabled={rows.length <= 1} onClick={() => { setRows((current) => current.filter((_, index) => index !== selected)); setSelected(null); }}>Delete window</button><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save schedule"}</button></div>
     </article>}
     {selectedOneTime !== null && oneTimeWindows.find((window) => window.id === selectedOneTime) && <OneTimeWindowEditor window={oneTimeWindows.find((item) => item.id === selectedOneTime)!} onClose={() => setSelectedOneTime(null)} onChanged={async () => { setSelectedOneTime(null); await onWindowsChanged(); }} onSaved={onSaved} />}
+    <ReceivingCalendar rows={rows} oneTimeWindows={oneTimeWindows} onSelect={(index) => { setSelected(index); setSelectedOneTime(null); }} onSelectOneTime={(id) => { setSelectedOneTime(id); setSelected(null); }} />
     {selected === null && selectedOneTime === null && <div className="calendarSave"><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save recurring schedule"}</button></div>}
   </div>;
   return <div className="schedulePage">
