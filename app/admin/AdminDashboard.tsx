@@ -312,7 +312,7 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
 }) {
   const [filterDay, setFilterDay] = useState("");
   const [filterTime, setFilterTime] = useState("");
-  const [sortOrder, setSortOrder] = useState<"az" | "za">("az");
+  const [sortOrder, setSortOrder] = useState<"az" | "za" | "priority-high" | "priority-low">("az");
   const [registration, setRegistration] = useState<"" | "registered" | "unregistered">("");
   const visibleRecords = useMemo(() => records
     .filter((record) => type === "bakery"
@@ -323,15 +323,21 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
       const isRegistered = accounts.some((account) => account.organizationType === type && account.organizationId === record.id);
       return registration === "registered" ? isRegistered : !isRegistered;
     })
-    .sort((left, right) => sortOrder === "az"
-      ? left.name.localeCompare(right.name)
-      : right.name.localeCompare(left.name)), [records, accounts, type, filterDay, filterTime, registration, sortOrder]);
+    .sort((left, right) => {
+      if (type === "pantry" && (sortOrder === "priority-high" || sortOrder === "priority-low")) {
+        const leftScore = 1 / (1 + (left as Pantry).deliveriesSevenDays);
+        const rightScore = 1 / (1 + (right as Pantry).deliveriesSevenDays);
+        const scoreDifference = sortOrder === "priority-high" ? rightScore - leftScore : leftScore - rightScore;
+        return scoreDifference || left.name.localeCompare(right.name);
+      }
+      return sortOrder === "za" ? right.name.localeCompare(left.name) : left.name.localeCompare(right.name);
+    }), [records, accounts, type, filterDay, filterTime, registration, sortOrder]);
 
   if (!records.length) return <div className="adminEmpty"><span>{type === "bakery" ? "B" : "P"}</span><h2>No {type === "bakery" ? "bakeries" : "pantries"} yet</h2><p>Add the first organization you plan to onboard.</p><button className="solidBtn" onClick={onAdd}>+ Add {type}</button></div>;
   return <><div className="filterBar">
     <label>Open day<select value={filterDay} onChange={(event) => setFilterDay(event.target.value)}><option value="">Any day</option>{days.map((day) => <option value={day} key={day}>{day}</option>)}</select></label>
     <label>Open at<select value={filterTime} onChange={(event) => setFilterTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-    <label>Alphabetical<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as "az" | "za")}><option value="az">A to Z</option><option value="za">Z to A</option></select></label>
+    <label>Sort by<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="az">Alphabetical: A to Z</option><option value="za">Alphabetical: Z to A</option>{type === "pantry" && <><option value="priority-high">Priority: highest to lowest</option><option value="priority-low">Priority: lowest to highest</option></>}</select></label>
     <label>Registration<select value={registration} onChange={(event) => setRegistration(event.target.value as typeof registration)}><option value="">All profiles</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option></select></label>
     <span>{visibleRecords.length} of {records.length} shown</span>
   </div>
