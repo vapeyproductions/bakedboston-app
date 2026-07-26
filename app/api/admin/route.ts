@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { bakeries, pantries, rescueRoutes } from "../../../db/schema";
 import { isAdministrator } from "../../admin-auth";
@@ -69,6 +69,28 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Could not save this record.";
     return Response.json({ error: message }, { status: 400 });
   }
+}
+
+export async function DELETE(request: Request) {
+  if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const kind = searchParams.get("kind");
+  const id = Number(searchParams.get("id"));
+  if (!Number.isInteger(id) || id < 1) {
+    return Response.json({ error: "A valid record id is required." }, { status: 400 });
+  }
+
+  const db = getDb();
+  if (kind === "pantry") {
+    await db.delete(pantries).where(eq(pantries.id, id));
+  } else if (kind === "bakery") {
+    await db.delete(bakeries).where(eq(bakeries.id, id));
+  } else {
+    return Response.json({ error: "Unknown record type" }, { status: 400 });
+  }
+
+  return Response.json({ ok: true });
 }
 
 function clean(value: unknown) {
