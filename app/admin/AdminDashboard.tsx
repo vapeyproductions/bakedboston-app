@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AdminMap, milesBetween } from "./AdminMap";
 import "./admin.css";
 
 type Bakery = {
@@ -30,6 +31,12 @@ type Route = {
 };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const timeOptions = Array.from({ length: 48 }, (_, index) => {
+  const hours = Math.floor(index / 2);
+  const minutes = index % 2 ? "30" : "00";
+  const value = `${String(hours).padStart(2, "0")}:${minutes}`;
+  return { value, label: formatTime(value) };
+});
 
 function parseSchedule(pantry: Pantry): ReceivingWindow[] {
   try {
@@ -91,8 +98,22 @@ function describeWindow(window: ReceivingWindow) {
     : `Every ${window.day}`;
 }
 
+function bakeryMatchesAvailability(bakery: Bakery, day: string, time: string) {
+  const schedule = parseBakerySchedule(bakery);
+  const candidateDays = day ? [day] : Object.keys(schedule);
+  return candidateDays.some((candidateDay) => {
+    const window = schedule[candidateDay];
+    return Boolean(window) && (!time || (window!.readyTime <= time && time <= window!.pickupDeadline));
+  });
+}
+
+function pantryMatchesAvailability(pantry: Pantry, day: string, time: string) {
+  return parseSchedule(pantry).some((window) =>
+    (!day || window.day === day) && (!time || (window.open <= time && time <= window.close)));
+}
+
 export default function AdminDashboard({ user }: { user: { name: string; email: string } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "routes">("overview");
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "map" | "routes">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -169,9 +190,9 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <a className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></a>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "routes"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "map", "routes"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "map" ? "⌖" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
@@ -200,6 +221,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
             {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "pantries" && <PartnerTable type="pantry" records={pantries} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
           </>
         )}
@@ -243,9 +265,26 @@ function PartnerTable({ type, records, onAdd, onEdit, onDelete, deletingId }: {
   type: PartnerKind; records: Partner[]; onAdd: () => void; onEdit: (record: Partner) => void;
   onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
 }) {
+  const [filterDay, setFilterDay] = useState("");
+  const [filterTime, setFilterTime] = useState("");
+  const [sortOrder, setSortOrder] = useState<"az" | "za">("az");
+  const visibleRecords = useMemo(() => records
+    .filter((record) => type === "bakery"
+      ? bakeryMatchesAvailability(record as Bakery, filterDay, filterTime)
+      : pantryMatchesAvailability(record as Pantry, filterDay, filterTime))
+    .sort((left, right) => sortOrder === "az"
+      ? left.name.localeCompare(right.name)
+      : right.name.localeCompare(left.name)), [records, type, filterDay, filterTime, sortOrder]);
+
   if (!records.length) return <div className="adminEmpty"><span>{type === "bakery" ? "B" : "P"}</span><h2>No {type === "bakery" ? "bakeries" : "pantries"} yet</h2><p>Add the first organization you plan to onboard.</p><button className="solidBtn" onClick={onAdd}>+ Add {type}</button></div>;
-  return <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Recurring days</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Status</th><th>Actions</th></tr></thead><tbody>
-    {records.map((record) => {
+  return <><div className="filterBar">
+    <label>Open day<select value={filterDay} onChange={(event) => setFilterDay(event.target.value)}><option value="">Any day</option>{days.map((day) => <option value={day} key={day}>{day}</option>)}</select></label>
+    <label>Open at<select value={filterTime} onChange={(event) => setFilterTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+    <label>Alphabetical<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as "az" | "za")}><option value="az">A to Z</option><option value="za">Z to A</option></select></label>
+    <span>{visibleRecords.length} of {records.length} shown</span>
+  </div>
+  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Recurring days</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Status</th><th>Actions</th></tr></thead><tbody>
+    {visibleRecords.map((record) => {
       const pantry = type === "pantry" ? record as Pantry : null;
       const schedule = pantry ? parseSchedule(pantry) : null;
       const bakerySchedule = type === "bakery" ? parseBakerySchedule(record as Bakery) : null;
@@ -253,7 +292,75 @@ function PartnerTable({ type, records, onAdd, onEdit, onDelete, deletingId }: {
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
         : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><span className="activePill">Active</span></td><td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
-  </tbody></table></div>;
+  </tbody></table></div>}</>;
+}
+
+function MapWorkspace({ bakeries, pantries }: { bakeries: Bakery[]; pantries: Pantry[] }) {
+  const [day, setDay] = useState("");
+  const [time, setTime] = useState("");
+  const [showBakeries, setShowBakeries] = useState(true);
+  const [showPantries, setShowPantries] = useState(true);
+  const [showRadius, setShowRadius] = useState(false);
+  const mappedBakeries = bakeries.filter((bakery) => bakery.latitude != null && bakery.longitude != null);
+  const mappedPantries = pantries.filter((pantry) => pantry.latitude != null && pantry.longitude != null);
+
+  const distanceAnalysis = useMemo(() => {
+    const pairs = mappedPantries.flatMap((pantry) => mappedBakeries.map((bakery) => ({
+      pantry, bakery, distance: milesBetween(pantry, bakery)!,
+    })));
+    const nearest = mappedPantries.map((pantry) => {
+      const distances = mappedBakeries.map((bakery) => milesBetween(pantry, bakery)!).filter(Number.isFinite);
+      return distances.length ? Math.min(...distances) : null;
+    }).filter((distance): distance is number => distance != null);
+    return {
+      pairs,
+      averagePair: pairs.length ? pairs.reduce((sum, pair) => sum + pair.distance, 0) / pairs.length : 0,
+      averageNearest: nearest.length ? nearest.reduce((sum, distance) => sum + distance, 0) / nearest.length : 0,
+    };
+  }, [mappedBakeries, mappedPantries]);
+
+  const exportPartners = () => {
+    const rows = [
+      ["type", "name", "address", "latitude", "longitude", "recurring_days", "schedule", "contact_name", "contact_email", "contact_phone"],
+      ...bakeries.map((bakery) => ["bakery", bakery.name, bakery.address, bakery.latitude, bakery.longitude, bakery.recurringDays, JSON.stringify(parseBakerySchedule(bakery)), bakery.contactName, bakery.contactEmail, bakery.contactPhone]),
+      ...pantries.map((pantry) => ["pantry", pantry.name, pantry.address, pantry.latitude, pantry.longitude, pantry.recurringDays, JSON.stringify(parseSchedule(pantry)), pantry.contactName, pantry.contactEmail, pantry.contactPhone]),
+    ];
+    downloadCsv("bakedboston-partners.csv", rows);
+  };
+  const exportDistances = () => downloadCsv("bakedboston-distance-matrix.csv", [
+    ["pantry", "bakery", "straight_line_miles"],
+    ...distanceAnalysis.pairs.map((pair) => [pair.pantry.name, pair.bakery.name, pair.distance.toFixed(4)]),
+  ]);
+
+  return <div className="mapWorkspace">
+    <div className="mapToolbar">
+      <label>Open day<select value={day} onChange={(event) => setDay(event.target.value)}><option value="">Any day</option>{days.map((filterDay) => <option key={filterDay} value={filterDay}>{filterDay}</option>)}</select></label>
+      <label>Open at<select value={time} onChange={(event) => setTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <label className="mapCheck"><input type="checkbox" checked={showBakeries} onChange={(event) => setShowBakeries(event.target.checked)} /> Bakeries</label>
+      <label className="mapCheck"><input type="checkbox" checked={showPantries} onChange={(event) => setShowPantries(event.target.checked)} /> Pantries</label>
+      <label className="mapCheck radiusCheck"><input type="checkbox" checked={showRadius} disabled={!distanceAnalysis.averageNearest} onChange={(event) => setShowRadius(event.target.checked)} /> Target radius</label>
+    </div>
+    <AdminMap bakeries={bakeries} pantries={pantries} showBakeries={showBakeries} showPantries={showPantries} showRadius={showRadius} day={day} time={time} bakeryMatches={bakeryMatchesAvailability} pantryMatches={pantryMatchesAvailability} />
+    <div className="mapAnalysis">
+      <article><span>MAPPED</span><strong>{mappedBakeries.length} bakeries · {mappedPantries.length} pantries</strong><small>{bakeries.length - mappedBakeries.length + pantries.length - mappedPantries.length} records need coordinates</small></article>
+      <article><span>TARGET RADIUS</span><strong>{distanceAnalysis.averageNearest ? `${distanceAnalysis.averageNearest.toFixed(2)} mi` : "—"}</strong><small>Average distance from each pantry to its nearest bakery</small></article>
+      <article><span>ALL PAIRS AVERAGE</span><strong>{distanceAnalysis.averagePair ? `${distanceAnalysis.averagePair.toFixed(2)} mi` : "—"}</strong><small>{distanceAnalysis.pairs.length} pantry–bakery coordinate pairs</small></article>
+      <article className="exportCard"><span>DATA EXPORT</span><div><button onClick={exportPartners}>Download partners CSV</button><button onClick={exportDistances} disabled={!distanceAnalysis.pairs.length}>Download distances CSV</button></div><small>CSV files can be opened in Excel, Python, R, or uploaded back here for analysis.</small></article>
+    </div>
+  </div>;
+}
+
+function downloadCsv(filename: string, rows: Array<Array<string | number | null>>) {
+  const csv = rows.map((row) => row.map((value) => {
+    const text = String(value ?? "");
+    return `"${text.replaceAll('"', '""')}"`;
+  }).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function RoutesTable({ routes, compact = false }: { routes: Route[]; compact?: boolean }) {
