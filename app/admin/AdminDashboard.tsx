@@ -11,7 +11,7 @@ type Bakery = {
   contactName: string; contactEmail: string; contactPhone: string; businessPhone: string; notificationPhone: string;
 };
 type Pantry = {
-  id: number; name: string; address: string; recurringDays: string; openTime: string;
+  id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; openTime: string;
   closeTime: string; latestArrival: string; deliveriesSevenDays: number; active: boolean;
   latitude: number | null; longitude: number | null; contactName: string; contactEmail: string;
   contactPhone: string; businessPhone: string; notificationPhone: string;
@@ -38,6 +38,7 @@ type OrganizationContact = {
   id: number; organizationType: PartnerKind; organizationId: number;
   name: string; email: string; phone: string;
 };
+type PantryAccessPhoto = { id: number; pantryId: number; imageUrl: string; pathname: string; caption: string };
 type PartnerKind = "bakery" | "pantry";
 type Partner = Bakery | Pantry;
 type DayHours = { open: string; close: string; latestArrival: string };
@@ -146,6 +147,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [adminInvitations, setAdminInvitations] = useState<AdminInvitation[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [organizationContacts, setOrganizationContacts] = useState<OrganizationContact[]>([]);
+  const [pantryAccessPhotos, setPantryAccessPhotos] = useState<PantryAccessPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -165,6 +167,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setAdminInvitations(data.adminInvitations ?? []);
       setAuditEntries(data.auditLog ?? []);
       setOrganizationContacts(data.organizationContacts ?? []);
+      setPantryAccessPhotos(data.pantryAccessPhotos ?? []);
     }
     setLoading(false);
   };
@@ -268,7 +271,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         )}
       </section>
 
-      {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
+      {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={modal.kind === "pantry" && modal.record ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : []} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
     </main>
   );
 }
@@ -618,8 +621,8 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="smallEmpty"><span>↗</span><div><strong>{title}</strong><p>{body}</p></div></div>;
 }
 
-function RecordModal({ kind, record, contacts, saving, onClose, onSave, onChanged, setNotice }: {
-  kind: PartnerKind; record?: Partner; contacts: OrganizationContact[]; saving: boolean; onClose: () => void;
+function RecordModal({ kind, record, contacts, photos, saving, onClose, onSave, onChanged, setNotice }: {
+  kind: PartnerKind; record?: Partner; contacts: OrganizationContact[]; photos: PantryAccessPhoto[]; saving: boolean; onClose: () => void;
   onSave: (e: FormEvent<HTMLFormElement>) => void;
   onChanged: () => Promise<void>; setNotice: (message: string) => void;
 }) {
@@ -649,7 +652,8 @@ function RecordModal({ kind, record, contacts, saving, onClose, onSave, onChange
     <form onSubmit={onSave}>
       <div className="formGrid">
         <label className="wide">Organization name<input name="name" required defaultValue={record?.name} placeholder={kind === "bakery" ? "Flour & Field Bakery" : "Community Food Pantry"} /></label>
-        <label className="wide">Street address<input name="address" required defaultValue={record?.address} placeholder="123 Main Street, Boston, MA" /></label>
+        <label className="wide">{kind === "pantry" ? "Delivery address" : "Street address"}<input name="address" required defaultValue={record?.address} placeholder="123 Main Street, Boston, MA" /></label>
+        {kind === "pantry" && <label className="wide">Drop-off instructions <small>Details that help a driver find the receiving point, such as “Community fridge is in the church parking lot.”</small><textarea name="dropoffInstructions" rows={3} defaultValue={(record as Pantry | undefined)?.dropoffInstructions ?? ""} placeholder="Optional directions from the street address to the exact drop-off point" /></label>}
         <label>Latitude <input name="latitude" type="number" step="any" defaultValue={record?.latitude ?? ""} placeholder="42.3601" /></label>
         <label>Longitude <input name="longitude" type="number" step="any" defaultValue={record?.longitude ?? ""} placeholder="-71.0589" /></label>
         <label>Contact name <small>Name of the primary organizational contact for BakedBoston administrators.</small><input name="contactName" required defaultValue={record?.contactName} /></label>
@@ -669,7 +673,7 @@ function RecordModal({ kind, record, contacts, saving, onClose, onSave, onChange
             </div>;
           })}
         </fieldset> :
-          <><fieldset className="wide receivingWindows"><legend>Receiving schedule</legend><p>Add as many windows as needed. A pantry can have two windows on one day or rules such as “2nd Saturday monthly.”</p>
+          <>{record && <div className="wide"><PantryPhotoManager pantryId={record.id} photos={photos} onChanged={onChanged} setNotice={setNotice} /></div>}<fieldset className="wide receivingWindows"><legend>Receiving schedule</legend><p>Add as many windows as needed. A pantry can have two windows on one day or rules such as “2nd Saturday monthly.”</p>
             <input type="hidden" name="windowCount" value={pantryWindows.length} />
             {pantryWindows.map((window, index) => <div className="receivingWindow" key={index}>
               <div className="windowHeading"><strong>Window {index + 1}</strong>{pantryWindows.length > 1 && <button type="button" onClick={() => removeWindow(index)}>Remove</button>}</div>
@@ -686,4 +690,36 @@ function RecordModal({ kind, record, contacts, saving, onClose, onSave, onChange
       <div className="modalActions"><button type="button" onClick={onClose}>Cancel</button><button className="solidBtn" disabled={saving}>{saving ? "Saving…" : `${record ? "Update" : "Save"} ${kind}`}</button></div>
     </form>
   </div></div>;
+}
+
+function PantryPhotoManager({ pantryId, photos, onChanged, setNotice }: {
+  pantryId: number; photos: PantryAccessPhoto[]; onChanged: () => Promise<void>; setNotice: (message: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [caption, setCaption] = useState("");
+  async function upload() {
+    if (!photo) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.set("pantryId", String(pantryId));
+    formData.set("photo", photo);
+    formData.set("caption", caption);
+    const response = await fetch("/api/pantry-photos", { method: "POST", body: formData });
+    const data = await response.json().catch(() => null);
+    setUploading(false);
+    if (response.ok) { setPhoto(null); setCaption(""); await onChanged(); setNotice("Pantry access photo added."); }
+    else setNotice(data?.error ?? "Could not upload photo.");
+  }
+  async function remove(id: number) {
+    const response = await fetch(`/api/pantry-photos?id=${id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { await onChanged(); setNotice("Pantry access photo deleted."); }
+    else setNotice(data?.error ?? "Could not delete photo.");
+  }
+  return <fieldset className="pantryPhotos"><legend>Pantry access photos <small>Optional</small></legend>
+    <p>Show drivers how to locate the exact drop-off point. These photos are not included in the onboarding email.</p>
+    {photos.length > 0 && <div className="pantryPhotoGrid">{photos.map((photo) => <figure key={photo.id}><img src={photo.imageUrl} alt={photo.caption || "Pantry access"} /><figcaption>{photo.caption || "Pantry access photo"}</figcaption><button type="button" onClick={() => remove(photo.id)}>Delete</button></figure>)}</div>}
+    <div className="pantryPhotoUpload"><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label><label>Caption<input value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Example: Enter from the rear parking lot" /></label><button type="button" onClick={upload} disabled={uploading || !photo}>{uploading ? "Uploading…" : "+ Add photo"}</button></div>
+  </fieldset>;
 }

@@ -18,8 +18,9 @@ export async function POST(request: Request) {
     }
 
     const db = getDb();
-    const table = organizationType === "bakery" ? bakeries : pantries;
-    const [organization] = await db.select({ name: table.name }).from(table).where(eq(table.id, organizationId)).limit(1);
+    const [organization] = organizationType === "pantry"
+      ? await db.select().from(pantries).where(eq(pantries.id, organizationId)).limit(1)
+      : await db.select().from(bakeries).where(eq(bakeries.id, organizationId)).limit(1);
     if (!organization) throw new Error("Organization not found.");
     const [{ value: contactCount }] = await db.select({ value: count() }).from(organizationContacts).where(and(
       eq(organizationContacts.organizationType, organizationType),
@@ -40,8 +41,12 @@ export async function POST(request: Request) {
 
     const origin = process.env.PUBLIC_APP_URL ?? new URL(request.url).origin;
     const invitationUrl = `${origin}/register/partner?token=${encodeURIComponent(token)}`;
+    const contacts = await db.select().from(organizationContacts).where(and(
+      eq(organizationContacts.organizationType, organizationType),
+      eq(organizationContacts.organizationId, organizationId),
+    ));
     const emailSent = await sendInvitationEmail({
-      to: accountEmail, organizationName: organization.name, organizationType, invitationUrl,
+      to: accountEmail, organization, contacts, organizationType, invitationUrl,
     });
     await writeAudit({
       actorType: "admin", actorId: actor.id, actorName: actor.displayName,
@@ -55,28 +60,87 @@ export async function POST(request: Request) {
 }
 
 async function sendInvitationEmail(input: {
-  to: string; organizationName: string; organizationType: string; invitationUrl: string;
+  to: string;
+  organization: typeof pantries.$inferSelect | typeof bakeries.$inferSelect;
+  contacts: Array<typeof organizationContacts.$inferSelect>;
+  organizationType: string;
+  invitationUrl: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.PARTNER_INVITE_FROM;
-  if (!apiKey || !from) return false;
+  const from = process.env.PARTNER_INVITE_FROM ?? "BakedBoston Onboarding <onboarding@baked-boston.com>";
+  if (!apiKey) return false;
+  const organizationName = input.organization.name;
+  const primaryContact = input.contacts[0];
+  const pantry = input.organizationType === "pantry" ? input.organization as typeof pantries.$inferSelect : null;
+  const buttonLabel = pantry ? "Connect Pantry" : "Connect Bakery";
+  const schedule = pantry ? describePantrySchedule(pantry) : [];
+  const field = (label: string, value: string, explanation: string) => `<tr><td style="padding:14px 0;border-bottom:1px solid #e7e0d2"><strong style="display:block;color:#173b2d">${escapeHtml(label)}</strong><span style="display:block;margin:4px 0;color:#2e4038">${escapeHtml(value || "Not yet provided")}</span><small style="color:#69756e;line-height:1.45">${escapeHtml(explanation)}</small></td></tr>`;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       from,
       to: [input.to],
-      subject: `Set up your ${input.organizationName} BakedBoston account`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#173b2d">
-        <h1>Welcome to BakedBoston</h1>
-        <p>A BakedBoston administrator has prepared the ${escapeHtml(input.organizationName)} ${input.organizationType} profile for you.</p>
-        <p>Use the secure link below to confirm this account email and create your password. The link expires in seven days.</p>
-        <p><a href="${input.invitationUrl}" style="display:inline-block;background:#173b2d;color:white;padding:13px 18px;text-decoration:none;border-radius:6px">Register account</a></p>
-        <p>If you were not expecting this invitation, you can ignore this email.</p>
+      subject: `Connect ${organizationName} to BakedBoston`,
+      html: `<div style="margin:0;background:#f5f0e6;padding:28px 12px;font-family:Arial,sans-serif;color:#24372f">
+        <div style="max-width:640px;margin:auto;background:#fff;border:1px solid #ded6c7;border-radius:16px;overflow:hidden">
+          <div style="background:#173b2d;padding:28px 34px;color:#fff"><div style="font-size:13px;letter-spacing:2px;color:#efc86e">BAKEDBOSTON</div><h1 style="margin:9px 0 0;font-size:28px">Welcome, ${escapeHtml(primaryContact?.name || organizationName)}!</h1></div>
+          <div style="padding:32px 34px">
+            <p style="font-size:17px;line-height:1.6;margin-top:0">Your ${escapeHtml(organizationName)} profile has been prepared. Use the secure link below to confirm the account email and create a password. This link expires in seven days.</p>
+            <p style="text-align:center;margin:30px 0"><a href="${escapeHtml(input.invitationUrl)}" style="display:inline-block;background:#e8b84c;color:#173b2d;padding:16px 30px;text-decoration:none;border-radius:8px;font-size:17px;font-weight:bold">${buttonLabel}</a></p>
+            ${pantry ? `<div style="margin-top:34px;border-top:4px solid #173b2d;padding-top:22px"><h2 style="margin:0 0 4px;color:#173b2d">Summary of Pantry Information</h2><p style="color:#69756e;line-height:1.5">Please review the information entered during onboarding.</p><table style="width:100%;border-collapse:collapse">
+              ${input.contacts.map((contact, index) => field(index === 0 ? "Primary contact" : `Additional contact ${index + 1}`, `${contact.name} · ${contact.email} · ${contact.phone}`, "A person BakedBoston administrators may contact directly about this pantry.")).join("")}
+              ${field("Delivery address", pantry.address, `The street address drivers will navigate to for deliveries to ${organizationName}.`)}
+              ${field("Drop-off instructions", pantry.dropoffInstructions, "Directions that help drivers locate the exact receiving point after arriving at the delivery address.")}
+              ${field("Business phone number", pantry.businessPhone, "The number drivers and partner organizations may call during business hours.")}
+              ${field("Notification contact", pantry.notificationPhone, "The email address or phone number monitored for upcoming delivery confirmations and notifications.")}
+              ${schedule.map((window, index) => field(`Receiving window ${index + 1}`, window.summary, `${window.openDescription} ${window.closeDescription} ${window.latestDescription}`)).join("")}
+            </table></div>` : ""}
+            <p style="margin-top:28px;line-height:1.6">All of this information can be reviewed and adjusted in the partner portal after the account is connected. Access photos may also be added there to help drivers locate the pantry’s drop-off point.</p>
+            <p style="line-height:1.6">Thank you for joining BakedBoston. We’re excited to help strengthen connections among local businesses, food pantries, volunteers, and the wider community.</p>
+            <p style="margin-bottom:0"><strong>BakedBoston</strong></p>
+          </div>
+        </div>
       </div>`,
     }),
   });
   return response.ok;
+}
+
+function describePantrySchedule(pantry: typeof pantries.$inferSelect) {
+  try {
+    const opens = JSON.parse(pantry.openTime) as Array<{ recurrence: string; day: string; ordinal: number | null; time: string }>;
+    const closes = JSON.parse(pantry.closeTime) as Array<{ time: string }>;
+    const latest = JSON.parse(pantry.latestArrival) as Array<{ time: string }>;
+    if (Array.isArray(opens)) return opens.map((window, index) => {
+      const occurrence = window.recurrence === "monthly" ? `${ordinal(window.ordinal)} ${window.day} of each month` : `Every ${window.day}`;
+      const close = closes[index]?.time ?? "";
+      const last = latest[index]?.time ?? "";
+      return {
+        summary: `${occurrence}: ${formatTime(window.time)}–${formatTime(close)}; latest delivery ${formatTime(last)}`,
+        openDescription: `Open is when ${pantry.name} begins accepting deliveries during this window.`,
+        closeDescription: `Closed is when this receiving window ends.`,
+        latestDescription: `Latest permitted arrival is the latest time a delivery can be dropped off at ${pantry.name}.`,
+      };
+    });
+  } catch { /* Use the legacy fields below. */ }
+  return [{
+    summary: `${pantry.recurringDays}: ${formatTime(pantry.openTime)}–${formatTime(pantry.closeTime)}; latest delivery ${formatTime(pantry.latestArrival)}`,
+    openDescription: `Open is when ${pantry.name} begins accepting deliveries.`,
+    closeDescription: "Closed is when the receiving window ends.",
+    latestDescription: `Latest permitted arrival is the latest time a delivery can be dropped off at ${pantry.name}.`,
+  }];
+}
+
+function formatTime(value: string) {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return value;
+  const hours = Number(match[1]);
+  return `${hours % 12 || 12}:${match[2]} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+function ordinal(value: number | null) {
+  return ({ 1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth" } as Record<number, string>)[value ?? 1] ?? "first";
 }
 
 function validEmail(value: unknown) {

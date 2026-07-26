@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, bakeries, organizationContacts, pantries, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, bakeries, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -12,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, photoRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -45,6 +45,7 @@ export async function GET() {
     }).from(adminInvitations).orderBy(desc(adminInvitations.createdAt)),
     db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(500),
     db.select().from(organizationContacts).orderBy(desc(organizationContacts.createdAt)),
+    db.select().from(pantryAccessPhotos).orderBy(desc(pantryAccessPhotos.createdAt)),
   ]);
 
   return Response.json({
@@ -52,6 +53,7 @@ export async function GET() {
     partnerAccounts: accountRows, partnerInvitations: invitationRows,
     administrators: administratorRows, adminInvitations: adminInvitationRows, auditLog: auditRows,
     organizationContacts: contactRows,
+    pantryAccessPhotos: photoRows,
   });
 }
 
@@ -94,6 +96,7 @@ export async function POST(request: Request) {
       const [record] = await db.insert(pantries).values({
         name: required(body.name, "Pantry name"),
         address: required(body.address, "Address"),
+        dropoffInstructions: clean(body.dropoffInstructions),
         latitude: optionalNumber(body.latitude),
         longitude: optionalNumber(body.longitude),
         contactName: contact.name,
@@ -163,6 +166,7 @@ export async function PATCH(request: Request) {
       const [record] = await db.update(pantries).set({
         name: required(body.name, "Pantry name"),
         address: required(body.address, "Address"),
+        dropoffInstructions: clean(body.dropoffInstructions),
         latitude: optionalNumber(body.latitude),
         longitude: optionalNumber(body.longitude),
         contactName: contact.name,
@@ -208,6 +212,7 @@ export async function DELETE(request: Request) {
       eq(partnerAccounts.organizationId, id),
     ));
     await db.delete(organizationContacts).where(and(eq(organizationContacts.organizationType, "pantry"), eq(organizationContacts.organizationId, id)));
+    await db.delete(pantryAccessPhotos).where(eq(pantryAccessPhotos.pantryId, id));
     await db.delete(pantries).where(eq(pantries.id, id));
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted pantry profile", entityType: "pantry", entityId: id, entityName: record?.name ?? "" });
   } else if (kind === "bakery") {

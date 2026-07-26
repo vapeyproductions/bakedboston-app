@@ -22,6 +22,7 @@ export const pantries = pgTable("pantries", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   address: text("address").notNull(),
+  dropoffInstructions: text("dropoff_instructions").notNull().default(""),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
   contactName: text("contact_name").notNull().default(""),
@@ -35,6 +36,15 @@ export const pantries = pgTable("pantries", {
   latestArrival: text("latest_arrival").notNull(),
   deliveriesSevenDays: integer("deliveries_seven_days").notNull().default(0),
   active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pantryAccessPhotos = pgTable("pantry_access_photos", {
+  id: serial("id").primaryKey(),
+  pantryId: integer("pantry_id").notNull(),
+  imageUrl: text("image_url").notNull(),
+  pathname: text("pathname").notNull(),
+  caption: text("caption").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

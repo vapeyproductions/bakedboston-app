@@ -16,6 +16,8 @@ export async function PATCH(request: Request) {
     const contactPhone = required(body.contactPhone, "Contact phone");
     const businessPhone = clean(body.businessPhone);
     const notificationPhone = clean(body.notificationPhone);
+    const address = required(body.address, "Address");
+    const dropoffInstructions = clean(body.dropoffInstructions);
     const newPassword = clean(body.newPassword);
     const db = getDb();
 
@@ -31,17 +33,17 @@ export async function PATCH(request: Request) {
       updatedAt: new Date(),
     }).where(eq(partnerAccounts.id, accountId));
 
-    const organizationUpdate = { businessPhone, notificationPhone };
+    const organizationUpdate = { address, businessPhone, notificationPhone };
     if (account.organizationType === "bakery") {
       await db.update(bakeries).set(organizationUpdate).where(eq(bakeries.id, account.organizationId));
     } else {
-      await db.update(pantries).set(organizationUpdate).where(eq(pantries.id, account.organizationId));
+      await db.update(pantries).set({ ...organizationUpdate, dropoffInstructions }).where(eq(pantries.id, account.organizationId));
     }
     await writeAudit({
       actorType: "partner", actorId: account.id, actorName: account.administratorName,
       action: "updated organization profile", entityType: account.organizationType,
       entityId: account.organizationId, entityName: account.administratorName,
-      details: "Account email, administrator contact, organization phone channels, or password updated",
+      details: "Account email, administrator contact, address, drop-off instructions, organization phone channels, or password updated",
     });
     return Response.json({ ok: true });
   } catch (error) {

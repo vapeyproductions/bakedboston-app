@@ -25,6 +25,17 @@ if (!databaseUrl) {
   await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS notification_phone text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS business_phone text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS notification_phone text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS dropoff_instructions text DEFAULT '' NOT NULL`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS pantry_access_photos (
+      id serial PRIMARY KEY,
+      pantry_id integer NOT NULL,
+      image_url text NOT NULL,
+      pathname text NOT NULL,
+      caption text DEFAULT '' NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS partner_accounts_email_unique ON partner_accounts (account_email)`;
   await sql`
     CREATE TABLE IF NOT EXISTS partner_invitations (

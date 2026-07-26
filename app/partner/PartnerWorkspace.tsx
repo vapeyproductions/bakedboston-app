@@ -6,13 +6,14 @@ import Link from "next/link";
 type Kind = "bakery" | "pantry";
 type Organization = {
   id: number; name: string; address: string; contactName: string; contactEmail: string;
-  contactPhone: string; businessPhone: string; notificationPhone: string;
+  contactPhone: string; businessPhone: string; notificationPhone: string; dropoffInstructions?: string;
 };
 type Account = {
   id: number; accountEmail: string; administratorName: string; contactEmail: string;
   contactPhone: string;
 };
 type Contact = { id: number; name: string; email: string; phone: string };
+type PantryAccessPhoto = { id: number; pantryId: number; imageUrl: string; pathname: string; caption: string };
 
 const bakeryActivity = [
   { title: "Today’s pickup", detail: "Ready 4:30 PM · pickup by 6:00 PM", status: "Awaiting driver" },
@@ -26,8 +27,8 @@ const pantryActivity = [
   { title: "Tuesday delivery", detail: "Bakey · received 4:05 PM", status: "Completed" },
 ];
 
-export default function PartnerWorkspace({ kind, organization, account, contacts }: {
-  kind: Kind; organization: Organization; account: Account; contacts: Contact[];
+export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [] }: {
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: PantryAccessPhoto[];
 }) {
   const bakery = kind === "bakery";
   const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
@@ -88,15 +89,18 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
 
       {section === "schedule" && <ScheduleEditor kind={kind} onSave={() => prototypeAction("Schedule changes are preview-only until secure partner accounts are connected.")} />}
       {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">RESCUE HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed rescues will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
-      {section === "profile" && <ProfileEditor organization={organization} account={account} contacts={contacts} onSaved={(message) => prototypeAction(message)} />}
+      {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
     </section>
   </main>;
 }
 
-function ProfileEditor({ organization, account, contacts: initialContacts, onSaved }: {
-  organization: Organization; account: Account; contacts: Contact[]; onSaved: (message: string) => void;
+function ProfileEditor({ kind, organization, account, contacts: initialContacts, photos: initialPhotos, onSaved }: {
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos: PantryAccessPhoto[]; onSaved: (message: string) => void;
 }) {
   const [contacts, setContacts] = useState(initialContacts);
+  const [photos, setPhotos] = useState(initialPhotos);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [caption, setCaption] = useState("");
   const [draft, setDraft] = useState({ name: "", email: "", phone: "" });
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -126,6 +130,24 @@ function ProfileEditor({ organization, account, contacts: initialContacts, onSav
       onSaved("Primary organizational contact deleted.");
     } else onSaved(data?.error ?? "Could not delete contact.");
   }
+  async function addPhoto() {
+    if (!photo) return;
+    const form = new FormData();
+    form.set("photo", photo);
+    form.set("caption", caption);
+    const response = await fetch("/api/pantry-photos", { method: "POST", body: form });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setPhotos((current) => [data.record, ...current]); setPhoto(null); setCaption("");
+      onSaved("Pantry access photo added.");
+    } else onSaved(data?.error ?? "Could not upload photo.");
+  }
+  async function deletePhoto(id: number) {
+    const response = await fetch(`/api/pantry-photos?id=${id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setPhotos((current) => current.filter((item) => item.id !== id)); onSaved("Pantry access photo deleted."); }
+    else onSaved(data?.error ?? "Could not delete photo.");
+  }
   return <div className="profilePage">
     <div className="sectionIntro"><span className="panelKicker">ORGANIZATION SETTINGS</span><h2>Account and contact channels</h2><p>Account credentials are private. Public business details are available to rescue partners; notification details are used for delivery confirmations; administrator contact details are for one-to-one operational support.</p></div>
     <form className="profilePanel" onSubmit={save}>
@@ -134,9 +156,16 @@ function ProfileEditor({ organization, account, contacts: initialContacts, onSav
         <label>New password <input name="newPassword" type="password" minLength={10} placeholder="Leave blank to keep current password" /></label>
       </fieldset>
       <fieldset><legend>Organization channels</legend>
+        <label>{kind === "pantry" ? "Delivery address" : "Business address"}<input name="address" required defaultValue={organization.address} /></label>
+        {kind === "pantry" && <label>Drop-off instructions <small>Help drivers find the exact receiving point after they reach the delivery address.</small><textarea name="dropoffInstructions" rows={3} defaultValue={organization.dropoffInstructions ?? ""} placeholder="Example: Community fridge is in the church parking lot" /></label>}
         <label>Business phone number <small>Visible to drivers and rescue partners for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
         <label>Notification contact <small>Email address or phone number monitored for upcoming deliveries.</small><input name="notificationPhone" type="text" defaultValue={organization.notificationPhone} /></label>
       </fieldset>
+      {kind === "pantry" && <fieldset><legend>Pantry access photos <small>Optional</small></legend>
+        <p>Post photos that help drivers locate the drop-off point. Photos are not included in the onboarding email.</p>
+        {photos.length > 0 && <div className="pantryPhotoGrid">{photos.map((item) => <figure key={item.id}><img src={item.imageUrl} alt={item.caption || "Pantry access"} /><figcaption>{item.caption || "Pantry access photo"}</figcaption><button type="button" onClick={() => deletePhoto(item.id)}>Delete</button></figure>)}</div>}
+        <div className="pantryPhotoUpload"><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label><label>Caption<input value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Example: Use the rear entrance" /></label><button type="button" disabled={!photo} onClick={addPhoto}>+ Add photo</button></div>
+      </fieldset>}
       <fieldset className="profileContacts"><legend>Primary organizational contacts</legend>
         <p>At least one primary contact must remain on the organization.</p>
         <div className="profileContactList">{contacts.map((contact) => <article key={contact.id}><div><strong>{contact.name}</strong><small>{contact.email} · {contact.phone}</small></div><button type="button" disabled={contacts.length <= 1} onClick={() => deleteContact(contact)}>Delete</button></article>)}</div>
