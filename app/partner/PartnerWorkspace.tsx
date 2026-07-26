@@ -4,6 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 
 type Kind = "bakery" | "pantry";
+type Organization = {
+  id: number; name: string; address: string; contactName: string; contactEmail: string;
+  contactPhone: string; businessPhone: string; notificationPhone: string;
+};
+type Account = {
+  id: number; accountEmail: string; administratorName: string; contactEmail: string;
+  contactPhone: string;
+};
 
 const bakeryActivity = [
   { title: "Today’s pickup", detail: "Ready 4:30 PM · pickup by 6:00 PM", status: "Awaiting driver" },
@@ -17,9 +25,11 @@ const pantryActivity = [
   { title: "Tuesday delivery", detail: "Bakey · received 4:05 PM", status: "Completed" },
 ];
 
-export default function PartnerWorkspace({ kind }: { kind: Kind }) {
+export default function PartnerWorkspace({ kind, organization, account }: {
+  kind: Kind; organization: Organization; account: Account;
+}) {
   const bakery = kind === "bakery";
-  const [section, setSection] = useState<"overview" | "schedule" | "activity">("overview");
+  const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
   const [notice, setNotice] = useState("");
   const [available, setAvailable] = useState(true);
   const activity = bakery ? bakeryActivity : pantryActivity;
@@ -34,20 +44,21 @@ export default function PartnerWorkspace({ kind }: { kind: Kind }) {
       <Link className="partnerBrand sideBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
       <div className="organizationBadge">
         <span>{bakery ? "🥖" : "🥫"}</span>
-        <div><small>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</small><strong>{bakery ? "Sample Boston Bakery" : "Sample Community Pantry"}</strong></div>
+        <div><small>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</small><strong>{organization.name}</strong></div>
       </div>
       <nav className="workspaceTabs">
         <button className={section === "overview" ? "active" : ""} onClick={() => setSection("overview")}><span>⌂</span> Overview</button>
         <button className={section === "schedule" ? "active" : ""} onClick={() => setSection("schedule")}><span>◷</span> {bakery ? "Pickup schedule" : "Receiving schedule"}</button>
         <button className={section === "activity" ? "active" : ""} onClick={() => setSection("activity")}><span>↗</span> Delivery activity</button>
+        <button className={section === "profile" ? "active" : ""} onClick={() => setSection("profile")}><span>⚙</span> Profile & contacts</button>
       </nav>
-      <div className="sideBottom"><span className="demoPill">PROTOTYPE MODE</span><Link href="/partners">Switch workspace</Link></div>
+      <div className="sideBottom"><span>{account.administratorName}</span><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>
     </aside>
 
     <section className="workspaceMain">
       <header className="workspaceHeader">
-        <div><p>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</p><h1>{section === "overview" ? "Good afternoon." : section === "schedule" ? (bakery ? "Pickup schedule" : "Receiving schedule") : "Delivery activity"}</h1></div>
-        <button className="profileButton">{bakery ? "SB" : "SC"} <span>⌄</span></button>
+        <div><p>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</p><h1>{section === "overview" ? "Good afternoon." : section === "schedule" ? (bakery ? "Pickup schedule" : "Receiving schedule") : section === "activity" ? "Delivery activity" : "Profile & contacts"}</h1></div>
+        <button className="profileButton" onClick={() => setSection("profile")}>{account.administratorName.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()} <span>⌄</span></button>
       </header>
       {notice && <div className="prototypeNotice">{notice}</div>}
 
@@ -76,8 +87,42 @@ export default function PartnerWorkspace({ kind }: { kind: Kind }) {
 
       {section === "schedule" && <ScheduleEditor kind={kind} onSave={() => prototypeAction("Schedule changes are preview-only until secure partner accounts are connected.")} />}
       {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">RESCUE HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed rescues will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
+      {section === "profile" && <ProfileEditor organization={organization} account={account} onSaved={(message) => prototypeAction(message)} />}
     </section>
   </main>;
+}
+
+function ProfileEditor({ organization, account, onSaved }: {
+  organization: Organization; account: Account; onSaved: (message: string) => void;
+}) {
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const response = await fetch("/api/partner/profile", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => null);
+    onSaved(response.ok ? "Profile and contact information saved." : (data?.error ?? "Could not save profile."));
+  }
+  return <div className="profilePage">
+    <div className="sectionIntro"><span className="panelKicker">ORGANIZATION SETTINGS</span><h2>Account and contact channels</h2><p>Account credentials are private. Public business details are available to rescue partners; notification details are used for delivery confirmations; administrator contact details are for one-to-one operational support.</p></div>
+    <form className="profilePanel" onSubmit={save}>
+      <fieldset><legend>Private account</legend>
+        <label>Account email<input name="accountEmail" type="email" required defaultValue={account.accountEmail} /></label>
+        <label>New password <input name="newPassword" type="password" minLength={10} placeholder="Leave blank to keep current password" /></label>
+      </fieldset>
+      <fieldset><legend>Organization channels</legend>
+        <label>Displayed business phone<input name="businessPhone" type="tel" defaultValue={organization.businessPhone} /></label>
+        <label>Delivery notification number<input name="notificationPhone" type="tel" defaultValue={organization.notificationPhone} /></label>
+      </fieldset>
+      <fieldset><legend>Your administrator contact</legend>
+        <label>Administrator name<input name="administratorName" required defaultValue={account.administratorName} /></label>
+        <label>Contact email<input name="contactEmail" type="email" required defaultValue={account.contactEmail} /></label>
+        <label>Contact phone<input name="contactPhone" type="tel" required defaultValue={account.contactPhone} /></label>
+      </fieldset>
+      <div className="profileActions"><button>Save profile</button></div>
+    </form>
+  </div>;
 }
 
 function ActivityCard({ activity, onAll }: { activity: typeof bakeryActivity; onAll?: () => void }) {

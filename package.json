@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/migrate-partner-accounts.mjs && next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",

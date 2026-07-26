@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, serial, text, timestamp, doublePrecision } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, serial, text, timestamp, doublePrecision, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const bakeries = pgTable("bakeries", {
   id: serial("id").primaryKey(),
@@ -9,6 +9,8 @@ export const bakeries = pgTable("bakeries", {
   contactName: text("contact_name").notNull().default(""),
   contactEmail: text("contact_email").notNull().default(""),
   contactPhone: text("contact_phone").notNull().default(""),
+  businessPhone: text("business_phone").notNull().default(""),
+  notificationPhone: text("notification_phone").notNull().default(""),
   recurringDays: text("recurring_days").notNull(),
   readyTime: text("ready_time").notNull(),
   arrivalDeadline: text("arrival_deadline").notNull(),
@@ -25,6 +27,8 @@ export const pantries = pgTable("pantries", {
   contactName: text("contact_name").notNull().default(""),
   contactEmail: text("contact_email").notNull().default(""),
   contactPhone: text("contact_phone").notNull().default(""),
+  businessPhone: text("business_phone").notNull().default(""),
+  notificationPhone: text("notification_phone").notNull().default(""),
   recurringDays: text("recurring_days").notNull(),
   openTime: text("open_time").notNull(),
   closeTime: text("close_time").notNull(),
@@ -43,3 +47,19 @@ export const rescueRoutes = pgTable("rescue_routes", {
   status: text("status", { enum: ["reserved", "ongoing", "completed"] }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const partnerAccounts = pgTable("partner_accounts", {
+  id: serial("id").primaryKey(),
+  organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),
+  organizationId: integer("organization_id").notNull(),
+  accountEmail: text("account_email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  administratorName: text("administrator_name").notNull(),
+  contactEmail: text("contact_email").notNull(),
+  contactPhone: text("contact_phone").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("partner_accounts_email_unique").on(table.accountEmail),
+]);

@@ -1,19 +1,24 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AdminMap, milesBetween } from "./AdminMap";
 import "./admin.css";
 
 type Bakery = {
   id: number; name: string; address: string; recurringDays: string; readyTime: string;
   arrivalDeadline: string; active: boolean; latitude: number | null; longitude: number | null;
-  contactName: string; contactEmail: string; contactPhone: string;
+  contactName: string; contactEmail: string; contactPhone: string; businessPhone: string; notificationPhone: string;
 };
 type Pantry = {
   id: number; name: string; address: string; recurringDays: string; openTime: string;
   closeTime: string; latestArrival: string; deliveriesSevenDays: number; active: boolean;
   latitude: number | null; longitude: number | null; contactName: string; contactEmail: string;
-  contactPhone: string;
+  contactPhone: string; businessPhone: string; notificationPhone: string;
+};
+type PartnerAccount = {
+  id: number; organizationType: PartnerKind; organizationId: number; accountEmail: string;
+  administratorName: string; contactEmail: string; contactPhone: string; active: boolean;
 };
 type PartnerKind = "bakery" | "pantry";
 type Partner = Bakery | Pantry;
@@ -38,7 +43,7 @@ const timeOptions = Array.from({ length: 48 }, (_, index) => {
   return { value, label: formatTime(value) };
 });
 
-function parseSchedule(pantry: Pantry): ReceivingWindow[] {
+function parseSchedule(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestArrival" | "recurringDays">): ReceivingWindow[] {
   try {
     const open = JSON.parse(pantry.openTime) as Record<string, string> | Array<{ recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; time: string }>;
     const close = JSON.parse(pantry.closeTime) as Record<string, string> | Array<{ time: string }>;
@@ -67,7 +72,7 @@ function parseSchedule(pantry: Pantry): ReceivingWindow[] {
   }
 }
 
-function parseBakerySchedule(bakery: Bakery): BakerySchedule {
+function parseBakerySchedule(bakery: Pick<Bakery, "readyTime" | "arrivalDeadline" | "recurringDays">): BakerySchedule {
   try {
     const ready = JSON.parse(bakery.readyTime) as Record<string, string>;
     const deadline = JSON.parse(bakery.arrivalDeadline) as Record<string, string>;
@@ -98,7 +103,7 @@ function describeWindow(window: ReceivingWindow) {
     : `Every ${window.day}`;
 }
 
-function bakeryMatchesAvailability(bakery: Bakery, day: string, time: string) {
+function bakeryMatchesAvailability(bakery: Pick<Bakery, "readyTime" | "arrivalDeadline" | "recurringDays">, day: string, time: string) {
   const schedule = parseBakerySchedule(bakery);
   const candidateDays = day ? [day] : Object.keys(schedule);
   return candidateDays.some((candidateDay) => {
@@ -107,7 +112,7 @@ function bakeryMatchesAvailability(bakery: Bakery, day: string, time: string) {
   });
 }
 
-function pantryMatchesAvailability(pantry: Pantry, day: string, time: string) {
+function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestArrival" | "recurringDays">, day: string, time: string) {
   return parseSchedule(pantry).some((window) =>
     (!day || window.day === day) && (!time || (window.open <= time && time <= window.close)));
 }
@@ -117,6 +122,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
+  const [partnerAccounts, setPartnerAccounts] = useState<PartnerAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -130,10 +136,13 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setBakeries(data.bakeries);
       setPantries(data.pantries);
       setRoutes(data.routes);
+      setPartnerAccounts(data.partnerAccounts ?? []);
     }
     setLoading(false);
   };
 
+  // The initial request hydrates the client-only administrator dashboard.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refresh(); }, []);
 
   const completed = routes.filter((route) => route.status === "completed").length;
@@ -187,7 +196,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   return (
     <main className="adminShell">
       <aside className="adminSidebar">
-        <a className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></a>
+        <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
           {(["overview", "bakeries", "pantries", "map", "routes"] as const).map((item) => (
@@ -202,7 +211,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <div className="adminUser">
           <span>{user.name.slice(0, 1).toUpperCase()}</span>
           <div><strong>{user.name}</strong><small>Administrator</small></div>
-          <a href="/" title="Return to site">↗</a>
+          <Link href="/" title="Return to site">↗</Link>
         </div>
       </aside>
 
@@ -219,15 +228,15 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         {loading ? <div className="adminEmpty">Loading your network…</div> : (
           <>
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
-            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
-            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
           </>
         )}
       </section>
 
-      {modal && <RecordModal kind={modal.kind} record={modal.record} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
+      {modal && <RecordModal kind={modal.kind} record={modal.record} account={modal.record ? partnerAccounts.find((account) => account.organizationType === modal.kind && account.organizationId === modal.record!.id) : undefined} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} />}
     </main>
   );
 }
@@ -261,9 +270,9 @@ function Progress({ label, value, target, color }: { label: string; value: numbe
   return <div className="progress"><div><strong>{label}</strong><span>{value} of {target}</span></div><div className="bar"><i style={{ width: `${Math.min(value / target, 1) * 100}%`, background: color }} /></div></div>;
 }
 
-function PartnerTable({ type, records, onAdd, onEdit, onDelete, deletingId }: {
+function PartnerTable({ type, records, accounts, onAdd, onEdit, onDelete, deletingId }: {
   type: PartnerKind; records: Partner[]; onAdd: () => void; onEdit: (record: Partner) => void;
-  onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
+  accounts: PartnerAccount[]; onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
 }) {
   const [filterDay, setFilterDay] = useState("");
   const [filterTime, setFilterTime] = useState("");
@@ -283,14 +292,15 @@ function PartnerTable({ type, records, onAdd, onEdit, onDelete, deletingId }: {
     <label>Alphabetical<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as "az" | "za")}><option value="az">A to Z</option><option value="za">Z to A</option></select></label>
     <span>{visibleRecords.length} of {records.length} shown</span>
   </div>
-  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Recurring days</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Status</th><th>Actions</th></tr></thead><tbody>
+  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Account administrators</th><th>Organization phones</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Actions</th></tr></thead><tbody>
     {visibleRecords.map((record) => {
       const pantry = type === "pantry" ? record as Pantry : null;
       const schedule = pantry ? parseSchedule(pantry) : null;
       const bakerySchedule = type === "bakery" ? parseBakerySchedule(record as Bakery) : null;
-      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small></td><td>{record.recurringDays}</td><td>{pantry && schedule
+      const organizationAccounts = accounts.filter((account) => account.organizationType === type && account.organizationId === record.id);
+      return <tr key={record.id}><td><strong>{record.name}</strong><small>{record.address}</small></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>{account.administratorName} · {account.contactEmail} · {account.contactPhone}</small></div>) : <small>No login account assigned</small>}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
-        : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><span className="activePill">Active</span></td><td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
+        : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
   </tbody></table></div>}</>;
 }
@@ -374,8 +384,8 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="smallEmpty"><span>↗</span><div><strong>{title}</strong><p>{body}</p></div></div>;
 }
 
-function RecordModal({ kind, record, saving, onClose, onSave }: {
-  kind: PartnerKind; record?: Partner; saving: boolean; onClose: () => void;
+function RecordModal({ kind, record, account, saving, onClose, onSave }: {
+  kind: PartnerKind; record?: Partner; account?: PartnerAccount; saving: boolean; onClose: () => void;
   onSave: (e: FormEvent<HTMLFormElement>) => void;
 }) {
   const initialDays = record?.recurringDays.split(",").map((day) => day.trim()).filter(Boolean) ?? [];
@@ -407,9 +417,18 @@ function RecordModal({ kind, record, saving, onClose, onSave }: {
         <label className="wide">Street address<input name="address" required defaultValue={record?.address} placeholder="123 Main Street, Boston, MA" /></label>
         <label>Latitude <input name="latitude" type="number" step="any" defaultValue={record?.latitude ?? ""} placeholder="42.3601" /></label>
         <label>Longitude <input name="longitude" type="number" step="any" defaultValue={record?.longitude ?? ""} placeholder="-71.0589" /></label>
-        <label>Contact name<input name="contactName" defaultValue={record?.contactName} /></label>
-        <label>Contact email<input name="contactEmail" type="email" defaultValue={record?.contactEmail} /></label>
-        <label className="wide">Contact phone<input name="contactPhone" type="tel" defaultValue={record?.contactPhone} /></label>
+        <label>Legacy contact name<input name="contactName" defaultValue={record?.contactName} /></label>
+        <label>Legacy contact email<input name="contactEmail" type="email" defaultValue={record?.contactEmail} /></label>
+        <label>Legacy contact phone<input name="contactPhone" type="tel" defaultValue={record?.contactPhone} /></label>
+        <label>Displayed business phone<input name="businessPhone" type="tel" defaultValue={record?.businessPhone} /></label>
+        <label>Delivery notification number<input name="notificationPhone" type="tel" defaultValue={record?.notificationPhone} /></label>
+        <fieldset className="wide accountFields"><legend>{account ? "Primary business administrator" : "Create first business administrator"}</legend><p>Account email is used only for login. Contact email and phone are used by BakedBoston for one-to-one administrative communication. Passwords are stored as one-way hashes and can never be viewed.</p>
+          <label>Administrator name<input name="administratorName" defaultValue={account?.administratorName ?? record?.contactName} /></label>
+          <label>Account email<input name="accountEmail" type="email" defaultValue={account?.accountEmail} /></label>
+          <label>Administrator contact email<input name="administratorContactEmail" type="email" defaultValue={account?.contactEmail ?? record?.contactEmail} /></label>
+          <label>Administrator contact phone<input name="administratorContactPhone" type="tel" defaultValue={account?.contactPhone ?? record?.contactPhone} /></label>
+          <label className="wide">{account ? "Reset password (optional)" : "Temporary password"}<input name="accountPassword" type="password" minLength={10} required={!record && Boolean(account?.accountEmail)} placeholder={account ? "Leave blank to keep current password" : "At least 10 characters"} /></label>
+        </fieldset>
         {kind === "bakery" ? <fieldset className="wide bakeryHours"><legend>Pickup availability by day</legend><p>Turn on each pickup day and enter that day’s individual ready time and pickup deadline.</p>
           {days.map((day) => {
             const enabled = bakeryDays.includes(day);

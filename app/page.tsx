@@ -59,7 +59,6 @@ export default function Home() {
           <a href="#impact">Impact</a>
           <a href="#model">The model</a>
           <a href="/partners">Partner portal</a>
-          <a href="/admin">Administrator</a>
         </div>
         <button className="navCta" onClick={() => document.getElementById("routes")?.scrollIntoView({ behavior: "smooth" })}>
           Find a rescue <span>→</span>
