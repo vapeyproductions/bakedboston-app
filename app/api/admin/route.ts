@@ -93,9 +93,9 @@ function parsePantrySchedule(body: Record<string, string | number | boolean>) {
   if (!activeDays.length) throw new Error("Choose at least one receiving day.");
   const schedule: Record<string, { open: string; close: string; latestArrival: string }> = {};
   for (const day of activeDays) {
-    const open = required(body[`openTime_${day}`], `${day} opening time`);
-    const close = required(body[`closeTime_${day}`], `${day} closing time`);
-    const latestArrival = required(body[`latestArrival_${day}`], `${day} latest arrival`);
+    const open = normalizeTime(body[`openTime_${day}`], `${day} opening time`);
+    const close = normalizeTime(body[`closeTime_${day}`], `${day} closing time`);
+    const latestArrival = normalizeTime(body[`latestArrival_${day}`], `${day} latest arrival`);
     if (open >= close) throw new Error(`${day}: closing time must be after opening time.`);
     if (latestArrival < open || latestArrival > close) {
       throw new Error(`${day}: latest arrival must fall between opening and closing.`);
@@ -103,4 +103,32 @@ function parsePantrySchedule(body: Record<string, string | number | boolean>) {
     schedule[day] = { open, close, latestArrival };
   }
   return schedule;
+}
+
+function normalizeTime(value: unknown, label: string) {
+  const input = required(value, label).toUpperCase().replace(/\s+/g, " ").trim();
+  const twelveHour = input.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/);
+  const twentyFourHour = input.match(/^(\d{1,2}):(\d{2})$/);
+  let hours: number;
+  let minutes: number;
+
+  if (twelveHour) {
+    hours = Number(twelveHour[1]);
+    minutes = Number(twelveHour[2] ?? "00");
+    if (hours < 1 || hours > 12 || minutes > 59) {
+      throw new Error(`${label} must look like 9:00 AM.`);
+    }
+    if (twelveHour[3] === "AM") hours = hours === 12 ? 0 : hours;
+    else hours = hours === 12 ? 12 : hours + 12;
+  } else if (twentyFourHour) {
+    hours = Number(twentyFourHour[1]);
+    minutes = Number(twentyFourHour[2]);
+    if (hours > 23 || minutes > 59) {
+      throw new Error(`${label} must look like 9:00 AM.`);
+    }
+  } else {
+    throw new Error(`${label} must look like 9:00 AM.`);
+  }
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }

@@ -229,9 +229,9 @@ function RecordModal({ kind, saving, onClose, onSave }: { kind: "bakery" | "pant
               const enabled = enabledDays.includes(day);
               return <div className={`dayHoursRow ${enabled ? "enabled" : ""}`} key={day}>
                 <label className="dayToggle"><input type="checkbox" name={`day_${day}`} checked={enabled} onChange={(event) => toggleDay(day, event.target.checked)} /><span>{day}</span></label>
-                <label>Opens<input name={`openTime_${day}`} aria-label={`${day} opening time`} type="time" disabled={!enabled} required={enabled} /></label>
-                <label>Closes<input name={`closeTime_${day}`} aria-label={`${day} closing time`} type="time" disabled={!enabled} required={enabled} /></label>
-                <label>Latest arrival<input name={`latestArrival_${day}`} aria-label={`${day} latest arrival`} type="time" disabled={!enabled} required={enabled} /></label>
+                <label>Opens<input name={`openTime_${day}`} aria-label={`${day} opening time`} type="text" inputMode="text" placeholder="9:00 AM" disabled={!enabled} required={enabled} /></label>
+                <label>Closes<input name={`closeTime_${day}`} aria-label={`${day} closing time`} type="text" inputMode="text" placeholder="5:00 PM" disabled={!enabled} required={enabled} /></label>
+                <label>Latest arrival<input name={`latestArrival_${day}`} aria-label={`${day} latest arrival`} type="text" inputMode="text" placeholder="4:30 PM" disabled={!enabled} required={enabled} /></label>
               </div>;
             })}
           </fieldset><label className="wide">Deliveries in last 7 days<input name="deliveriesSevenDays" type="number" min="0" defaultValue="0" /></label></>}
