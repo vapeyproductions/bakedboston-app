@@ -24,6 +24,9 @@ if (!databaseUrl) {
   await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS business_phone text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS notification_phone text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS dropoff_instructions text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS formatted_address text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS google_place_id text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS address_validation_status text DEFAULT 'unvalidated' NOT NULL`;
   await sql`
     CREATE TABLE IF NOT EXISTS bakery_access_photos (
       id serial PRIMARY KEY,
@@ -37,6 +40,9 @@ if (!databaseUrl) {
   await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS business_phone text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS notification_phone text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS dropoff_instructions text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS formatted_address text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS google_place_id text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE pantries ADD COLUMN IF NOT EXISTS address_validation_status text DEFAULT 'unvalidated' NOT NULL`;
   await sql`
     CREATE TABLE IF NOT EXISTS pantry_access_photos (
       id serial PRIMARY KEY,
@@ -94,7 +100,11 @@ if (!databaseUrl) {
   `;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS password_hash text NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS phone text NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS home_address text NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS home_zip text NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS date_of_birth text NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS identity_verification_status text NOT NULL DEFAULT 'not_started'`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS identity_verification_reference text NOT NULL DEFAULT ''`;
   await sql`
     CREATE TABLE IF NOT EXISTS mobile_sessions (
       id serial PRIMARY KEY,
