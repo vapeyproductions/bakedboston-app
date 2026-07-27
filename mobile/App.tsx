@@ -16,8 +16,24 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
 type Session = { role: Role; accountId: number; displayName: string; email: string };
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://baked-boston.com";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
+
+async function postAuth(payload: Record<string, unknown>) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${API_URL}/api/mobile/auth`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    return { response, data: await response.json() };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 const colors = {
   forest: "#173B2D",
@@ -175,7 +191,7 @@ function AuthFrame({ children, onBack, role }: { children: React.ReactNode; onBa
 
 function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  async function login() { setBusy(true); setError(""); const response = await fetch(`${API_URL}/api/mobile/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", role: "driver", email, password }) }); const data = await response.json(); setBusy(false); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); }
+  async function login() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "login", role: "driver", email, password }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); } catch { setError("The login request timed out. Check your connection and try again."); } finally { setBusy(false); } }
   return <>
     <Text style={styles.authEyebrow}>DRIVER ACCESS</Text>
     <Text style={styles.authTitle}>Ready to rescue?</Text>
@@ -197,7 +213,7 @@ function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onA
 function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const [agreed, setAgreed] = useState(false);
   const [form, setForm] = useState({ displayName: "", email: "", phone: "", homeZip: "", password: "" }); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  async function register() { setBusy(true); setError(""); const response = await fetch(`${API_URL}/api/mobile/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "register-driver", role: "driver", ...form }) }); const data = await response.json(); setBusy(false); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not create driver account."); }
+  async function register() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "register-driver", role: "driver", ...form }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not create driver account."); } catch { setError("The registration request timed out. Check your connection and try again."); } finally { setBusy(false); } }
   return <>
     <Text style={styles.authEyebrow}>NEW DRIVER</Text>
     <Text style={styles.authTitle}>Create your profile.</Text>
@@ -219,7 +235,7 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
 function PartnerLogin({ role, onRequest, onAuthenticated }: { role: Role; onRequest: () => void; onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const organization = role === "bakery" ? "bakery" : "pantry";
   const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  async function login() { setBusy(true); setError(""); const response = await fetch(`${API_URL}/api/mobile/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", role, email, password }) }); const data = await response.json(); setBusy(false); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); }
+  async function login() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "login", role, email, password }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); } catch { setError("The login request timed out. Check your connection and try again."); } finally { setBusy(false); } }
   return <>
     <Text style={styles.authEyebrow}>APPROVED PARTNER</Text>
     <Text style={styles.authTitle}>Welcome back.</Text>
