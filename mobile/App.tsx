@@ -551,7 +551,7 @@ function RecurringNativeEditor({ row, bakery, date, busy, onChange, onClose, onS
   const recurrence = !bakery ? <View style={[styles.choiceRow, compact && styles.landscapeRecurrence]}><Pressable onPress={() => onChange({ recurrence: "weekly", ordinal: null })} style={[styles.choicePill, row.recurrence === "weekly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "weekly" && styles.choiceTextSelected]}>Every week</Text></Pressable><Pressable onPress={() => onChange({ recurrence: "monthly", ordinal: row.ordinal ?? 1 })} style={[styles.choicePill, row.recurrence === "monthly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "monthly" && styles.choiceTextSelected]}>Once a month</Text></Pressable></View> : null;
   const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}>{!bakery && row.recurrence === "monthly" && <EditorField label="Occurrence (1–5)" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}{bakery ? <><EditorField label="Food ready (HH:MM)" value={row.readyTime} onChangeText={(readyTime) => onChange({ readyTime })} /><EditorField label="Pickup deadline (HH:MM)" value={row.pickupDeadline} onChangeText={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><EditorField label="Opens (HH:MM)" value={row.open} onChangeText={(open) => onChange({ open })} /><EditorField label="Closes (HH:MM)" value={row.close} onChangeText={(close) => onChange({ close })} /><EditorField label="Latest arrival (HH:MM)" value={row.latestArrival} onChangeText={(latestArrival) => onChange({ latestArrival })} /></>}</View>;
   const actions = <View style={[styles.editorActions, compact && styles.landscapeEditorActions]}><Pressable onPress={onDelete}><Text style={styles.deleteAction}>Delete window</Text></Pressable>{onCancelDate && <Pressable onPress={onCancelDate}><Text style={styles.cancelDateAction}>Cancel {date}</Text></Pressable>}<Pressable style={[styles.saveAction, compact && styles.landscapeSaveAction]} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save"}</Text></Pressable></View>;
-  if (compact) return <View style={styles.nativeEditor}><View style={styles.landscapeEditorTop}>{heading}<View style={styles.landscapeScheduleControls}>{days}{recurrence}</View></View><View style={styles.landscapeEditorBottom}>{fields}{actions}</View></View>;
+  if (compact) return <View style={styles.nativeEditor}><View style={styles.landscapeEditorTop}>{heading}<View style={styles.landscapeRecurrenceOnly}>{recurrence}</View></View>{days}<View style={styles.landscapeEditorBottom}>{fields}{actions}</View></View>;
   return <View style={styles.nativeEditor}>{heading}{days}{recurrence}{fields}{actions}</View>;
 }
 
@@ -585,10 +585,10 @@ function FourWeekNativeCalendar({ bakery, rows, windows, exceptions, onRecurring
   bakery: boolean; rows: NativeScheduleRow[]; windows: MobileWindow[]; exceptions: WorkspaceData["scheduleExceptions"]; onRecurring: (index: number, date: string) => void; onOneTime: (id: number) => void; onRestore: (id: number) => void;
 }) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const start = new Date(today); start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const start = new Date(today); start.setDate(start.getDate() - start.getDay());
   const dates = Array.from({ length: 28 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
   return <View style={styles.nativeCalendar}><View style={styles.calendarMonthHeading}><Text style={styles.editorTitle}>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</Text><Text style={styles.routeDetail}>Next four weeks</Text></View><View style={styles.calendarWeekHeader}>{nativeDays.map((day) => <Text style={styles.calendarWeekDay} key={day}>{day}</Text>)}</View><View style={styles.calendarGrid}>{dates.map((date) => {
-    const dateString = localDateString(date); const day = nativeDays[(date.getDay() + 6) % 7]; const occurrence = Math.ceil(date.getDate() / 7);
+    const dateString = localDateString(date); const day = nativeDays[date.getDay()]; const occurrence = Math.ceil(date.getDate() / 7);
     const exception = exceptions.find((item) => item.exceptionDate === dateString);
     const recurring = exception ? [] : rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && (row.recurrence === "weekly" || row.ordinal === occurrence));
     const dated = windows.filter((window) => localDateString(new Date(window.startsAt)) === dateString);
@@ -620,7 +620,7 @@ function confirmRestore(date: string) {
   });
 }
 
-const nativeDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const nativeDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function emptyNativeScheduleRow(): NativeScheduleRow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", readyTime: "15:00", pickupDeadline: "18:00" }; }
 function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeScheduleRow[] {
   try {
@@ -916,12 +916,13 @@ const styles = StyleSheet.create({
   calendarInstructions: { marginTop: 0, marginBottom: 0 },
   nativeEditor: { marginTop: 14, paddingHorizontal: 15, paddingVertical: 12, borderRadius: 11, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: "#D5DCD5" },
   nativeEditorCompact: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 10 },
-  landscapeEditorTop: { flexDirection: "row", alignItems: "center", gap: 16 },
+  landscapeEditorTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   landscapeEditorBottom: { flexDirection: "row", alignItems: "flex-end", gap: 14, marginTop: 9 },
   landscapeEditorHeading: { width: 118, marginBottom: 0, flexShrink: 0 },
   landscapeScheduleControls: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  landscapeDayRow: { flexWrap: "nowrap", flex: 1, marginBottom: 0 },
-  landscapeDayPill: { minWidth: 39, paddingHorizontal: 8 },
+  landscapeRecurrenceOnly: { marginLeft: "auto" },
+  landscapeDayRow: { width: "100%", flexWrap: "nowrap", marginTop: 8, marginBottom: 0, gap: 7 },
+  landscapeDayPill: { flex: 1, minHeight: 36, paddingHorizontal: 8 },
   landscapeRecurrence: { flexWrap: "nowrap", marginBottom: 0 },
   landscapeTimeFields: { flex: 1, flexWrap: "nowrap", gap: 10 },
   landscapeEditorActions: { width: 235, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", marginTop: 0, gap: 10 },
