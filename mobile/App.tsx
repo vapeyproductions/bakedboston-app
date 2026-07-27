@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import * as ScreenOrientation from "expo-screen-orientation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -345,8 +345,9 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => undefined);
   }, []);
-  useEffect(() => {
-    SecureStore.getItemAsync(TOKEN_KEY).then(async (token) => {
+  const refreshWorkspace = useCallback(async () => {
+    setWorkspaceError("");
+    await SecureStore.getItemAsync(TOKEN_KEY).then(async (token) => {
       if (!token) throw new Error("Your session has expired.");
       const response = await fetch(`${API_URL}/api/mobile/workspace`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await response.json();
@@ -354,6 +355,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
       setWorkspace(data);
     }).catch((error) => setWorkspaceError(error instanceof Error ? error.message : "Could not load the workspace."));
   }, []);
+  useEffect(() => { void refreshWorkspace(); }, [refreshWorkspace]);
   const nav: Array<{ key: PartnerSection; icon: string; label: string }> = [
     { key: "overview", icon: "⌂", label: "Overview" },
     { key: "activity", icon: "↗", label: "Delivery activity" },
@@ -403,7 +405,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
             </View>
             <View style={styles.portalAvatar}><Text style={styles.portalAvatarText}>{initials(workspace?.organization.name ?? session.displayName)}</Text></View>
           </View>
-          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} rightInset={landscape ? insets.right : 0} workspace={workspace} error={workspaceError} onNavigate={setSection} />
+          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} rightInset={landscape ? insets.right : 0} workspace={workspace} error={workspaceError} onNavigate={setSection} onChanged={refreshWorkspace} />
         </View>
       </View>
     </SafeAreaView>
@@ -423,8 +425,8 @@ function PortalNavButton({ item, selected, onPress, compact }: {
   </Pressable>;
 }
 
-function PartnerSectionContent({ section, bakery, landscape, rightInset, workspace, error, onNavigate }: {
-  section: PartnerSection; bakery: boolean; landscape: boolean; rightInset: number; workspace: WorkspaceData | null; error: string; onNavigate: (section: PartnerSection) => void;
+function PartnerSectionContent({ section, bakery, landscape, rightInset, workspace, error, onNavigate, onChanged }: {
+  section: PartnerSection; bakery: boolean; landscape: boolean; rightInset: number; workspace: WorkspaceData | null; error: string; onNavigate: (section: PartnerSection) => void; onChanged: () => Promise<void>;
 }) {
   if (error) return <WorkspaceMessage title="Could not load workspace" body={error} />;
   if (!workspace) return <WorkspaceMessage title="Loading your workspace…" body="Syncing the latest BakedBoston information." />;
@@ -459,7 +461,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     </ScrollView>;
   }
   if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
-  if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
+  if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
   return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
 }
 
@@ -491,24 +493,135 @@ function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceD
   </ScrollView>;
 }
 
-function SchedulePage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
-  const schedule = mobileScheduleRows(workspace, bakery);
+type NativeScheduleRow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; readyTime: string; pickupDeadline: string };
+type ScheduleSelection = { type: "recurring"; index: number; date?: string } | { type: "one-time"; id: number } | null;
+
+function SchedulePage({ workspace, bakery, rightInset, onChanged }: { workspace: WorkspaceData; bakery: boolean; rightInset: number; onChanged: () => Promise<void> }) {
+  const [rows, setRows] = useState<NativeScheduleRow[]>(() => nativeScheduleRows(workspace, bakery));
+  const [selected, setSelected] = useState<ScheduleSelection>(null);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setRows(nativeScheduleRows(workspace, bakery)), [workspace, bakery]);
+  async function saveRows(nextRows = rows) {
+    setBusy(true); setNotice("");
+    const { response, data } = await workspaceRequest("PATCH", { action: "save-schedule", windows: nextRows });
+    setBusy(false);
+    if (!response.ok) return setNotice(data.error ?? "Could not save schedule.");
+    setNotice("Recurring schedule saved.");
+    await onChanged();
+  }
+  function addRecurring() {
+    const next = [...rows, emptyNativeScheduleRow()];
+    setRows(next); setSelected({ type: "recurring", index: next.length - 1 });
+  }
+  async function removeRecurring(index: number) {
+    if (rows.length <= 1) return setNotice("At least one recurring window is required.");
+    const next = rows.filter((_, rowIndex) => rowIndex !== index);
+    setRows(next); setSelected(null); await saveRows(next);
+  }
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
       <Text style={styles.portalPanelKicker}>RECURRING AVAILABILITY</Text>
-      <Text style={styles.portalFeatureTitle}>{bakery ? "Pickup schedule" : "Receiving schedule"}</Text>
-      <Text style={styles.portalFeatureBody}>This schedule is synchronized with the organization’s web portal.</Text>
-      <View style={styles.scheduleList}>{schedule.map((row, index) => <View style={styles.scheduleRow} key={`${row.day}-${index}`}>
-        <View style={styles.scheduleDayBadge}><Text style={styles.scheduleDayText}>{row.day.toUpperCase()}</Text></View>
-        <View style={styles.scheduleCopy}><Text style={styles.scheduleTime}>{row.primary}</Text>{row.secondary ? <Text style={styles.scheduleLatest}>{row.secondary}</Text> : null}</View>
-      </View>)}</View>
-      {workspace.availabilityWindows.length > 0 && <>
-        <Text style={styles.subsectionTitle}>One-time availability</Text>
-        {workspace.availabilityWindows.map((window) => <View style={styles.oneTimeRow} key={window.id}><View><Text style={styles.routeTitle}>{formatMobileDate(window.startsAt)}</Text><Text style={styles.routeDetail}>{formatMobileTime(window.startsAt)}–{formatMobileTime(window.endsAt)}</Text></View><Text style={styles.routeStatus}>{window.paused ? "paused" : "one-time"}</Text></View>)}
-      </>}
+      <Text style={styles.portalFeatureTitle}>{bakery ? "Pickup calendar" : "Receiving calendar"}</Text>
+      <Text style={styles.portalFeatureBody}>View and edit recurring and one-time availability for the next four weeks. Changes synchronize with the web and administrator portals.</Text>
+      <View style={styles.calendarActions}><Pressable style={styles.calendarSecondaryButton} onPress={() => setSelected({ type: "one-time", id: -1 })}><Text style={styles.calendarSecondaryText}>+ Add one-time window</Text></Pressable><Pressable style={styles.portalFeatureButton} onPress={addRecurring}><Text style={styles.portalFeatureButtonText}>+ Add recurring window</Text></Pressable></View>
+      {notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}
+      {selected?.type === "recurring" && rows[selected.index] ? <RecurringNativeEditor row={rows[selected.index]} bakery={bakery} date={selected.date} busy={busy} onChange={(patch) => setRows((current) => current.map((row, index) => index === selected.index ? { ...row, ...patch } : row))} onClose={() => setSelected(null)} onSave={() => saveRows()} onDelete={() => removeRecurring(selected.index)} onCancelDate={selected.date ? async () => {
+        const { response, data } = await workspaceRequest("POST", { action: "cancel-occurrence", exceptionDate: selected.date });
+        if (response.ok) { setSelected(null); await onChanged(); } else setNotice(data.error ?? "Could not cancel this occurrence.");
+      } : undefined} /> : null}
+      {selected?.type === "one-time" ? <OneTimeNativeEditor window={workspace.availabilityWindows.find((window) => window.id === selected.id)} bakery={bakery} onClose={() => setSelected(null)} onSaved={async (message) => { setNotice(message); setSelected(null); await onChanged(); }} /> : null}
+      <FourWeekNativeCalendar bakery={bakery} rows={rows} windows={workspace.availabilityWindows} exceptions={workspace.scheduleExceptions} onRecurring={(index, date) => setSelected({ type: "recurring", index, date })} onOneTime={(id) => setSelected({ type: "one-time", id })} onRestore={async (id) => {
+        const { response, data } = await workspaceRequest("DELETE", undefined, `?type=exception&id=${id}`);
+        if (response.ok) await onChanged(); else setNotice(data.error ?? "Could not restore scheduled hours.");
+      }} />
     </View>
   </ScrollView>;
 }
+
+function RecurringNativeEditor({ row, bakery, date, busy, onChange, onClose, onSave, onDelete, onCancelDate }: {
+  row: NativeScheduleRow; bakery: boolean; date?: string; busy: boolean; onChange: (patch: Partial<NativeScheduleRow>) => void; onClose: () => void; onSave: () => void; onDelete: () => void; onCancelDate?: () => void;
+}) {
+  return <View style={styles.nativeEditor}><View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>EDIT RECURRING WINDOW</Text><Text style={styles.editorTitle}>{row.day} window</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>
+    <View style={styles.choiceRow}>{nativeDays.map((day) => <Pressable key={day} onPress={() => onChange({ day })} style={[styles.choicePill, row.day === day && styles.choicePillSelected]}><Text style={[styles.choiceText, row.day === day && styles.choiceTextSelected]}>{day}</Text></Pressable>)}</View>
+    {!bakery && <View style={styles.choiceRow}><Pressable onPress={() => onChange({ recurrence: "weekly", ordinal: null })} style={[styles.choicePill, row.recurrence === "weekly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "weekly" && styles.choiceTextSelected]}>Every week</Text></Pressable><Pressable onPress={() => onChange({ recurrence: "monthly", ordinal: row.ordinal ?? 1 })} style={[styles.choicePill, row.recurrence === "monthly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "monthly" && styles.choiceTextSelected]}>Once a month</Text></Pressable></View>}
+    {!bakery && row.recurrence === "monthly" && <EditorField label="Monthly occurrence (1–5)" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}
+    {bakery ? <><EditorField label="Food ready (HH:MM)" value={row.readyTime} onChangeText={(readyTime) => onChange({ readyTime })} /><EditorField label="Pickup deadline (HH:MM)" value={row.pickupDeadline} onChangeText={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><EditorField label="Opens (HH:MM)" value={row.open} onChangeText={(open) => onChange({ open })} /><EditorField label="Closes (HH:MM)" value={row.close} onChangeText={(close) => onChange({ close })} /><EditorField label="Latest permitted arrival (HH:MM)" value={row.latestArrival} onChangeText={(latestArrival) => onChange({ latestArrival })} /></>}
+    <View style={styles.editorActions}><Pressable onPress={onDelete}><Text style={styles.deleteAction}>Delete recurring window</Text></Pressable>{onCancelDate && <Pressable onPress={onCancelDate}><Text style={styles.cancelDateAction}>Cancel scheduled hours on {date}</Text></Pressable>}<Pressable style={styles.saveAction} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save schedule"}</Text></Pressable></View>
+  </View>;
+}
+
+function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: MobileWindow; bakery: boolean; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const start = window ? new Date(window.startsAt) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const end = window ? new Date(window.endsAt) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
+  const latest = window ? new Date(window.latestArrival) : new Date(end.getTime() - 15 * 60 * 1000);
+  const [draft, setDraft] = useState({ date: localDateString(start), starts: localTimeString(start), ends: localTimeString(end), latest: localTimeString(latest) });
+  const [error, setError] = useState("");
+  async function save() {
+    const startsAt = new Date(`${draft.date}T${draft.starts}:00`).toISOString();
+    const endsAt = new Date(`${draft.date}T${draft.ends}:00`).toISOString();
+    const latestArrival = bakery ? endsAt : new Date(`${draft.date}T${draft.latest}:00`).toISOString();
+    const { response, data } = await workspaceRequest(window ? "PATCH" : "POST", { ...(window ? { id: window.id } : {}), startsAt, endsAt, latestArrival });
+    if (response.ok) await onSaved(window ? "One-time window updated." : "One-time window created."); else setError(data.error ?? "Could not save window.");
+  }
+  async function remove() {
+    if (!window) return;
+    const { response, data } = await workspaceRequest("DELETE", undefined, `?id=${window.id}`);
+    if (response.ok) await onSaved("One-time window deleted."); else setError(data.error ?? "Could not delete window.");
+  }
+  return <View style={styles.nativeEditor}><View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME WINDOW</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New availability"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>
+    <EditorField label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><EditorField label={bakery ? "Food ready (HH:MM)" : "Opens (HH:MM)"} value={draft.starts} onChangeText={(starts) => setDraft({ ...draft, starts })} /><EditorField label={bakery ? "Pickup deadline (HH:MM)" : "Closes (HH:MM)"} value={draft.ends} onChangeText={(ends) => setDraft({ ...draft, ends })} />{!bakery && <EditorField label="Latest permitted arrival (HH:MM)" value={draft.latest} onChangeText={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}<View style={styles.editorActions}>{window && <Pressable onPress={remove}><Text style={styles.deleteAction}>Delete window</Text></Pressable>}<Pressable style={styles.saveAction} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>
+  </View>;
+}
+
+function FourWeekNativeCalendar({ bakery, rows, windows, exceptions, onRecurring, onOneTime, onRestore }: {
+  bakery: boolean; rows: NativeScheduleRow[]; windows: MobileWindow[]; exceptions: WorkspaceData["scheduleExceptions"]; onRecurring: (index: number, date: string) => void; onOneTime: (id: number) => void; onRestore: (id: number) => void;
+}) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const start = new Date(today); start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const dates = Array.from({ length: 28 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
+  return <View style={styles.nativeCalendar}><View style={styles.calendarMonthHeading}><Text style={styles.editorTitle}>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</Text><Text style={styles.routeDetail}>Next four weeks</Text></View><View style={styles.calendarWeekHeader}>{nativeDays.map((day) => <Text style={styles.calendarWeekDay} key={day}>{day}</Text>)}</View><View style={styles.calendarGrid}>{dates.map((date) => {
+    const dateString = localDateString(date); const day = nativeDays[(date.getDay() + 6) % 7]; const occurrence = Math.ceil(date.getDate() / 7);
+    const exception = exceptions.find((item) => item.exceptionDate === dateString);
+    const recurring = exception ? [] : rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && (row.recurrence === "weekly" || row.ordinal === occurrence));
+    const dated = windows.filter((window) => localDateString(new Date(window.startsAt)) === dateString);
+    return <View style={[styles.calendarCell, dateString === localDateString(today) && styles.calendarCellToday]} key={dateString}><Text style={styles.calendarDateNumber}>{date.getDate()}</Text>{exception ? <Pressable style={styles.cancelledCalendarEvent} onPress={() => onRestore(exception.id)}><Text style={styles.calendarEventText}>Cancelled</Text><Text style={styles.calendarEventTime}>Tap to restore</Text></Pressable> : null}{recurring.map(({ row, index }) => <Pressable style={styles.recurringCalendarEvent} key={`r-${index}`} onPress={() => onRecurring(index, dateString)}><Text style={styles.calendarEventText}>Recurring</Text><Text style={styles.calendarEventTime}>{displayClock(bakery ? row.readyTime : row.open)}–{displayClock(bakery ? row.pickupDeadline : row.close)}</Text>{!bakery && <Text style={styles.calendarEventTime}>Latest {displayClock(row.latestArrival)}</Text>}</Pressable>)}{dated.map((window) => <Pressable style={styles.oneTimeCalendarEvent} key={window.id} onPress={() => onOneTime(window.id)}><Text style={styles.calendarEventText}>{window.paused ? "Paused" : "One-time"}</Text><Text style={styles.calendarEventTime}>{formatMobileTime(window.startsAt)}–{formatMobileTime(window.endsAt)}</Text></Pressable>)}</View>;
+  })}</View></View>;
+}
+
+function EditorField({ label, value, onChangeText }: { label: string; value: string; onChangeText: (value: string) => void }) {
+  return <View style={styles.editorField}><Text style={styles.informationLabel}>{label}</Text><TextInput style={styles.editorInput} value={value} onChangeText={onChangeText} autoCapitalize="none" autoCorrect={false} /></View>;
+}
+
+async function workspaceRequest(method: "POST" | "PATCH" | "DELETE", body?: Record<string, unknown>, query = "") {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/workspace${query}`, {
+    method,
+    headers: { Authorization: `Bearer ${token ?? ""}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return { response, data: await response.json().catch(() => ({})) };
+}
+
+const nativeDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function emptyNativeScheduleRow(): NativeScheduleRow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", readyTime: "15:00", pickupDeadline: "18:00" }; }
+function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeScheduleRow[] {
+  try {
+    if (bakery) {
+      const ready = JSON.parse(workspace.organization.readyTime ?? "{}") as Record<string, string>;
+      const deadlines = JSON.parse(workspace.organization.arrivalDeadline ?? "{}") as Record<string, string>;
+      const rows = Object.keys(ready).map((day) => ({ ...emptyNativeScheduleRow(), day, readyTime: ready[day], pickupDeadline: deadlines[day] ?? "18:00" }));
+      return rows.length ? rows : [emptyNativeScheduleRow()];
+    }
+    const opens = JSON.parse(workspace.organization.openTime ?? "[]") as Array<{ day: string; time: string; recurrence?: "weekly" | "monthly"; ordinal?: number | null }>;
+    const closes = JSON.parse(workspace.organization.closeTime ?? "[]") as Array<{ time: string }>;
+    const latest = JSON.parse(workspace.organization.latestArrival ?? "[]") as Array<{ time: string }>;
+    const rows = opens.map((open, index) => ({ ...emptyNativeScheduleRow(), recurrence: open.recurrence ?? "weekly", day: open.day, ordinal: open.ordinal ?? null, open: open.time, close: closes[index]?.time ?? "17:00", latestArrival: latest[index]?.time ?? "16:30" }));
+    return rows.length ? rows : [emptyNativeScheduleRow()];
+  } catch { return [emptyNativeScheduleRow()]; }
+}
+function localDateString(value: Date) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`; }
+function localTimeString(value: Date) { return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`; }
 
 function ProfilePage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
@@ -695,6 +808,39 @@ const styles = StyleSheet.create({
   contactRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
   contactCopy: { flex: 1 },
   primaryPill: { color: colors.forest, fontSize: 7, fontWeight: "900", paddingHorizontal: 8, paddingVertical: 5, borderRadius: 10, backgroundColor: colors.mint },
+  calendarActions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18, alignItems: "center" },
+  calendarSecondaryButton: { minHeight: 44, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  calendarSecondaryText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
+  calendarNotice: { color: "#A34436", fontSize: 10, lineHeight: 15, fontWeight: "800", marginTop: 12 },
+  nativeEditor: { marginTop: 18, padding: 17, borderRadius: 11, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: "#D5DCD5" },
+  editorHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 },
+  editorTitle: { color: colors.forest, fontSize: 17, fontWeight: "900", marginTop: 4 },
+  editorClose: { color: colors.forest, fontSize: 27, lineHeight: 28 },
+  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
+  choicePill: { minHeight: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  choicePillSelected: { backgroundColor: colors.forest, borderColor: colors.forest },
+  choiceText: { color: colors.forestSoft, fontSize: 8, fontWeight: "900" },
+  choiceTextSelected: { color: colors.white },
+  editorField: { marginTop: 10 },
+  editorInput: { minHeight: 43, marginTop: 5, paddingHorizontal: 12, color: colors.forest, fontSize: 12, fontWeight: "700", backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
+  editorActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12, marginTop: 17 },
+  deleteAction: { color: "#A34436", fontSize: 8, fontWeight: "900" },
+  cancelDateAction: { color: "#A26A16", fontSize: 8, fontWeight: "900" },
+  saveAction: { minHeight: 40, marginLeft: "auto", paddingHorizontal: 15, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  saveActionText: { color: colors.white, fontSize: 9, fontWeight: "900" },
+  nativeCalendar: { marginTop: 22, borderWidth: 1, borderColor: colors.border, borderRadius: 11, overflow: "hidden", backgroundColor: colors.paper },
+  calendarMonthHeading: { padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.border },
+  calendarWeekHeader: { flexDirection: "row", backgroundColor: "#F1EFE6" },
+  calendarWeekDay: { width: "14.2857%", paddingVertical: 8, color: colors.forestSoft, fontSize: 7, fontWeight: "900", textAlign: "center" },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarCell: { width: "14.2857%", minHeight: 103, padding: 4, borderRightWidth: 1, borderBottomWidth: 1, borderColor: "#E0E5E0" },
+  calendarCellToday: { backgroundColor: "#F4F8F2" },
+  calendarDateNumber: { color: colors.forest, fontSize: 8, fontWeight: "900", marginBottom: 4 },
+  recurringCalendarEvent: { padding: 4, marginBottom: 3, borderRadius: 4, backgroundColor: colors.mint },
+  oneTimeCalendarEvent: { padding: 4, marginBottom: 3, borderRadius: 4, backgroundColor: "#F8E5B8" },
+  cancelledCalendarEvent: { padding: 4, marginBottom: 3, borderRadius: 4, backgroundColor: "#F5D7D1" },
+  calendarEventText: { color: colors.forest, fontSize: 6, fontWeight: "900" },
+  calendarEventTime: { color: colors.forestSoft, fontSize: 5, lineHeight: 7, marginTop: 2 },
   portalFeatureTitle: { color: colors.forest, fontSize: 27, fontWeight: "800", marginTop: 8 },
   portalFeatureBody: { color: colors.sage, fontSize: 12, lineHeight: 19, marginTop: 10, maxWidth: 560 },
   portalFeatureButton: { alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center", marginTop: 25 },

@@ -12,25 +12,27 @@ import {
   rescueRoutes,
   scheduleExceptions,
 } from "../../../../db/schema";
+import { writeAudit } from "../../../audit";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
-export async function GET(request: Request) {
+async function currentAccount(request: Request) {
   const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1] ?? "";
-  if (!token) return Response.json({ error: "Sign in required." }, { status: 401 });
-
+  if (!token) return null;
   const db = getDb();
   const [session] = await db.select().from(mobileSessions).where(and(
     eq(mobileSessions.tokenHash, tokenHash(token)),
     gt(mobileSessions.expiresAt, new Date()),
   )).limit(1);
-  if (!session || session.role === "driver") return Response.json({ error: "Partner account required." }, { status: 401 });
-
+  if (!session || session.role === "driver") return null;
   const [account] = await db.select().from(partnerAccounts).where(eq(partnerAccounts.id, session.accountId)).limit(1);
-  if (!account?.active || account.organizationType !== session.role) {
-    return Response.json({ error: "Account unavailable." }, { status: 401 });
-  }
+  return account?.active && account.organizationType === session.role ? account : null;
+}
 
+export async function GET(request: Request) {
+  const account = await currentAccount(request);
+  if (!account) return Response.json({ error: "Sign in required." }, { status: 401 });
+  const db = getDb();
   const organization = account.organizationType === "bakery"
     ? (await db.select().from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1))[0]
     : (await db.select().from(pantries).where(eq(pantries.id, account.organizationId)).limit(1))[0];
@@ -73,3 +75,114 @@ export async function GET(request: Request) {
     routes,
   });
 }
+
+export async function POST(request: Request) {
+  const account = await currentAccount(request);
+  if (!account) return Response.json({ error: "Sign in required." }, { status: 401 });
+  try {
+    const body = await request.json() as Record<string, unknown>;
+    const db = getDb();
+    if (body.action === "cancel-occurrence") {
+      const exceptionDate = validDateOnly(body.exceptionDate);
+      const existing = await db.select().from(scheduleExceptions).where(and(
+        eq(scheduleExceptions.organizationType, account.organizationType),
+        eq(scheduleExceptions.organizationId, account.organizationId),
+        eq(scheduleExceptions.exceptionDate, exceptionDate),
+      )).limit(1);
+      const record = existing[0] ?? (await db.insert(scheduleExceptions).values({ organizationType: account.organizationType, organizationId: account.organizationId, exceptionDate }).returning())[0];
+      await audit(account, "cancelled scheduled hours for one date", exceptionDate);
+      return Response.json({ record });
+    }
+    const startsAt = validDateTime(body.startsAt, "Opening time");
+    const endsAt = validDateTime(body.endsAt, "Closing time");
+    const latestArrival = validDateTime(body.latestArrival, "Latest permitted arrival");
+    validateWindow(startsAt, endsAt, latestArrival);
+    const [record] = await db.insert(availabilityWindows).values({ organizationType: account.organizationType, organizationId: account.organizationId, startsAt, endsAt, latestArrival, paused: false }).returning();
+    await audit(account, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
+    return Response.json({ record }, { status: 201 });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Could not update availability." }, { status: 400 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const account = await currentAccount(request);
+  if (!account) return Response.json({ error: "Sign in required." }, { status: 401 });
+  try {
+    const body = await request.json() as Record<string, unknown>;
+    const db = getDb();
+    if (body.action === "save-schedule") {
+      const windows = Array.isArray(body.windows) ? body.windows as Array<Record<string, unknown>> : [];
+      if (!windows.length) throw new Error("Add at least one recurring window.");
+      if (account.organizationType === "bakery") {
+        const normalized = windows.map((window) => ({ day: validDay(window.day), readyTime: validTime(window.readyTime), pickupDeadline: validTime(window.pickupDeadline) }));
+        for (const window of normalized) if (window.readyTime >= window.pickupDeadline) throw new Error(`${window.day}: pickup deadline must be later than food-ready time.`);
+        await db.update(bakeries).set({
+          recurringDays: normalized.map((window) => window.day).join(", "),
+          readyTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.readyTime]))),
+          arrivalDeadline: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.pickupDeadline]))),
+        }).where(eq(bakeries.id, account.organizationId));
+      } else {
+        const normalized = windows.map((window) => ({
+          recurrence: window.recurrence === "monthly" ? "monthly" : "weekly",
+          day: validDay(window.day),
+          ordinal: window.recurrence === "monthly" ? validOrdinal(window.ordinal) : null,
+          open: validTime(window.open), close: validTime(window.close), latestArrival: validTime(window.latestArrival),
+        }));
+        for (const window of normalized) {
+          if (window.open >= window.close) throw new Error(`${window.day}: closing time must be later than opening time.`);
+          if (window.latestArrival < window.open || window.latestArrival > window.close) throw new Error(`${window.day}: latest arrival must fall inside the window.`);
+        }
+        await db.update(pantries).set({
+          recurringDays: [...new Set(normalized.map((window) => window.day))].join(", "),
+          openTime: JSON.stringify(normalized.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
+          closeTime: JSON.stringify(normalized.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
+          latestArrival: JSON.stringify(normalized.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
+        }).where(eq(pantries.id, account.organizationId));
+      }
+      await audit(account, `updated ${account.organizationType} schedule`, "Recurring availability updated in mobile portal");
+      return Response.json({ ok: true });
+    }
+    const id = Number(body.id);
+    const [window] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
+    if (!window || window.organizationType !== account.organizationType || window.organizationId !== account.organizationId) throw new Error("Availability window not found.");
+    const startsAt = validDateTime(body.startsAt, "Opening time");
+    const endsAt = validDateTime(body.endsAt, "Closing time");
+    const latestArrival = validDateTime(body.latestArrival, "Latest permitted arrival");
+    validateWindow(startsAt, endsAt, latestArrival);
+    const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival }).where(eq(availabilityWindows.id, id)).returning();
+    await audit(account, "updated one-time availability window", String(id));
+    return Response.json({ record });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Could not save schedule." }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const account = await currentAccount(request);
+  if (!account) return Response.json({ error: "Sign in required." }, { status: 401 });
+  const url = new URL(request.url);
+  const id = Number(url.searchParams.get("id"));
+  const type = url.searchParams.get("type");
+  const db = getDb();
+  if (type === "exception") {
+    const [record] = await db.select().from(scheduleExceptions).where(eq(scheduleExceptions.id, id)).limit(1);
+    if (!record || record.organizationType !== account.organizationType || record.organizationId !== account.organizationId) return Response.json({ error: "Cancellation not found." }, { status: 404 });
+    await db.delete(scheduleExceptions).where(eq(scheduleExceptions.id, id));
+    await audit(account, "restored scheduled hours for one date", record.exceptionDate);
+  } else {
+    const [record] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
+    if (!record || record.organizationType !== account.organizationType || record.organizationId !== account.organizationId) return Response.json({ error: "Availability window not found." }, { status: 404 });
+    await db.delete(availabilityWindows).where(eq(availabilityWindows.id, id));
+    await audit(account, "deleted one-time availability window", String(id));
+  }
+  return Response.json({ ok: true });
+}
+
+function validDay(value: unknown) { const day = String(value ?? ""); if (!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day)) throw new Error("Choose a valid day."); return day; }
+function validTime(value: unknown) { const time = String(value ?? ""); if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Enter a valid time."); return time; }
+function validOrdinal(value: unknown) { const ordinal = Number(value); if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 5) throw new Error("Choose a monthly occurrence."); return ordinal; }
+function validDateOnly(value: unknown) { const date = String(value ?? ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a valid date."); return date; }
+function validDateTime(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
+function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest arrival must fall inside the availability window."); }
+async function audit(account: typeof partnerAccounts.$inferSelect, action: string, details: string) { await writeAudit({ actorType: "partner", actorId: account.id, actorName: account.accountEmail, action, entityType: account.organizationType, entityId: account.organizationId, entityName: account.accountEmail, details }); }
