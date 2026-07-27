@@ -352,7 +352,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [search, setSearch] = useState({ date: localDateString(new Date()), earliest: "17:00", latest: "19:00", startZip: "", endZip: "" });
   const [searched, setSearched] = useState(false);
   useEffect(() => {
-    ScreenOrientation.unlockAsync().catch(() => undefined);
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     if (!session.demo) loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
   }, [session.demo]);
   const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
