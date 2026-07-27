@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
@@ -321,6 +321,7 @@ type PartnerSection = "overview" | "activity" | "schedule" | "profile";
 
 function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const landscape = width > height;
   const bakery = session.role === "bakery";
   const [section, setSection] = useState<PartnerSection>("overview");
@@ -336,10 +337,10 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   const title = section === "overview" ? "Good afternoon." : nav.find((item) => item.key === section)?.label ?? "";
 
   return (
-    <SafeAreaView style={styles.portalSafe} edges={landscape ? ["top", "left", "right"] : ["top", "bottom"]}>
+    <SafeAreaView style={styles.portalSafe} edges={landscape ? ["top"] : ["top", "bottom"]}>
       <View style={[styles.portalShell, landscape ? styles.portalLandscape : styles.portalPortrait]}>
         {landscape ? (
-          <View style={styles.portalSidebar}>
+          <View style={[styles.portalSidebar, { width: 238 + insets.left, paddingLeft: 18 + insets.left }]}>
             <PortalBrand light />
             <View style={styles.portalOrganization}>
               <Text style={styles.portalOrganizationIcon}>{bakery ? "🥖" : "🥫"}</Text>
@@ -369,14 +370,14 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
           </>
         )}
         <View style={styles.portalMain}>
-          <View style={[styles.portalPageHeader, !landscape && styles.portalPageHeaderMobile]}>
+          <View style={[styles.portalPageHeader, landscape && { paddingRight: 30 + insets.right }, !landscape && styles.portalPageHeaderMobile]}>
             <View>
               <Text style={styles.portalKicker}>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</Text>
               <Text style={[styles.portalPageTitle, !landscape && styles.portalPageTitleMobile]}>{title}</Text>
             </View>
             <View style={styles.portalAvatar}><Text style={styles.portalAvatarText}>{initials(session.displayName)}</Text></View>
           </View>
-          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} />
+          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} rightInset={landscape ? insets.right : 0} />
         </View>
       </View>
     </SafeAreaView>
@@ -396,9 +397,9 @@ function PortalNavButton({ item, selected, onPress, compact }: {
   </Pressable>;
 }
 
-function PartnerSectionContent({ section, bakery, landscape }: { section: PartnerSection; bakery: boolean; landscape: boolean }) {
+function PartnerSectionContent({ section, bakery, landscape, rightInset }: { section: PartnerSection; bakery: boolean; landscape: boolean; rightInset: number }) {
   if (section === "overview") {
-    return <ScrollView contentContainerStyle={[styles.portalContent, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
+    return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
           <View style={styles.portalStatusLabel}><View style={styles.portalStatusDot} /><Text style={styles.portalStatusLabelText}>WORKSPACE CONNECTED</Text></View>
@@ -418,17 +419,17 @@ function PartnerSectionContent({ section, bakery, landscape }: { section: Partne
       </View>
     </ScrollView>;
   }
-  if (section === "activity") return <PrototypePage kicker="DELIVERY HISTORY" title={bakery ? "Your pickups" : "Your deliveries"} body="Reserved, ongoing, and completed deliveries will appear here automatically." button="No deliveries yet" />;
-  if (section === "schedule") return <PrototypePage kicker="NEXT FOUR WEEKS" title={bakery ? "Pickup calendar" : "Receiving calendar"} body="Recurring and one-time availability will use the same four-week calendar as the web portal." button={bakery ? "+ Add pickup window" : "+ Add availability window"} />;
-  return <PrototypePage kicker="ORGANIZATION SETTINGS" title="Profile and contacts" body="Account email, organization channels, access instructions, photos, and organizational contacts will be editable here." button="Edit profile" />;
+  if (section === "activity") return <PrototypePage rightInset={rightInset} kicker="DELIVERY HISTORY" title={bakery ? "Your pickups" : "Your deliveries"} body="Reserved, ongoing, and completed deliveries will appear here automatically." button="No deliveries yet" />;
+  if (section === "schedule") return <PrototypePage rightInset={rightInset} kicker="NEXT FOUR WEEKS" title={bakery ? "Pickup calendar" : "Receiving calendar"} body="Recurring and one-time availability will use the same four-week calendar as the web portal." button={bakery ? "+ Add pickup window" : "+ Add availability window"} />;
+  return <PrototypePage rightInset={rightInset} kicker="ORGANIZATION SETTINGS" title="Profile and contacts" body="Account email, organization channels, access instructions, photos, and organizational contacts will be editable here." button="Edit profile" />;
 }
 
 function MetricCard({ value, label }: { value: string; label: string }) {
   return <View style={styles.portalMetricCard}><Text style={styles.portalMetricValue}>{value}</Text><Text style={styles.portalMetricLabel}>{label}</Text></View>;
 }
 
-function PrototypePage({ kicker, title, body, button }: { kicker: string; title: string; body: string; button: string }) {
-  return <ScrollView contentContainerStyle={styles.portalContent}>
+function PrototypePage({ kicker, title, body, button, rightInset }: { kicker: string; title: string; body: string; button: string; rightInset: number }) {
+  return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
       <Text style={styles.portalPanelKicker}>{kicker}</Text>
       <Text style={styles.portalFeatureTitle}>{title}</Text>
