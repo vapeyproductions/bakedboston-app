@@ -203,7 +203,17 @@ function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onA
       <View style={styles.dividerLine} />
     </View>
     <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
-    <Field label="Password" value={password} onChangeText={setPassword} placeholder="Enter your password" secureTextEntry />
+    <Field
+      label="Password"
+      value={password}
+      onChangeText={setPassword}
+      placeholder="Enter your password"
+      secureTextEntry
+      autoCapitalize="none"
+      autoCorrect={false}
+      spellCheck={false}
+      textContentType="password"
+    />
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
     <PrimaryButton label={busy ? "Signing in…" : "Sign in as driver"} dark disabled={busy || !email || !password} onPress={login} />
     <Pressable><Text style={styles.linkText}>Forgot your password?</Text></Pressable>
@@ -222,7 +232,17 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
     <Field label="Email address" value={form.email} onChangeText={(email) => setForm({ ...form, email })} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
     <Field label="Mobile number" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} placeholder="(617) 555-0123" keyboardType="phone-pad" />
     <Field label="Home ZIP code" value={form.homeZip} onChangeText={(homeZip) => setForm({ ...form, homeZip })} placeholder="02118" keyboardType="number-pad" />
-    <Field label="Create password" value={form.password} onChangeText={(password) => setForm({ ...form, password })} placeholder="At least 10 characters" secureTextEntry />
+    <Field
+      label="Create password"
+      value={form.password}
+      onChangeText={(password) => setForm({ ...form, password })}
+      placeholder="At least 10 characters"
+      secureTextEntry
+      autoCapitalize="none"
+      autoCorrect={false}
+      spellCheck={false}
+      textContentType="newPassword"
+    />
     <Pressable style={styles.consentRow} onPress={() => setAgreed((current) => !current)}>
       <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>{agreed && <Text style={styles.checkmark}>✓</Text>}</View>
       <Text style={styles.consentText}>I agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
@@ -241,7 +261,17 @@ function PartnerLogin({ role, onRequest, onAuthenticated }: { role: Role; onRequ
     <Text style={styles.authTitle}>Welcome back.</Text>
     <Text style={styles.authBody}>Sign in with the account linked to your approved {organization} organization.</Text>
     <Field label="Work email" value={email} onChangeText={setEmail} placeholder={`name@your${organization}.org`} keyboardType="email-address" autoCapitalize="none" />
-    <Field label="Password" value={password} onChangeText={setPassword} placeholder="Enter your password" secureTextEntry />
+    <Field
+      label="Password"
+      value={password}
+      onChangeText={setPassword}
+      placeholder="Enter your password"
+      secureTextEntry
+      autoCapitalize="none"
+      autoCorrect={false}
+      spellCheck={false}
+      textContentType="password"
+    />
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
     <PrimaryButton label={busy ? "Signing in…" : `Sign in to ${organization} workspace`} dark disabled={busy || !email || !password} onPress={login} />
     <View style={styles.partnerHelp}>
