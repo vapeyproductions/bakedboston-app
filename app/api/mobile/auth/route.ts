@@ -24,9 +24,12 @@ export async function POST(request: Request) {
       if (existing[0]) throw new Error("A driver account already uses this email.");
       const display = String(body.displayName ?? "").trim();
       const phone = String(body.phone ?? "").trim();
+      const homeAddress = String(body.homeAddress ?? "").trim();
       const homeZip = String(body.homeZip ?? "").trim();
-      if (!display || !phone || !/^\d{5}$/.test(homeZip)) throw new Error("Name, phone number, and five-digit ZIP code are required.");
-      const [driver] = await db.insert(driverAccounts).values({ email, displayName: display, phone, homeZip, passwordHash: hashPartnerPassword(password) }).returning();
+      const dateOfBirth = String(body.dateOfBirth ?? "").trim();
+      if (!display || !phone || !homeAddress || !/^\d{5}$/.test(homeZip)) throw new Error("Name, address, phone number, and five-digit ZIP code are required.");
+      if (!meetsDriverAgeRequirement(dateOfBirth)) throw new Error("Drivers must enter a valid date of birth and be at least 16 years old.");
+      const [driver] = await db.insert(driverAccounts).values({ email, displayName: display, phone, homeAddress, homeZip, dateOfBirth, passwordHash: hashPartnerPassword(password) }).returning();
       accountId = driver.id; displayName = driver.displayName;
     } else if (role === "driver") {
       const [driver] = await db.select().from(driverAccounts).where(eq(driverAccounts.email, email)).limit(1);
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
     }
     const token = randomBytes(32).toString("base64url");
     await db.insert(mobileSessions).values({ tokenHash: tokenHash(token), role, accountId, expiresAt: new Date(Date.now() + expiresInMs) });
-    return Response.json({ token, session: { role, accountId, displayName, email } });
+    return Response.json({ token, session: { role, accountId, displayName, email, verificationStatus: role === "driver" ? "not_started" : undefined } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not authenticate." }, { status: 400 });
   }
@@ -59,11 +62,20 @@ export async function GET(request: Request) {
   if (session.role === "driver") {
     const [driver] = await db.select().from(driverAccounts).where(eq(driverAccounts.id, session.accountId)).limit(1);
     if (!driver?.active) return Response.json({ error: "Account unavailable." }, { status: 401 });
-    return Response.json({ session: { role: session.role, accountId: session.accountId, displayName: driver.displayName, email: driver.email } });
+    return Response.json({ session: { role: session.role, accountId: session.accountId, displayName: driver.displayName, email: driver.email, verificationStatus: driver.identityVerificationStatus } });
   }
   const [partner] = await db.select().from(partnerAccounts).where(eq(partnerAccounts.id, session.accountId)).limit(1);
   if (!partner?.active) return Response.json({ error: "Account unavailable." }, { status: 401 });
   return Response.json({ session: { role: session.role, accountId: session.accountId, displayName: partner.administratorName || partner.accountEmail, email: partner.accountEmail } });
+}
+
+function meetsDriverAgeRequirement(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const birth = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(birth.getTime()) || birth.toISOString().slice(0, 10) !== value) return false;
+  const today = new Date();
+  const threshold = new Date(Date.UTC(today.getUTCFullYear() - 16, today.getUTCMonth(), today.getUTCDate()));
+  return birth <= threshold;
 }
 
 export async function DELETE(request: Request) {

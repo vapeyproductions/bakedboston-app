@@ -20,7 +20,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-
 
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
-type Session = { role: Role; accountId: number; displayName: string; email: string };
+type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention" };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
@@ -243,16 +243,18 @@ function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onA
 
 function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const [agreed, setAgreed] = useState(false);
-  const [form, setForm] = useState({ displayName: "", email: "", phone: "", homeZip: "", password: "" }); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ displayName: "", email: "", phone: "", homeAddress: "", homeZip: "", dateOfBirth: "", password: "" }); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   async function register() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "register-driver", role: "driver", ...form }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not create driver account."); } catch { setError("The registration request timed out. Check your connection and try again."); } finally { setBusy(false); } }
   return <>
     <Text style={styles.authEyebrow}>NEW DRIVER</Text>
     <Text style={styles.authTitle}>Create your profile.</Text>
     <Text style={styles.authBody}>You’ll use this account to reserve routes, confirm pickups, and record completed deliveries.</Text>
-    <Field label="Full name" value={form.displayName} onChangeText={(displayName) => setForm({ ...form, displayName })} placeholder="Your name" />
+    <Field label="Legal name" value={form.displayName} onChangeText={(displayName) => setForm({ ...form, displayName })} placeholder="Name shown on your ID" textContentType="name" />
     <Field label="Email address" value={form.email} onChangeText={(email) => setForm({ ...form, email })} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
     <Field label="Mobile number" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} placeholder="(617) 555-0123" keyboardType="phone-pad" />
+    <Field label="Home address" value={form.homeAddress} onChangeText={(homeAddress) => setForm({ ...form, homeAddress })} placeholder="Street, city, state" textContentType="fullStreetAddress" />
     <Field label="Home ZIP code" value={form.homeZip} onChangeText={(homeZip) => setForm({ ...form, homeZip })} placeholder="02118" keyboardType="number-pad" />
+    <Field label="Date of birth" value={form.dateOfBirth} onChangeText={(dateOfBirth) => setForm({ ...form, dateOfBirth })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
     <Field
       label="Create password"
       value={form.password}
@@ -268,6 +270,7 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
       <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>{agreed && <Text style={styles.checkmark}>✓</Text>}</View>
       <Text style={styles.consentText}>I agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
     </Pressable>
+    <View style={styles.verificationPreview}><Text style={styles.verificationPreviewTitle}>Identity verification required</Text><Text style={styles.verificationPreviewBody}>After creating your account, you’ll verify a government-issued ID before reserving a delivery. BakedBoston will store the verification result, not your ID images.</Text></View>
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
     <PrimaryButton label={busy ? "Creating profile…" : "Create driver profile"} disabled={!agreed || busy} onPress={register} />
   </>;
@@ -324,14 +327,16 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
     return <PartnerPortal session={session} onSignOut={onSignOut} />;
   }
   const copy = roleCopy[session.role];
+  const verificationLabel = session.verificationStatus === "verified" ? "Identity verified" : session.verificationStatus === "pending" ? "Verification pending" : session.verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
   return <SafeAreaView style={styles.workspaceSafe} edges={["top", "bottom"]}>
     <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable></View>
     <ScrollView contentContainerStyle={styles.workspaceContent}>
       <View style={styles.roleBadge}><Text>{copy.icon}</Text><Text style={styles.roleBadgeText}>{session.role}</Text></View>
       <Text style={styles.authEyebrow}>SIGNED IN SECURELY</Text>
       <Text style={styles.authTitle}>Welcome, {session.displayName || "partner"}.</Text>
-      <Text style={styles.authBody}>{session.role === "driver" ? "Your driver account is ready. Route discovery and reservations are the next app milestone." : `Your ${session.role} account is connected to BakedBoston. The native availability and activity workspace comes next.`}</Text>
+      <Text style={styles.authBody}>{session.role === "driver" ? "Complete identity verification before reserving your first delivery." : `Your ${session.role} account is connected to BakedBoston. The native availability and activity workspace comes next.`}</Text>
       <View style={styles.connectedCard}><Text style={styles.connectedTitle}>Account connected</Text><Text style={styles.connectedBody}>{session.email}</Text><Text style={styles.connectedBody}>Role: {session.role}</Text></View>
+      {session.role === "driver" && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>DRIVER ELIGIBILITY</Text><Text style={styles.connectedTitle}>{verificationLabel}</Text></View><View style={[styles.verificationStatusDot, session.verificationStatus === "verified" && styles.verificationStatusDotVerified]} /></View><Text style={styles.connectedBody}>A secure government-ID check is required before route reservations are enabled. Your document images will be handled by the verification provider.</Text><PrimaryButton label={session.verificationStatus === "verified" ? "Verification complete" : "Verify identity"} dark disabled={session.verificationStatus === "verified"} onPress={() => Alert.alert("Identity verification", "The secure Stripe Identity connection will be enabled after BakedBoston’s Stripe account and development build are configured.")} /></View>}
     </ScrollView>
   </SafeAreaView>;
 }
@@ -1011,6 +1016,10 @@ const styles = StyleSheet.create({
   connectedCard: { marginTop: 12, padding: 20, borderRadius: 14, backgroundColor: colors.mint, borderWidth: 1, borderColor: colors.border },
   connectedTitle: { color: colors.forest, fontWeight: "900", fontSize: 17, marginBottom: 8 },
   connectedBody: { color: colors.forestSoft, marginTop: 4 },
+  driverVerificationCard: { marginTop: 14, padding: 20, borderRadius: 14, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  driverVerificationHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  verificationStatusDot: { width: 12, height: 12, marginTop: 5, borderRadius: 6, backgroundColor: colors.yellow },
+  verificationStatusDotVerified: { backgroundColor: "#56C78A" },
   errorText: { color: "#A34436", fontWeight: "700", marginBottom: 10 },
   welcomeScroll: { flexGrow: 1, paddingTop: 14 },
   brandRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, gap: 10 },
@@ -1072,6 +1081,9 @@ const styles = StyleSheet.create({
   checkboxSelected: { backgroundColor: colors.forest, borderColor: colors.forest },
   checkmark: { color: colors.white, fontWeight: "900" },
   consentText: { color: colors.sage, flex: 1, fontSize: 10, lineHeight: 16 },
+  verificationPreview: { marginVertical: 10, padding: 15, borderRadius: 10, backgroundColor: colors.mint, borderWidth: 1, borderColor: colors.border },
+  verificationPreviewTitle: { color: colors.forest, fontSize: 12, fontWeight: "900" },
+  verificationPreviewBody: { color: colors.sage, fontSize: 9, lineHeight: 14, marginTop: 5 },
   partnerHelp: { marginTop: 24, padding: 18, backgroundColor: colors.mint, borderRadius: 12, borderLeftWidth: 3, borderLeftColor: colors.yellow },
   partnerHelpTitle: { color: colors.forest, fontSize: 14, fontWeight: "800" },
   partnerHelpBody: { color: colors.sage, fontSize: 10, lineHeight: 16, marginTop: 6 },

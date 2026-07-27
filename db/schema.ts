@@ -168,7 +168,11 @@ export const driverAccounts = pgTable("driver_accounts", {
   displayName: text("display_name").notNull(),
   passwordHash: text("password_hash").notNull().default(""),
   phone: text("phone").notNull().default(""),
+  homeAddress: text("home_address").notNull().default(""),
   homeZip: text("home_zip").notNull().default(""),
+  dateOfBirth: text("date_of_birth").notNull().default(""),
+  identityVerificationStatus: text("identity_verification_status", { enum: ["not_started", "pending", "verified", "needs_attention"] }).notNull().default("not_started"),
+  identityVerificationReference: text("identity_verification_reference").notNull().default(""),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
