@@ -574,10 +574,10 @@ function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: Mo
     const { response, data } = await workspaceRequest("DELETE", undefined, `?id=${window.id}`);
     if (response.ok) await onSaved("One-time window deleted."); else setError(data.error ?? "Could not delete window.");
   }
-  const heading = <View style={[styles.editorHeading, compact && styles.landscapeEditorHeading]}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New window"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
+  const heading = <View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New window"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
   const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}><EditorField label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><EditorField label={bakery ? "Food ready (HH:MM)" : "Opens (HH:MM)"} value={draft.starts} onChangeText={(starts) => setDraft({ ...draft, starts })} /><EditorField label={bakery ? "Pickup deadline (HH:MM)" : "Closes (HH:MM)"} value={draft.ends} onChangeText={(ends) => setDraft({ ...draft, ends })} />{!bakery && <EditorField label="Latest arrival (HH:MM)" value={draft.latest} onChangeText={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}</View>;
   const actions = <View style={[styles.editorActions, compact && styles.landscapeEditorActions]}>{window && <Pressable style={styles.editorDeleteButton} onPress={remove}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>}<Pressable style={[styles.saveAction, compact && styles.landscapeSaveAction]} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>;
-  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeEditorBottom}>{fields}</View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
+  if (compact) return <View style={styles.nativeEditor}><View style={styles.landscapeOneTimeTop}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New window"}</Text></View><View style={styles.landscapeOneTimeActions}>{window && <Pressable style={styles.editorDeleteButton} onPress={remove}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>}<Pressable style={[styles.saveAction, styles.landscapeSaveAction]} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable><Pressable style={styles.landscapeCloseButton} onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View></View><View style={styles.landscapeEditorBottom}>{fields}</View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}</View>;
   return <View style={styles.nativeEditor}>{heading}{fields}{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
 }
 
@@ -917,6 +917,9 @@ const styles = StyleSheet.create({
   nativeEditor: { marginTop: 14, paddingHorizontal: 15, paddingVertical: 12, borderRadius: 11, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: "#D5DCD5" },
   nativeEditorCompact: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 10 },
   landscapeEditorTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  landscapeOneTimeTop: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  landscapeOneTimeActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 9 },
+  landscapeCloseButton: { width: 36, minHeight: 40, alignItems: "center", justifyContent: "center" },
   landscapeEditorBottom: { width: "100%", marginTop: 9 },
   landscapeEditorHeading: { width: 118, marginBottom: 0, flexShrink: 0 },
   landscapeScheduleControls: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
