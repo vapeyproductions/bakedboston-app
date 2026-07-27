@@ -18,6 +18,21 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
 type Session = { role: Role; accountId: number; displayName: string; email: string };
+type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string };
+type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
+type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
+type WorkspaceData = {
+  account: { accountEmail: string; administratorName: string; contactEmail: string; contactPhone: string };
+  organization: {
+    id: number; name: string; address: string; businessPhone: string; notificationPhone: string; dropoffInstructions: string;
+    recurringDays: string; readyTime?: string; arrivalDeadline?: string; openTime?: string; closeTime?: string; latestArrival?: string;
+  };
+  contacts: MobileContact[];
+  availabilityWindows: MobileWindow[];
+  availabilityPauses: Array<{ id: number; endsAt: string }>;
+  scheduleExceptions: Array<{ id: number; exceptionDate: string }>;
+  routes: MobileRoute[];
+};
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
 
@@ -325,8 +340,19 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   const landscape = width > height;
   const bakery = session.role === "bakery";
   const [section, setSection] = useState<PartnerSection>("overview");
+  const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
+  const [workspaceError, setWorkspaceError] = useState("");
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    SecureStore.getItemAsync(TOKEN_KEY).then(async (token) => {
+      if (!token) throw new Error("Your session has expired.");
+      const response = await fetch(`${API_URL}/api/mobile/workspace`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Could not load the workspace.");
+      setWorkspace(data);
+    }).catch((error) => setWorkspaceError(error instanceof Error ? error.message : "Could not load the workspace."));
   }, []);
   const nav: Array<{ key: PartnerSection; icon: string; label: string }> = [
     { key: "overview", icon: "⌂", label: "Overview" },
@@ -346,7 +372,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
               <Text style={styles.portalOrganizationIcon}>{bakery ? "🥖" : "🥫"}</Text>
               <View style={styles.portalOrganizationCopy}>
                 <Text style={styles.portalOrganizationType}>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</Text>
-                <Text style={styles.portalOrganizationName} numberOfLines={2}>{session.displayName}</Text>
+                <Text style={styles.portalOrganizationName} numberOfLines={2}>{workspace?.organization.name ?? session.displayName}</Text>
               </View>
             </View>
             <View style={styles.portalSideNav}>
@@ -375,9 +401,9 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
               <Text style={styles.portalKicker}>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</Text>
               <Text style={[styles.portalPageTitle, !landscape && styles.portalPageTitleMobile]}>{title}</Text>
             </View>
-            <View style={styles.portalAvatar}><Text style={styles.portalAvatarText}>{initials(session.displayName)}</Text></View>
+            <View style={styles.portalAvatar}><Text style={styles.portalAvatarText}>{initials(workspace?.organization.name ?? session.displayName)}</Text></View>
           </View>
-          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} rightInset={landscape ? insets.right : 0} />
+          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} rightInset={landscape ? insets.right : 0} workspace={workspace} error={workspaceError} onNavigate={setSection} />
         </View>
       </View>
     </SafeAreaView>
@@ -397,50 +423,156 @@ function PortalNavButton({ item, selected, onPress, compact }: {
   </Pressable>;
 }
 
-function PartnerSectionContent({ section, bakery, landscape, rightInset }: { section: PartnerSection; bakery: boolean; landscape: boolean; rightInset: number }) {
+function PartnerSectionContent({ section, bakery, landscape, rightInset, workspace, error, onNavigate }: {
+  section: PartnerSection; bakery: boolean; landscape: boolean; rightInset: number; workspace: WorkspaceData | null; error: string; onNavigate: (section: PartnerSection) => void;
+}) {
+  if (error) return <WorkspaceMessage title="Could not load workspace" body={error} />;
+  if (!workspace) return <WorkspaceMessage title="Loading your workspace…" body="Syncing the latest BakedBoston information." />;
+  const completed = workspace.routes.filter((route) => route.status === "completed");
+  const now = new Date();
+  const thisMonth = workspace.routes.filter((route) => {
+    const date = new Date(route.createdAt);
+    return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+  });
+  const upcoming = workspace.routes.find((route) => route.status !== "completed");
+  const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
+  const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
   if (section === "overview") {
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
-          <View style={styles.portalStatusLabel}><View style={styles.portalStatusDot} /><Text style={styles.portalStatusLabelText}>WORKSPACE CONNECTED</Text></View>
-          <Text style={styles.portalStatusTitle}>{bakery ? "Manage today’s pickup availability." : "Manage today’s delivery availability."}</Text>
-          <Text style={styles.portalStatusBody}>Live schedule controls and one-time availability will appear here, matching the web portal.</Text>
+          <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
+          <Text style={styles.portalStatusTitle}>{paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? "Manage today’s pickup availability." : "Manage today’s delivery availability."}</Text>
+          <Text style={styles.portalStatusBody}>{activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}` : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
         </View>
-        <Pressable style={styles.portalStatusButton}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
+        <Pressable style={styles.portalStatusButton} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
       </View>
       <View style={[styles.portalMetrics, !landscape && styles.portalMetricsMobile]}>
-        <MetricCard value="—" label="Next arrival" />
-        <MetricCard value="0" label="Deliveries this month" />
-        <MetricCard value="0" label="Completed orders" />
+        <MetricCard value={upcoming?.scheduledArrival ?? "—"} label="Next arrival" />
+        <MetricCard value={String(thisMonth.length)} label="Deliveries this month" />
+        <MetricCard value={String(completed.length)} label="Completed orders" />
       </View>
       <View style={styles.portalPanel}>
-        <View style={styles.portalPanelHeading}><View><Text style={styles.portalPanelKicker}>RECENT ACTIVITY</Text><Text style={styles.portalPanelTitle}>Delivery updates</Text></View><Text style={styles.portalPanelLink}>View all</Text></View>
-        <View style={styles.portalEmpty}><Text style={styles.portalEmptyTitle}>No deliveries yet</Text><Text style={styles.portalEmptyBody}>Reserved, ongoing, and completed deliveries will appear here automatically.</Text></View>
+        <View style={styles.portalPanelHeading}><View><Text style={styles.portalPanelKicker}>RECENT ACTIVITY</Text><Text style={styles.portalPanelTitle}>Delivery updates</Text></View><Pressable onPress={() => onNavigate("activity")}><Text style={styles.portalPanelLink}>View all</Text></Pressable></View>
+        <RouteList routes={workspace.routes.slice(0, 3)} bakery={bakery} />
       </View>
     </ScrollView>;
   }
-  if (section === "activity") return <PrototypePage rightInset={rightInset} kicker="DELIVERY HISTORY" title={bakery ? "Your pickups" : "Your deliveries"} body="Reserved, ongoing, and completed deliveries will appear here automatically." button="No deliveries yet" />;
-  if (section === "schedule") return <PrototypePage rightInset={rightInset} kicker="NEXT FOUR WEEKS" title={bakery ? "Pickup calendar" : "Receiving calendar"} body="Recurring and one-time availability will use the same four-week calendar as the web portal." button={bakery ? "+ Add pickup window" : "+ Add availability window"} />;
-  return <PrototypePage rightInset={rightInset} kicker="ORGANIZATION SETTINGS" title="Profile and contacts" body="Account email, organization channels, access instructions, photos, and organizational contacts will be editable here." button="Edit profile" />;
+  if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
+  if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
+  return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
 }
 
 function MetricCard({ value, label }: { value: string; label: string }) {
   return <View style={styles.portalMetricCard}><Text style={styles.portalMetricValue}>{value}</Text><Text style={styles.portalMetricLabel}>{label}</Text></View>;
 }
 
-function PrototypePage({ kicker, title, body, button, rightInset }: { kicker: string; title: string; body: string; button: string; rightInset: number }) {
+function WorkspaceMessage({ title, body }: { title: string; body: string }) {
+  return <View style={styles.workspaceMessage}><Text style={styles.portalEmptyTitle}>{title}</Text><Text style={styles.portalEmptyBody}>{body}</Text></View>;
+}
+
+function RouteList({ routes, bakery }: { routes: MobileRoute[]; bakery: boolean }) {
+  if (!routes.length) return <View style={styles.portalEmpty}><Text style={styles.portalEmptyTitle}>No deliveries yet</Text><Text style={styles.portalEmptyBody}>Reserved, ongoing, and completed deliveries will appear here automatically.</Text></View>;
+  return <View style={styles.routeList}>{routes.map((route) => <View style={styles.routeRow} key={route.id}>
+    <View style={[styles.routeDot, route.status === "completed" && styles.routeDotComplete]} />
+    <View style={styles.routeCopy}><Text style={styles.routeTitle}>{bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`}</Text><Text style={styles.routeDetail}>{route.driverName} · {route.scheduledArrival}</Text></View>
+    <Text style={styles.routeStatus}>{route.status}</Text>
+  </View>)}</View>;
+}
+
+function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
-      <Text style={styles.portalPanelKicker}>{kicker}</Text>
-      <Text style={styles.portalFeatureTitle}>{title}</Text>
-      <Text style={styles.portalFeatureBody}>{body}</Text>
-      <Pressable style={styles.portalFeatureButton}><Text style={styles.portalFeatureButtonText}>{button}</Text></Pressable>
+      <Text style={styles.portalPanelKicker}>DELIVERY HISTORY</Text>
+      <Text style={styles.portalFeatureTitle}>{bakery ? "Your pickups" : "Your deliveries"}</Text>
+      <Text style={styles.portalFeatureBody}>Reserved, ongoing, and completed deliveries are synchronized with the BakedBoston web portal.</Text>
+      <RouteList routes={workspace.routes} bakery={bakery} />
     </View>
   </ScrollView>;
 }
 
+function SchedulePage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
+  const schedule = mobileScheduleRows(workspace, bakery);
+  return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
+    <View style={styles.portalPanel}>
+      <Text style={styles.portalPanelKicker}>RECURRING AVAILABILITY</Text>
+      <Text style={styles.portalFeatureTitle}>{bakery ? "Pickup schedule" : "Receiving schedule"}</Text>
+      <Text style={styles.portalFeatureBody}>This schedule is synchronized with the organization’s web portal.</Text>
+      <View style={styles.scheduleList}>{schedule.map((row, index) => <View style={styles.scheduleRow} key={`${row.day}-${index}`}>
+        <View style={styles.scheduleDayBadge}><Text style={styles.scheduleDayText}>{row.day.toUpperCase()}</Text></View>
+        <View style={styles.scheduleCopy}><Text style={styles.scheduleTime}>{row.primary}</Text>{row.secondary ? <Text style={styles.scheduleLatest}>{row.secondary}</Text> : null}</View>
+      </View>)}</View>
+      {workspace.availabilityWindows.length > 0 && <>
+        <Text style={styles.subsectionTitle}>One-time availability</Text>
+        {workspace.availabilityWindows.map((window) => <View style={styles.oneTimeRow} key={window.id}><View><Text style={styles.routeTitle}>{formatMobileDate(window.startsAt)}</Text><Text style={styles.routeDetail}>{formatMobileTime(window.startsAt)}–{formatMobileTime(window.endsAt)}</Text></View><Text style={styles.routeStatus}>{window.paused ? "paused" : "one-time"}</Text></View>)}
+      </>}
+    </View>
+  </ScrollView>;
+}
+
+function ProfilePage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
+  return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
+    <View style={styles.portalPanel}>
+      <Text style={styles.portalPanelKicker}>ORGANIZATION SETTINGS</Text>
+      <Text style={styles.portalFeatureTitle}>Profile and contacts</Text>
+      <Text style={styles.portalFeatureBody}>These details are synchronized with the BakedBoston administrator and web partner portals.</Text>
+      <Text style={styles.subsectionTitle}>Login</Text>
+      <InformationRow label="Account email" value={workspace.account.accountEmail} />
+      <Text style={styles.subsectionTitle}>Organization channels</Text>
+      <InformationRow label={bakery ? "Business address" : "Delivery address"} value={workspace.organization.address} />
+      <InformationRow label={bakery ? "Pickup instructions" : "Drop-off instructions"} value={workspace.organization.dropoffInstructions || "Not provided"} />
+      <InformationRow label="Business phone number" value={workspace.organization.businessPhone || "Not provided"} />
+      <InformationRow label="Notification contact" value={workspace.organization.notificationPhone || "Not provided"} />
+      <Text style={styles.subsectionTitle}>Organizational contacts</Text>
+      {workspace.contacts.map((contact) => <View style={styles.contactRow} key={contact.id}><View style={styles.contactCopy}><Text style={styles.routeTitle}>{contact.isPrimary ? "★ " : ""}{contact.name}</Text><Text style={styles.routeDetail}>{contact.email} · {contact.phone}</Text></View>{contact.isPrimary && <Text style={styles.primaryPill}>PRIMARY</Text>}</View>)}
+    </View>
+  </ScrollView>;
+}
+
+function InformationRow({ label, value }: { label: string; value: string }) {
+  return <View style={styles.informationRow}><Text style={styles.informationLabel}>{label}</Text><Text style={styles.informationValue}>{value}</Text></View>;
+}
+
 function initials(value: string) {
   return value.split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "BB";
+}
+
+function formatMobileDate(value: string) {
+  return new Date(value).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatMobileTime(value: string) {
+  return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function displayClock(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isFinite(hour)) return value;
+  return `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour >= 12 ? "PM" : "AM"}`;
+}
+
+function mobileScheduleRows(workspace: WorkspaceData, bakery: boolean) {
+  try {
+    if (bakery) {
+      const ready = JSON.parse(workspace.organization.readyTime ?? "{}") as Record<string, string>;
+      const deadlines = JSON.parse(workspace.organization.arrivalDeadline ?? "{}") as Record<string, string>;
+      return Object.keys(ready).map((day) => ({ day, primary: `${displayClock(ready[day])}–${displayClock(deadlines[day] ?? ready[day])}`, secondary: "Food ready–pickup deadline" }));
+    }
+    const opens = JSON.parse(workspace.organization.openTime ?? "[]") as Array<{ day: string; time: string; recurrence?: string; ordinal?: number | null }>;
+    const closes = JSON.parse(workspace.organization.closeTime ?? "[]") as Array<{ time: string }>;
+    const latest = JSON.parse(workspace.organization.latestArrival ?? "[]") as Array<{ time: string }>;
+    return opens.map((open, index) => ({
+      day: open.recurrence === "monthly" ? `${open.ordinal ?? 1}${ordinalSuffix(open.ordinal ?? 1)} ${open.day}` : open.day,
+      primary: `${displayClock(open.time)}–${displayClock(closes[index]?.time ?? open.time)}`,
+      secondary: `Latest permitted arrival: ${displayClock(latest[index]?.time ?? closes[index]?.time ?? open.time)}`,
+    }));
+  } catch {
+    return [{ day: "Schedule", primary: workspace.organization.recurringDays || "Not configured", secondary: "" }];
+  }
+}
+
+function ordinalSuffix(value: number) {
+  return value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th";
 }
 
 function PendingScreen({ role, onDone }: { role: Role | null; onDone: () => void }) {
@@ -520,6 +652,7 @@ const styles = StyleSheet.create({
   portalStatusCopy: { flex: 1 },
   portalStatusLabel: { flexDirection: "row", alignItems: "center", gap: 7 },
   portalStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#76C997" },
+  portalStatusDotPaused: { backgroundColor: colors.yellow },
   portalStatusLabelText: { color: "#A9C3B5", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
   portalStatusTitle: { color: colors.white, fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 11 },
   portalStatusBody: { color: "#B7CBC0", fontSize: 11, lineHeight: 17, marginTop: 8, maxWidth: 520 },
@@ -538,6 +671,30 @@ const styles = StyleSheet.create({
   portalEmpty: { minHeight: 105, alignItems: "center", justifyContent: "center", paddingTop: 18 },
   portalEmptyTitle: { color: colors.forest, fontSize: 14, fontWeight: "800" },
   portalEmptyBody: { color: colors.sage, fontSize: 10, lineHeight: 16, textAlign: "center", marginTop: 5 },
+  workspaceMessage: { margin: 24, minHeight: 150, alignItems: "center", justifyContent: "center", padding: 24, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  routeList: { marginTop: 18 },
+  routeRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: 1, borderTopColor: "#E5E9E4" },
+  routeDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.yellow },
+  routeDotComplete: { backgroundColor: "#76C997" },
+  routeCopy: { flex: 1 },
+  routeTitle: { color: colors.forest, fontSize: 11, fontWeight: "800" },
+  routeDetail: { color: colors.sage, fontSize: 9, lineHeight: 14, marginTop: 3 },
+  routeStatus: { color: colors.forestSoft, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
+  scheduleList: { marginTop: 20, gap: 9 },
+  scheduleRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 13, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: "#FBFAF4" },
+  scheduleDayBadge: { minWidth: 66, minHeight: 38, paddingHorizontal: 8, borderRadius: 7, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  scheduleDayText: { color: colors.white, fontSize: 8, fontWeight: "900", textAlign: "center" },
+  scheduleCopy: { flex: 1 },
+  scheduleTime: { color: colors.forest, fontSize: 12, fontWeight: "800" },
+  scheduleLatest: { color: colors.sage, fontSize: 9, marginTop: 4 },
+  subsectionTitle: { color: colors.forest, fontSize: 14, fontWeight: "900", marginTop: 25, marginBottom: 8 },
+  oneTimeRow: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
+  informationRow: { paddingVertical: 13, borderTopWidth: 1, borderTopColor: colors.border },
+  informationLabel: { color: colors.sage, fontSize: 8, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7 },
+  informationValue: { color: colors.forest, fontSize: 11, lineHeight: 17, fontWeight: "700", marginTop: 5 },
+  contactRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
+  contactCopy: { flex: 1 },
+  primaryPill: { color: colors.forest, fontSize: 7, fontWeight: "900", paddingHorizontal: 8, paddingVertical: 5, borderRadius: 10, backgroundColor: colors.mint },
   portalFeatureTitle: { color: colors.forest, fontSize: 27, fontWeight: "800", marginTop: 8 },
   portalFeatureBody: { color: colors.sage, fontSize: 12, lineHeight: 19, marginTop: 10, maxWidth: 560 },
   portalFeatureButton: { alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center", marginTop: 25 },
