@@ -16,4 +16,6 @@ The endpoint is read-only and intentionally excludes:
 - driver private information;
 - access photographs and instructions.
 
-It returns only the operational network data needed for optimization: active organization addresses and cached geocodes, schedules, one-time windows, pauses, exceptions, and route status history.
+It returns only the operational network data needed for optimization: active, registered organization addresses and cached geocodes, schedules, one-time windows, pauses, exceptions, and route status history.
+
+An administrator-created bakery or pantry record is not eligible for address validation or optimization until its partner invitation has been accepted and an active `partner_accounts` record exists.
