@@ -1,5 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -323,6 +324,9 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   const landscape = width > height;
   const bakery = session.role === "bakery";
   const [section, setSection] = useState<PartnerSection>("overview");
+  useEffect(() => {
+    ScreenOrientation.unlockAsync().catch(() => undefined);
+  }, []);
   const nav: Array<{ key: PartnerSection; icon: string; label: string }> = [
     { key: "overview", icon: "⌂", label: "Overview" },
     { key: "activity", icon: "↗", label: "Delivery activity" },
@@ -496,10 +500,10 @@ const styles = StyleSheet.create({
   portalMobileRole: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, backgroundColor: colors.mint, borderRadius: 15 },
   portalMobileRoleText: { color: colors.forest, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   portalMobileNav: { flexGrow: 0, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
-  portalMobileNavContent: { paddingHorizontal: 12, gap: 6, paddingVertical: 9 },
-  portalMobileNavButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, borderRadius: 18, backgroundColor: "#F1EFE6" },
+  portalMobileNavContent: { paddingHorizontal: 12, gap: 8, paddingVertical: 11 },
+  portalMobileNavButton: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, borderRadius: 24, backgroundColor: "#F1EFE6" },
   portalMobileNavSelected: { backgroundColor: colors.forest },
-  portalMobileNavLabel: { color: colors.forestSoft, fontSize: 9, fontWeight: "800" },
+  portalMobileNavLabel: { color: colors.forestSoft, fontSize: 11, fontWeight: "800" },
   portalMain: { flex: 1, backgroundColor: colors.cream },
   portalPageHeader: { minHeight: 98, paddingHorizontal: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
   portalPageHeaderMobile: { minHeight: 88, paddingHorizontal: 20 },
