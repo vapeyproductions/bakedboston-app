@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -299,6 +300,9 @@ function PartnerRequest({ role, onComplete }: { role: Role; onComplete: () => vo
 }
 
 function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  if (session.role === "bakery" || session.role === "pantry") {
+    return <PartnerPortal session={session} onSignOut={onSignOut} />;
+  }
   const copy = roleCopy[session.role];
   return <SafeAreaView style={styles.workspaceSafe} edges={["top", "bottom"]}>
     <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable></View>
@@ -310,6 +314,128 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
       <View style={styles.connectedCard}><Text style={styles.connectedTitle}>Account connected</Text><Text style={styles.connectedBody}>{session.email}</Text><Text style={styles.connectedBody}>Role: {session.role}</Text></View>
     </ScrollView>
   </SafeAreaView>;
+}
+
+type PartnerSection = "overview" | "activity" | "schedule" | "profile";
+
+function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
+  const bakery = session.role === "bakery";
+  const [section, setSection] = useState<PartnerSection>("overview");
+  const nav: Array<{ key: PartnerSection; icon: string; label: string }> = [
+    { key: "overview", icon: "⌂", label: "Overview" },
+    { key: "activity", icon: "↗", label: "Delivery activity" },
+    { key: "schedule", icon: "◷", label: bakery ? "Pickup schedule" : "Receiving schedule" },
+    { key: "profile", icon: "⚙", label: "Profile & contacts" },
+  ];
+  const title = section === "overview" ? "Good afternoon." : nav.find((item) => item.key === section)?.label ?? "";
+
+  return (
+    <SafeAreaView style={styles.portalSafe} edges={["top", "bottom"]}>
+      <View style={[styles.portalShell, landscape ? styles.portalLandscape : styles.portalPortrait]}>
+        {landscape ? (
+          <View style={styles.portalSidebar}>
+            <PortalBrand light />
+            <View style={styles.portalOrganization}>
+              <Text style={styles.portalOrganizationIcon}>{bakery ? "🥖" : "🥫"}</Text>
+              <View style={styles.portalOrganizationCopy}>
+                <Text style={styles.portalOrganizationType}>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</Text>
+                <Text style={styles.portalOrganizationName} numberOfLines={2}>{session.displayName}</Text>
+              </View>
+            </View>
+            <View style={styles.portalSideNav}>
+              {nav.map((item) => <PortalNavButton key={item.key} item={item} selected={section === item.key} onPress={() => setSection(item.key)} compact={false} />)}
+            </View>
+            <View style={styles.portalSideBottom}>
+              <Text style={styles.portalAccountEmail} numberOfLines={1}>{session.email}</Text>
+              <Pressable onPress={onSignOut}><Text style={styles.portalSignOut}>Sign out</Text></Pressable>
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.portalMobileHeader}>
+              <PortalBrand />
+              <View style={styles.portalMobileRole}><Text>{bakery ? "🥖" : "🥫"}</Text><Text style={styles.portalMobileRoleText}>{bakery ? "Bakery" : "Pantry"}</Text></View>
+              <Pressable onPress={onSignOut}><Text style={styles.portalSignOut}>Sign out</Text></Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.portalMobileNav} contentContainerStyle={styles.portalMobileNavContent}>
+              {nav.map((item) => <PortalNavButton key={item.key} item={item} selected={section === item.key} onPress={() => setSection(item.key)} compact />)}
+            </ScrollView>
+          </>
+        )}
+        <View style={styles.portalMain}>
+          <View style={[styles.portalPageHeader, !landscape && styles.portalPageHeaderMobile]}>
+            <View>
+              <Text style={styles.portalKicker}>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</Text>
+              <Text style={[styles.portalPageTitle, !landscape && styles.portalPageTitleMobile]}>{title}</Text>
+            </View>
+            <View style={styles.portalAvatar}><Text style={styles.portalAvatarText}>{initials(session.displayName)}</Text></View>
+          </View>
+          <PartnerSectionContent section={section} bakery={bakery} landscape={landscape} />
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function PortalBrand({ light = false }: { light?: boolean }) {
+  return <View style={styles.portalBrand}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={[styles.portalBrandText, light && styles.portalBrandTextLight]}>BakedBoston</Text></View>;
+}
+
+function PortalNavButton({ item, selected, onPress, compact }: {
+  item: { key: PartnerSection; icon: string; label: string }; selected: boolean; onPress: () => void; compact: boolean;
+}) {
+  return <Pressable onPress={onPress} style={[compact ? styles.portalMobileNavButton : styles.portalSideNavButton, selected && (compact ? styles.portalMobileNavSelected : styles.portalSideNavSelected)]}>
+    <Text style={[styles.portalNavIcon, selected && styles.portalNavSelectedText]}>{item.icon}</Text>
+    <Text style={[compact ? styles.portalMobileNavLabel : styles.portalSideNavLabel, selected && styles.portalNavSelectedText]} numberOfLines={1}>{item.label}</Text>
+  </Pressable>;
+}
+
+function PartnerSectionContent({ section, bakery, landscape }: { section: PartnerSection; bakery: boolean; landscape: boolean }) {
+  if (section === "overview") {
+    return <ScrollView contentContainerStyle={[styles.portalContent, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
+      <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
+        <View style={styles.portalStatusCopy}>
+          <View style={styles.portalStatusLabel}><View style={styles.portalStatusDot} /><Text style={styles.portalStatusLabelText}>WORKSPACE CONNECTED</Text></View>
+          <Text style={styles.portalStatusTitle}>{bakery ? "Manage today’s pickup availability." : "Manage today’s delivery availability."}</Text>
+          <Text style={styles.portalStatusBody}>Live schedule controls and one-time availability will appear here, matching the web portal.</Text>
+        </View>
+        <Pressable style={styles.portalStatusButton}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
+      </View>
+      <View style={[styles.portalMetrics, !landscape && styles.portalMetricsMobile]}>
+        <MetricCard value="—" label="Next arrival" />
+        <MetricCard value="0" label="Deliveries this month" />
+        <MetricCard value="0" label="Completed orders" />
+      </View>
+      <View style={styles.portalPanel}>
+        <View style={styles.portalPanelHeading}><View><Text style={styles.portalPanelKicker}>RECENT ACTIVITY</Text><Text style={styles.portalPanelTitle}>Delivery updates</Text></View><Text style={styles.portalPanelLink}>View all</Text></View>
+        <View style={styles.portalEmpty}><Text style={styles.portalEmptyTitle}>No deliveries yet</Text><Text style={styles.portalEmptyBody}>Reserved, ongoing, and completed deliveries will appear here automatically.</Text></View>
+      </View>
+    </ScrollView>;
+  }
+  if (section === "activity") return <PrototypePage kicker="DELIVERY HISTORY" title={bakery ? "Your pickups" : "Your deliveries"} body="Reserved, ongoing, and completed deliveries will appear here automatically." button="No deliveries yet" />;
+  if (section === "schedule") return <PrototypePage kicker="NEXT FOUR WEEKS" title={bakery ? "Pickup calendar" : "Receiving calendar"} body="Recurring and one-time availability will use the same four-week calendar as the web portal." button={bakery ? "+ Add pickup window" : "+ Add availability window"} />;
+  return <PrototypePage kicker="ORGANIZATION SETTINGS" title="Profile and contacts" body="Account email, organization channels, access instructions, photos, and organizational contacts will be editable here." button="Edit profile" />;
+}
+
+function MetricCard({ value, label }: { value: string; label: string }) {
+  return <View style={styles.portalMetricCard}><Text style={styles.portalMetricValue}>{value}</Text><Text style={styles.portalMetricLabel}>{label}</Text></View>;
+}
+
+function PrototypePage({ kicker, title, body, button }: { kicker: string; title: string; body: string; button: string }) {
+  return <ScrollView contentContainerStyle={styles.portalContent}>
+    <View style={styles.portalPanel}>
+      <Text style={styles.portalPanelKicker}>{kicker}</Text>
+      <Text style={styles.portalFeatureTitle}>{title}</Text>
+      <Text style={styles.portalFeatureBody}>{body}</Text>
+      <Pressable style={styles.portalFeatureButton}><Text style={styles.portalFeatureButtonText}>{button}</Text></Pressable>
+    </View>
+  </ScrollView>;
+}
+
+function initials(value: string) {
+  return value.split(/\s+/).filter(Boolean).map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "BB";
 }
 
 function PendingScreen({ role, onDone }: { role: Role | null; onDone: () => void }) {
@@ -344,6 +470,73 @@ function PrimaryButton({ label, onPress, dark = false, disabled = false }: { lab
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  portalSafe: { flex: 1, backgroundColor: colors.cream },
+  portalShell: { flex: 1 },
+  portalLandscape: { flexDirection: "row" },
+  portalPortrait: { flexDirection: "column" },
+  portalSidebar: { width: 238, backgroundColor: colors.forest, paddingHorizontal: 18, paddingTop: 20, borderRightWidth: 1, borderRightColor: "#315443" },
+  portalBrand: { flexDirection: "row", alignItems: "center", gap: 8 },
+  portalBrandText: { color: colors.forest, fontSize: 17, fontWeight: "900", letterSpacing: -0.5 },
+  portalBrandTextLight: { color: colors.white },
+  portalOrganization: { flexDirection: "row", alignItems: "center", gap: 11, marginTop: 30, paddingVertical: 17, borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#315443" },
+  portalOrganizationIcon: { fontSize: 24 },
+  portalOrganizationCopy: { flex: 1 },
+  portalOrganizationType: { color: "#9CB6A8", fontSize: 7, fontWeight: "900", letterSpacing: 1.2 },
+  portalOrganizationName: { color: colors.white, fontSize: 13, lineHeight: 17, fontWeight: "800", marginTop: 4 },
+  portalSideNav: { gap: 6, marginTop: 24 },
+  portalSideNavButton: { minHeight: 43, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 8, paddingHorizontal: 12 },
+  portalSideNavSelected: { backgroundColor: "#2C5542" },
+  portalNavIcon: { color: "#A7BDB1", width: 18, fontSize: 16, textAlign: "center" },
+  portalSideNavLabel: { color: "#C1D0C8", fontSize: 11, fontWeight: "700", flex: 1 },
+  portalNavSelectedText: { color: colors.white },
+  portalSideBottom: { marginTop: "auto", paddingVertical: 20, borderTopWidth: 1, borderColor: "#315443", gap: 8 },
+  portalAccountEmail: { color: "#A7BDB1", fontSize: 9 },
+  portalSignOut: { color: colors.coral, fontSize: 10, fontWeight: "900" },
+  portalMobileHeader: { minHeight: 62, paddingHorizontal: 17, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
+  portalMobileRole: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, backgroundColor: colors.mint, borderRadius: 15 },
+  portalMobileRoleText: { color: colors.forest, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
+  portalMobileNav: { flexGrow: 0, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
+  portalMobileNavContent: { paddingHorizontal: 12, gap: 6, paddingVertical: 9 },
+  portalMobileNavButton: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, borderRadius: 18, backgroundColor: "#F1EFE6" },
+  portalMobileNavSelected: { backgroundColor: colors.forest },
+  portalMobileNavLabel: { color: colors.forestSoft, fontSize: 9, fontWeight: "800" },
+  portalMain: { flex: 1, backgroundColor: colors.cream },
+  portalPageHeader: { minHeight: 98, paddingHorizontal: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
+  portalPageHeaderMobile: { minHeight: 88, paddingHorizontal: 20 },
+  portalKicker: { color: colors.coral, fontSize: 8, fontWeight: "900", letterSpacing: 1.4, marginBottom: 6 },
+  portalPageTitle: { color: colors.forest, fontSize: 30, lineHeight: 35, fontWeight: "700", letterSpacing: -0.9 },
+  portalPageTitleMobile: { fontSize: 25, lineHeight: 30 },
+  portalAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint, borderWidth: 1, borderColor: "#C4D3C7" },
+  portalAvatarText: { color: colors.forest, fontSize: 11, fontWeight: "900" },
+  portalContent: { padding: 28, gap: 16 },
+  portalContentMobile: { padding: 16, paddingBottom: 36 },
+  portalStatusCard: { minHeight: 168, padding: 25, borderRadius: 14, backgroundColor: colors.forest, flexDirection: "row", alignItems: "center", gap: 20 },
+  portalStatusCardMobile: { flexDirection: "column", alignItems: "stretch", padding: 21 },
+  portalStatusCopy: { flex: 1 },
+  portalStatusLabel: { flexDirection: "row", alignItems: "center", gap: 7 },
+  portalStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#76C997" },
+  portalStatusLabelText: { color: "#A9C3B5", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
+  portalStatusTitle: { color: colors.white, fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 11 },
+  portalStatusBody: { color: "#B7CBC0", fontSize: 11, lineHeight: 17, marginTop: 8, maxWidth: 520 },
+  portalStatusButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
+  portalStatusButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
+  portalMetrics: { flexDirection: "row", gap: 12 },
+  portalMetricsMobile: { flexDirection: "column" },
+  portalMetricCard: { flex: 1, minHeight: 92, padding: 17, borderRadius: 12, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  portalMetricValue: { color: colors.forest, fontSize: 25, fontWeight: "800" },
+  portalMetricLabel: { color: colors.sage, fontSize: 9, fontWeight: "800", marginTop: 7 },
+  portalPanel: { padding: 21, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  portalPanelHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  portalPanelKicker: { color: colors.coral, fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
+  portalPanelTitle: { color: colors.forest, fontSize: 19, fontWeight: "800", marginTop: 5 },
+  portalPanelLink: { color: colors.coral, fontSize: 9, fontWeight: "900" },
+  portalEmpty: { minHeight: 105, alignItems: "center", justifyContent: "center", paddingTop: 18 },
+  portalEmptyTitle: { color: colors.forest, fontSize: 14, fontWeight: "800" },
+  portalEmptyBody: { color: colors.sage, fontSize: 10, lineHeight: 16, textAlign: "center", marginTop: 5 },
+  portalFeatureTitle: { color: colors.forest, fontSize: 27, fontWeight: "800", marginTop: 8 },
+  portalFeatureBody: { color: colors.sage, fontSize: 12, lineHeight: 19, marginTop: 10, maxWidth: 560 },
+  portalFeatureButton: { alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center", marginTop: 25 },
+  portalFeatureButtonText: { color: colors.white, fontSize: 10, fontWeight: "900" },
   welcomeSafe: { flex: 1, backgroundColor: colors.forest },
   workspaceSafe: { flex: 1, backgroundColor: colors.cream },
   workspaceHeader: { minHeight: 64, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.paper },
