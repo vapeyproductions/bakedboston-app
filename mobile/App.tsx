@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useCallback, useEffect, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -522,9 +523,8 @@ function SchedulePage({ workspace, bakery, rightInset, onChanged }: { workspace:
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
       <Text style={styles.portalPanelKicker}>RECURRING AVAILABILITY</Text>
-      <Text style={styles.portalFeatureTitle}>{bakery ? "Pickup calendar" : "Receiving calendar"}</Text>
       <Text style={styles.portalFeatureBody}>View and edit recurring and one-time availability for the next four weeks. Changes synchronize with the web and administrator portals.</Text>
-      <View style={styles.calendarActions}><Pressable style={styles.calendarSecondaryButton} onPress={() => setSelected({ type: "one-time", id: -1 })}><Text style={styles.calendarSecondaryText}>+ Add one-time window</Text></Pressable><Pressable style={styles.portalFeatureButton} onPress={addRecurring}><Text style={styles.portalFeatureButtonText}>+ Add recurring window</Text></Pressable></View>
+      <View style={styles.calendarActions}><Pressable style={styles.calendarAddButton} onPress={() => setSelected({ type: "one-time", id: -1 })}><Text style={styles.calendarAddButtonText}>+ Add one-time window</Text></Pressable><Pressable style={[styles.calendarAddButton, styles.calendarAddButtonPrimary]} onPress={addRecurring}><Text style={[styles.calendarAddButtonText, styles.calendarAddButtonTextPrimary]}>+ Add recurring window</Text></Pressable></View>
       {notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}
       {selected?.type === "recurring" && rows[selected.index] ? <RecurringNativeEditor row={rows[selected.index]} bakery={bakery} date={selected.date} busy={busy} onChange={(patch) => setRows((current) => current.map((row, index) => index === selected.index ? { ...row, ...patch } : row))} onClose={() => setSelected(null)} onSave={() => saveRows()} onDelete={() => removeRecurring(selected.index)} onCancelDate={selected.date ? async () => {
         const { response, data } = await workspaceRequest("POST", { action: "cancel-occurrence", exceptionDate: selected.date });
@@ -532,6 +532,8 @@ function SchedulePage({ workspace, bakery, rightInset, onChanged }: { workspace:
       } : undefined} /> : null}
       {selected?.type === "one-time" ? <OneTimeNativeEditor window={workspace.availabilityWindows.find((window) => window.id === selected.id)} bakery={bakery} onClose={() => setSelected(null)} onSaved={async (message) => { setNotice(message); setSelected(null); await onChanged(); }} /> : null}
       <FourWeekNativeCalendar bakery={bakery} rows={rows} windows={workspace.availabilityWindows} exceptions={workspace.scheduleExceptions} onRecurring={(index, date) => setSelected({ type: "recurring", index, date })} onOneTime={(id) => setSelected({ type: "one-time", id })} onRestore={async (id) => {
+        const exception = workspace.scheduleExceptions.find((item) => item.id === id);
+        if (!exception || !(await confirmRestore(exception.exceptionDate))) return;
         const { response, data } = await workspaceRequest("DELETE", undefined, `?type=exception&id=${id}`);
         if (response.ok) await onChanged(); else setNotice(data.error ?? "Could not restore scheduled hours.");
       }} />
@@ -545,8 +547,10 @@ function RecurringNativeEditor({ row, bakery, date, busy, onChange, onClose, onS
   return <View style={styles.nativeEditor}><View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>EDIT RECURRING WINDOW</Text><Text style={styles.editorTitle}>{row.day} window</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>
     <View style={styles.choiceRow}>{nativeDays.map((day) => <Pressable key={day} onPress={() => onChange({ day })} style={[styles.choicePill, row.day === day && styles.choicePillSelected]}><Text style={[styles.choiceText, row.day === day && styles.choiceTextSelected]}>{day}</Text></Pressable>)}</View>
     {!bakery && <View style={styles.choiceRow}><Pressable onPress={() => onChange({ recurrence: "weekly", ordinal: null })} style={[styles.choicePill, row.recurrence === "weekly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "weekly" && styles.choiceTextSelected]}>Every week</Text></Pressable><Pressable onPress={() => onChange({ recurrence: "monthly", ordinal: row.ordinal ?? 1 })} style={[styles.choicePill, row.recurrence === "monthly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "monthly" && styles.choiceTextSelected]}>Once a month</Text></Pressable></View>}
-    {!bakery && row.recurrence === "monthly" && <EditorField label="Monthly occurrence (1–5)" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}
-    {bakery ? <><EditorField label="Food ready (HH:MM)" value={row.readyTime} onChangeText={(readyTime) => onChange({ readyTime })} /><EditorField label="Pickup deadline (HH:MM)" value={row.pickupDeadline} onChangeText={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><EditorField label="Opens (HH:MM)" value={row.open} onChangeText={(open) => onChange({ open })} /><EditorField label="Closes (HH:MM)" value={row.close} onChangeText={(close) => onChange({ close })} /><EditorField label="Latest permitted arrival (HH:MM)" value={row.latestArrival} onChangeText={(latestArrival) => onChange({ latestArrival })} /></>}
+    <View style={styles.editorFieldsRow}>
+      {!bakery && row.recurrence === "monthly" && <EditorField label="Monthly occurrence (1–5)" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}
+      {bakery ? <><EditorField label="Food ready (HH:MM)" value={row.readyTime} onChangeText={(readyTime) => onChange({ readyTime })} /><EditorField label="Pickup deadline (HH:MM)" value={row.pickupDeadline} onChangeText={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><EditorField label="Opens (HH:MM)" value={row.open} onChangeText={(open) => onChange({ open })} /><EditorField label="Closes (HH:MM)" value={row.close} onChangeText={(close) => onChange({ close })} /><EditorField label="Latest permitted arrival (HH:MM)" value={row.latestArrival} onChangeText={(latestArrival) => onChange({ latestArrival })} /></>}
+    </View>
     <View style={styles.editorActions}><Pressable onPress={onDelete}><Text style={styles.deleteAction}>Delete recurring window</Text></Pressable>{onCancelDate && <Pressable onPress={onCancelDate}><Text style={styles.cancelDateAction}>Cancel scheduled hours on {date}</Text></Pressable>}<Pressable style={styles.saveAction} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save schedule"}</Text></Pressable></View>
   </View>;
 }
@@ -570,7 +574,7 @@ function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: Mo
     if (response.ok) await onSaved("One-time window deleted."); else setError(data.error ?? "Could not delete window.");
   }
   return <View style={styles.nativeEditor}><View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME WINDOW</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New availability"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>
-    <EditorField label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><EditorField label={bakery ? "Food ready (HH:MM)" : "Opens (HH:MM)"} value={draft.starts} onChangeText={(starts) => setDraft({ ...draft, starts })} /><EditorField label={bakery ? "Pickup deadline (HH:MM)" : "Closes (HH:MM)"} value={draft.ends} onChangeText={(ends) => setDraft({ ...draft, ends })} />{!bakery && <EditorField label="Latest permitted arrival (HH:MM)" value={draft.latest} onChangeText={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}<View style={styles.editorActions}>{window && <Pressable onPress={remove}><Text style={styles.deleteAction}>Delete window</Text></Pressable>}<Pressable style={styles.saveAction} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>
+    <View style={styles.editorFieldsRow}><EditorField label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><EditorField label={bakery ? "Food ready (HH:MM)" : "Opens (HH:MM)"} value={draft.starts} onChangeText={(starts) => setDraft({ ...draft, starts })} /><EditorField label={bakery ? "Pickup deadline (HH:MM)" : "Closes (HH:MM)"} value={draft.ends} onChangeText={(ends) => setDraft({ ...draft, ends })} />{!bakery && <EditorField label="Latest permitted arrival (HH:MM)" value={draft.latest} onChangeText={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}</View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}<View style={styles.editorActions}>{window && <Pressable onPress={remove}><Text style={styles.deleteAction}>Delete window</Text></Pressable>}<Pressable style={styles.saveAction} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>
   </View>;
 }
 
@@ -601,6 +605,16 @@ async function workspaceRequest(method: "POST" | "PATCH" | "DELETE", body?: Reco
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return { response, data: await response.json().catch(() => ({})) };
+}
+
+function confirmRestore(date: string) {
+  return new Promise<boolean>((resolve) => {
+    const label = new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+    Alert.alert("Restore scheduled hours?", `This will undo the cancellation and restore the recurring availability on ${label}.`, [
+      { text: "Keep cancelled", style: "cancel", onPress: () => resolve(false) },
+      { text: "Restore hours", onPress: () => resolve(true) },
+    ], { cancelable: true, onDismiss: () => resolve(false) });
+  });
 }
 
 const nativeDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -808,22 +822,27 @@ const styles = StyleSheet.create({
   contactRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
   contactCopy: { flex: 1 },
   primaryPill: { color: colors.forest, fontSize: 7, fontWeight: "900", paddingHorizontal: 8, paddingVertical: 5, borderRadius: 10, backgroundColor: colors.mint },
-  calendarActions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 18, alignItems: "center" },
+  calendarActions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 15, alignItems: "stretch" },
+  calendarAddButton: { minHeight: 44, minWidth: 155, flexGrow: 1, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  calendarAddButtonPrimary: { backgroundColor: colors.forest },
+  calendarAddButtonText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
+  calendarAddButtonTextPrimary: { color: colors.white },
   calendarSecondaryButton: { minHeight: 44, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   calendarSecondaryText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
   calendarNotice: { color: "#A34436", fontSize: 10, lineHeight: 15, fontWeight: "800", marginTop: 12 },
-  nativeEditor: { marginTop: 18, padding: 17, borderRadius: 11, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: "#D5DCD5" },
-  editorHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 },
+  nativeEditor: { marginTop: 14, paddingHorizontal: 15, paddingVertical: 12, borderRadius: 11, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: "#D5DCD5" },
+  editorHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 9 },
   editorTitle: { color: colors.forest, fontSize: 17, fontWeight: "900", marginTop: 4 },
   editorClose: { color: colors.forest, fontSize: 27, lineHeight: 28 },
-  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
-  choicePill: { minHeight: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+  choicePill: { minHeight: 31, paddingHorizontal: 10, borderRadius: 16, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   choicePillSelected: { backgroundColor: colors.forest, borderColor: colors.forest },
   choiceText: { color: colors.forestSoft, fontSize: 8, fontWeight: "900" },
   choiceTextSelected: { color: colors.white },
-  editorField: { marginTop: 10 },
-  editorInput: { minHeight: 43, marginTop: 5, paddingHorizontal: 12, color: colors.forest, fontSize: 12, fontWeight: "700", backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
-  editorActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12, marginTop: 17 },
+  editorFieldsRow: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  editorField: { flexGrow: 1, flexBasis: 150, marginTop: 5 },
+  editorInput: { minHeight: 39, marginTop: 4, paddingHorizontal: 10, color: colors.forest, fontSize: 11, fontWeight: "700", backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
+  editorActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12, marginTop: 11 },
   deleteAction: { color: "#A34436", fontSize: 8, fontWeight: "900" },
   cancelDateAction: { color: "#A26A16", fontSize: 8, fontWeight: "900" },
   saveAction: { minHeight: 40, marginLeft: "auto", paddingHorizontal: 15, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },

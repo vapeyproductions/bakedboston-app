@@ -261,6 +261,7 @@ function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, scheduleE
     else onSaved(data?.error ?? "Could not cancel scheduled hours.");
   }
   async function restoreOccurrence(exception: ScheduleException) {
+    if (!window.confirm(`Restore the cancelled scheduled hours on ${new Date(`${exception.exceptionDate}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}?`)) return;
     const response = await fetch(`/api/partner/schedule-exceptions?id=${exception.id}`, { method: "DELETE" });
     if (response.ok) { await onWindowsChanged(); onSaved("Scheduled hours restored."); }
   }
