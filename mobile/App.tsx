@@ -22,6 +22,7 @@ type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
 type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention" };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string };
+type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type WorkspaceData = {
@@ -326,20 +327,68 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
   if (session.role === "bakery" || session.role === "pantry") {
     return <PartnerPortal session={session} onSignOut={onSignOut} />;
   }
-  const copy = roleCopy[session.role];
-  const verificationLabel = session.verificationStatus === "verified" ? "Identity verified" : session.verificationStatus === "pending" ? "Verification pending" : session.verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
+  return <DriverPortal session={session} onSignOut={onSignOut} />;
+}
+
+type DriverSection = "home" | "search" | "routes" | "profile";
+const previewDriverRoutes = [
+  { id: 1, timing: "Available now", bakery: "Sample bakery", pantry: "Sample pantry", pickup: "5:10 PM", finish: "6:05 PM", drive: "25 min driving", ending: "Ends near 02130", reason: "Best balance of travel time and pantry priority" },
+  { id: 2, timing: "Later today", bakery: "Example pickup", pantry: "Example destination", pickup: "6:00 PM", finish: "6:50 PM", drive: "20 min driving", ending: "Ends near 02446", reason: "Short route toward the preferred destination" },
+];
+
+function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const [section, setSection] = useState<DriverSection>("home");
+  const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [error, setError] = useState("");
+  const [profileNotice, setProfileNotice] = useState("");
+  const [search, setSearch] = useState({ date: localDateString(new Date()), earliest: "17:00", latest: "19:00", startZip: "", endZip: "" });
+  const [searched, setSearched] = useState(false);
+  useEffect(() => {
+    ScreenOrientation.unlockAsync().catch(() => undefined);
+    loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
+  }, []);
+  const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
+  const verificationLabel = verificationStatus === "verified" ? "Identity verified" : verificationStatus === "pending" ? "Verification pending" : verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
+  const tabs: Array<{ id: DriverSection; label: string; icon: string }> = [
+    { id: "home", label: "Home", icon: "⌂" },
+    { id: "search", label: "Search", icon: "⌕" },
+    { id: "routes", label: "My routes", icon: "↗" },
+    { id: "profile", label: "Profile", icon: "○" },
+  ];
   return <SafeAreaView style={styles.workspaceSafe} edges={["top", "bottom"]}>
-    <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable></View>
-    <ScrollView contentContainerStyle={styles.workspaceContent}>
-      <View style={styles.roleBadge}><Text>{copy.icon}</Text><Text style={styles.roleBadgeText}>{session.role}</Text></View>
-      <Text style={styles.authEyebrow}>SIGNED IN SECURELY</Text>
-      <Text style={styles.authTitle}>Welcome, {session.displayName || "partner"}.</Text>
-      <Text style={styles.authBody}>{session.role === "driver" ? "Complete identity verification before reserving your first delivery." : `Your ${session.role} account is connected to BakedBoston. The native availability and activity workspace comes next.`}</Text>
-      <View style={styles.connectedCard}><Text style={styles.connectedTitle}>Account connected</Text><Text style={styles.connectedBody}>{session.email}</Text><Text style={styles.connectedBody}>Role: {session.role}</Text></View>
-      {session.role === "driver" && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>DRIVER ELIGIBILITY</Text><Text style={styles.connectedTitle}>{verificationLabel}</Text></View><View style={[styles.verificationStatusDot, session.verificationStatus === "verified" && styles.verificationStatusDotVerified]} /></View><Text style={styles.connectedBody}>A secure government-ID check is required before route reservations are enabled. Your document images will be handled by the verification provider.</Text><PrimaryButton label={session.verificationStatus === "verified" ? "Verification complete" : "Verify identity"} dark disabled={session.verificationStatus === "verified"} onPress={() => Alert.alert("Identity verification", "The secure Stripe Identity connection will be enabled after BakedBoston’s Stripe account and development build are configured.")} /></View>}
+    <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><View style={styles.driverHeaderStatus}><View style={[styles.verificationStatusDot, verificationStatus === "verified" && styles.verificationStatusDotVerified]} /><Text style={styles.driverHeaderStatusText}>{verificationLabel}</Text></View></View>
+    <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
+    <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {section === "home" && <DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />}
+      {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Find matching routes" dark onPress={() => setSearched(true)} /></View>{searched && <View style={styles.previewResults}><Text style={styles.previewLabel}>PROTOTYPE RESULTS — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verificationStatus === "verified"} key={route.id} />)}</View>}</View>}
+      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text><View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View></View>}
+      {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
     </ScrollView>
   </SafeAreaView>;
 }
+
+function DriverHome({ displayName, verified, onSearch }: { displayName: string; verified: boolean; onSearch: () => void }) {
+  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{!verified && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>Verify your identity</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>You can preview and search for routes now. Reservations will become available after secure identity verification.</Text><PrimaryButton label="Verify identity" dark onPress={() => Alert.alert("Identity verification", "The secure Stripe Identity connection will be enabled after BakedBoston’s Stripe account and development build are configured.")} /></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>The best available deliveries for your current time and area.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View><Text style={styles.previewLabel}>PROTOTYPE PREVIEW — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verified} key={route.id} />)}</View>;
+}
+
+function DriverRoutePreview({ route, verified }: { route: typeof previewDriverRoutes[number]; verified: boolean }) {
+  return <View style={styles.driverRouteCard}><View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{route.timing}</Text><Text style={styles.driverRouteDrive}>{route.drive}</Text></View><Text style={styles.driverRouteName}>{route.bakery}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{route.pantry}</Text><View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {route.pickup}</Text><Text style={styles.driverRouteFact}>Finish {route.finish}</Text><Text style={styles.driverRouteFact}>{route.ending}</Text></View><Text style={styles.driverRouteReason}>{route.reason}</Text><Pressable disabled={!verified} style={[styles.driverReserveButton, !verified && styles.disabledButton]} onPress={() => Alert.alert("Preview only", "Live reservations will be connected to the optimization service.")}><Text style={styles.driverReserveButtonText}>{verified ? "View route" : "Verification required"}</Text></Pressable></View>;
+}
+
+function DriverProfilePage({ profile, notice, onChange, onSave, onSignOut }: { profile: DriverProfile; notice: string; onChange: (profile: DriverProfile) => void; onSave: () => void; onSignOut: () => void }) {
+  return <View><Text style={styles.authEyebrow}>DRIVER ACCOUNT</Text><Text style={styles.driverPageTitle}>Profile</Text><View style={styles.driverProfileCard}><Field label="Legal name" value={profile.displayName} onChangeText={(displayName) => onChange({ ...profile, displayName })} /><Field label="Account email" value={profile.email} onChangeText={(email) => onChange({ ...profile, email })} keyboardType="email-address" autoCapitalize="none" /><Field label="Mobile number" value={profile.phone} onChangeText={(phone) => onChange({ ...profile, phone })} keyboardType="phone-pad" /><Field label="Home address" value={profile.homeAddress} onChangeText={(homeAddress) => onChange({ ...profile, homeAddress })} /><Field label="Home ZIP code" value={profile.homeZip} onChangeText={(homeZip) => onChange({ ...profile, homeZip })} keyboardType="number-pad" /><Field label="Date of birth" value={profile.dateOfBirth} editable={false} /><Text style={styles.privateProfileNote}>Your address and date of birth are private and are not shown to bakeries or pantries.</Text>{notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}<PrimaryButton label="Save profile" dark onPress={onSave} /></View><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable></View>;
+}
+
+async function driverRequest(method: "GET" | "PATCH", body?: Record<string, unknown>) {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/driver`, { method, headers: { Authorization: `Bearer ${token ?? ""}`, ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "Driver request failed.");
+  return data as { driver: DriverProfile };
+}
+async function loadDriverProfile() { return (await driverRequest("GET")).driver; }
+async function saveDriverProfile(profile: DriverProfile) { return (await driverRequest("PATCH", { email: profile.email, displayName: profile.displayName, phone: profile.phone, homeAddress: profile.homeAddress, homeZip: profile.homeZip })).driver; }
 
 type PartnerSection = "overview" | "activity" | "schedule" | "profile";
 
@@ -1013,6 +1062,39 @@ const styles = StyleSheet.create({
   workspaceBrand: { flex: 1, color: colors.forest, fontWeight: "900", fontSize: 18 },
   workspaceSignOut: { color: colors.coral, fontWeight: "800" },
   workspaceContent: { padding: 26, gap: 12 },
+  driverHeaderStatus: { flexDirection: "row", alignItems: "center", gap: 7 },
+  driverHeaderStatusText: { color: colors.forestSoft, fontSize: 9, fontWeight: "800" },
+  driverTabs: { minHeight: 64, paddingHorizontal: 10, flexDirection: "row", alignItems: "stretch", backgroundColor: colors.paper, borderBottomWidth: 1, borderBottomColor: colors.border },
+  driverTab: { flex: 1, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 3, borderBottomWidth: 3, borderBottomColor: "transparent" },
+  driverTabActive: { borderBottomColor: colors.coral },
+  driverTabIcon: { color: colors.sage, fontSize: 15, fontWeight: "900" },
+  driverTabText: { color: colors.sage, fontSize: 8, fontWeight: "900" },
+  driverTabTextActive: { color: colors.forest },
+  driverContent: { padding: 20, paddingBottom: 50 },
+  driverPageTitle: { color: colors.forest, fontSize: 28, lineHeight: 34, fontWeight: "900", letterSpacing: -0.7, marginTop: 5, marginBottom: 9 },
+  driverFeedHeading: { marginTop: 24, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
+  driverSearchShortcut: { minHeight: 39, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  driverSearchShortcutText: { color: colors.white, fontSize: 9, fontWeight: "900" },
+  previewLabel: { color: colors.coral, fontSize: 8, lineHeight: 12, fontWeight: "900", letterSpacing: 0.8, marginVertical: 10 },
+  driverRouteCard: { marginBottom: 13, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  driverRouteTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 },
+  driverRouteTiming: { color: colors.coral, fontSize: 9, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.7 },
+  driverRouteDrive: { color: colors.sage, fontSize: 9, fontWeight: "800" },
+  driverRouteName: { color: colors.forest, fontSize: 16, fontWeight: "900" },
+  driverRouteLine: { width: 2, height: 16, marginLeft: 7, marginVertical: 3, backgroundColor: colors.border },
+  driverRouteFacts: { marginTop: 13, flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  driverRouteFact: { color: colors.forestSoft, fontSize: 8, fontWeight: "800", paddingHorizontal: 9, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.mint },
+  driverRouteReason: { color: colors.sage, fontSize: 9, lineHeight: 14, marginTop: 12 },
+  driverReserveButton: { minHeight: 41, marginTop: 14, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  driverReserveButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
+  driverSearchCard: { marginTop: 18, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  driverSearchTimeRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
+  locationPreferenceButton: { minHeight: 42, marginBottom: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  locationPreferenceText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
+  previewResults: { marginTop: 18 },
+  driverEmptyCard: { minHeight: 210, marginTop: 18, padding: 22, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, alignItems: "flex-start", justifyContent: "center" },
+  driverProfileCard: { marginTop: 15, marginBottom: 20, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  privateProfileNote: { color: colors.sage, fontSize: 9, lineHeight: 14, marginBottom: 12 },
   connectedCard: { marginTop: 12, padding: 20, borderRadius: 14, backgroundColor: colors.mint, borderWidth: 1, borderColor: colors.border },
   connectedTitle: { color: colors.forest, fontWeight: "900", fontSize: 17, marginBottom: 8 },
   connectedBody: { color: colors.forestSoft, marginTop: 4 },
