@@ -20,7 +20,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-
 
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
-type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention" };
+type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention"; demo?: boolean };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
@@ -40,6 +40,7 @@ type WorkspaceData = {
 };
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
+const demoDriverSession: Session = { role: "driver", accountId: 0, displayName: "Jordan Taylor", email: "jordan.driver@example.com", verificationStatus: "verified", demo: true };
 
 async function postAuth(payload: Record<string, unknown>) {
   const controller = new AbortController();
@@ -87,8 +88,9 @@ export default function App() {
       if (!response.ok) await SecureStore.deleteItemAsync(TOKEN_KEY);
       else {
         const data = await response.json();
-        setSession(data.session);
-        setRole(data.session.role); setScreen("workspace");
+        const restoredSession = data.session.role === "driver" ? demoDriverSession : data.session;
+        setSession(restoredSession);
+        setRole(restoredSession.role); setScreen("workspace");
       }
     }).catch(() => undefined);
   }, []);
@@ -104,7 +106,12 @@ export default function App() {
 
   const chooseRole = (nextRole: Role) => {
     setRole(nextRole);
-    setScreen(nextRole === "driver" ? "driver-access" : "partner-login");
+    if (nextRole === "driver") {
+      setSession(demoDriverSession);
+      setScreen("workspace");
+    } else {
+      setScreen("partner-login");
+    }
   };
 
   const back = () => {
@@ -337,16 +344,17 @@ const previewDriverRoutes = [
 ];
 
 function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const demoProfile: DriverProfile = { id: 0, email: "jordan.driver@example.com", displayName: "Jordan Taylor", phone: "(617) 555-0148", homeAddress: "125 Example Street, Boston, MA", homeZip: "02130", dateOfBirth: "2000-04-18", verificationStatus: "verified" };
   const [section, setSection] = useState<DriverSection>("home");
-  const [profile, setProfile] = useState<DriverProfile | null>(null);
+  const [profile, setProfile] = useState<DriverProfile | null>(session.demo ? demoProfile : null);
   const [error, setError] = useState("");
   const [profileNotice, setProfileNotice] = useState("");
   const [search, setSearch] = useState({ date: localDateString(new Date()), earliest: "17:00", latest: "19:00", startZip: "", endZip: "" });
   const [searched, setSearched] = useState(false);
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => undefined);
-    loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
-  }, []);
+    if (!session.demo) loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
+  }, [session.demo]);
   const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
   const verificationLabel = verificationStatus === "verified" ? "Identity verified" : verificationStatus === "pending" ? "Verification pending" : verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
   const tabs: Array<{ id: DriverSection; label: string; icon: string }> = [
@@ -359,11 +367,12 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><View style={styles.driverHeaderStatus}><View style={[styles.verificationStatusDot, verificationStatus === "verified" && styles.verificationStatusDotVerified]} /><Text style={styles.driverHeaderStatusText}>{verificationLabel}</Text></View></View>
     <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
+      {session.demo && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       {section === "home" && <DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Find matching routes" dark onPress={() => setSearched(true)} /></View>{searched && <View style={styles.previewResults}><Text style={styles.previewLabel}>PROTOTYPE RESULTS — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verificationStatus === "verified"} key={route.id} />)}</View>}</View>}
       {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text><View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View></View>}
-      {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
+      {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
     </ScrollView>
   </SafeAreaView>;
 }
@@ -1071,6 +1080,8 @@ const styles = StyleSheet.create({
   driverTabText: { color: colors.sage, fontSize: 8, fontWeight: "900" },
   driverTabTextActive: { color: colors.forest },
   driverContent: { padding: 20, paddingBottom: 50 },
+  driverDemoBanner: { alignSelf: "flex-start", marginBottom: 16, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 14, backgroundColor: "#FFF0D4" },
+  driverDemoBannerText: { color: "#8A5A12", fontSize: 8, fontWeight: "900", letterSpacing: 0.7 },
   driverPageTitle: { color: colors.forest, fontSize: 28, lineHeight: 34, fontWeight: "900", letterSpacing: -0.7, marginTop: 5, marginBottom: 9 },
   driverFeedHeading: { marginTop: 24, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   driverSearchShortcut: { minHeight: 39, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
