@@ -1,9 +1,11 @@
 import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import * as ScreenOrientation from "expo-screen-orientation";
+import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -33,6 +35,7 @@ type WorkspaceData = {
   availabilityPauses: Array<{ id: number; endsAt: string }>;
   scheduleExceptions: Array<{ id: number; exceptionDate: string }>;
   routes: MobileRoute[];
+  photos: Array<{ id: number; imageUrl: string; caption: string }>;
 };
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
@@ -638,8 +641,11 @@ function localDateString(value: Date) { return `${value.getFullYear()}-${String(
 function localTimeString(value: Date) { return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`; }
 
 function ProfilePage({ workspace, bakery, rightInset, onChanged }: { workspace: WorkspaceData; bakery: boolean; rightInset: number; onChanged: () => Promise<void> }) {
+  const { width, height } = useWindowDimensions(); const landscape = width > height;
   const [draft, setDraft] = useState({ accountEmail: workspace.account.accountEmail, address: workspace.organization.address, dropoffInstructions: workspace.organization.dropoffInstructions, businessPhone: workspace.organization.businessPhone, notificationPhone: workspace.organization.notificationPhone });
   const [contactDraft, setContactDraft] = useState({ name: "", email: "", phone: "" });
+  const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [caption, setCaption] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => setDraft({ accountEmail: workspace.account.accountEmail, address: workspace.organization.address, dropoffInstructions: workspace.organization.dropoffInstructions, businessPhone: workspace.organization.businessPhone, notificationPhone: workspace.organization.notificationPhone }), [workspace]);
   async function saveProfile() {
@@ -662,6 +668,41 @@ function ProfilePage({ workspace, bakery, rightInset, onChanged }: { workspace: 
     setNotice(response.ok ? "Contact deleted." : data.error ?? "Could not delete contact.");
     if (response.ok) await onChanged();
   }
+  async function choosePhoto(source: "camera" | "library") {
+    try {
+      if (source === "camera") {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) return setNotice("Camera permission is required to take a photo.");
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) return setNotice("Photo-library permission is required to choose a photo.");
+      }
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.8 })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
+      if (!result.canceled) setPhoto(result.assets[0]);
+    } catch {
+      setNotice(source === "camera" ? "The camera is not available on this device." : "Could not open the photo library.");
+    }
+  }
+  async function uploadPhoto() {
+    if (!photo) return;
+    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    const form = new FormData();
+    form.append("photo", { uri: photo.uri, name: photo.fileName ?? `access-photo-${Date.now()}.jpg`, type: photo.mimeType ?? "image/jpeg" } as unknown as Blob);
+    form.append("caption", caption);
+    const response = await fetch(`${API_URL}/api/mobile/photos`, { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}` }, body: form });
+    const data = await response.json().catch(() => ({}));
+    setNotice(response.ok ? "Access photo uploaded." : data.error ?? "Could not upload photo.");
+    if (response.ok) { setPhoto(null); setCaption(""); await onChanged(); }
+  }
+  async function deletePhoto(id: number) {
+    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    const response = await fetch(`${API_URL}/api/mobile/photos?id=${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token ?? ""}` } });
+    const data = await response.json().catch(() => ({}));
+    setNotice(response.ok ? "Access photo deleted." : data.error ?? "Could not delete photo.");
+    if (response.ok) await onChanged();
+  }
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
       <Text style={styles.portalPanelKicker}>ORGANIZATION SETTINGS</Text>
@@ -670,8 +711,12 @@ function ProfilePage({ workspace, bakery, rightInset, onChanged }: { workspace: 
       <Text style={styles.subsectionTitle}>Login</Text>
       <EditorField label="Account email" value={draft.accountEmail} onChangeText={(accountEmail) => setDraft({ ...draft, accountEmail })} />
       <Text style={styles.subsectionTitle}>Organization channels</Text>
-      <View style={styles.profileFieldsGrid}><EditorField label={bakery ? "Business address" : "Delivery address"} value={draft.address} onChangeText={(address) => setDraft({ ...draft, address })} /><EditorField label={bakery ? "Pickup instructions" : "Drop-off instructions"} value={draft.dropoffInstructions} onChangeText={(dropoffInstructions) => setDraft({ ...draft, dropoffInstructions })} /><EditorField label="Business phone number" value={draft.businessPhone} onChangeText={(businessPhone) => setDraft({ ...draft, businessPhone })} /><EditorField label="Notification contact" value={draft.notificationPhone} onChangeText={(notificationPhone) => setDraft({ ...draft, notificationPhone })} /></View>
+      <View style={styles.profileFieldsGrid}><View style={landscape ? styles.profileFieldLandscape : styles.profileFieldPortrait}><EditorField label={bakery ? "Business address" : "Delivery address"} value={draft.address} onChangeText={(address) => setDraft({ ...draft, address })} /></View><View style={landscape ? styles.profileFieldLandscape : styles.profileFieldPortrait}><EditorField label={bakery ? "Pickup instructions" : "Drop-off instructions"} value={draft.dropoffInstructions} onChangeText={(dropoffInstructions) => setDraft({ ...draft, dropoffInstructions })} /></View><View style={landscape ? styles.profileFieldLandscape : styles.profileFieldPortrait}><EditorField label="Business phone number" value={draft.businessPhone} onChangeText={(businessPhone) => setDraft({ ...draft, businessPhone })} /></View><View style={landscape ? styles.profileFieldLandscape : styles.profileFieldPortrait}><EditorField label="Notification contact" value={draft.notificationPhone} onChangeText={(notificationPhone) => setDraft({ ...draft, notificationPhone })} /></View></View>
       <Pressable style={styles.saveProfileButton} onPress={saveProfile}><Text style={styles.saveActionText}>Save profile</Text></Pressable>
+      <Text style={styles.subsectionTitle}>{bakery ? "Bakery" : "Pantry"} access photos <Text style={styles.optionalLabel}>Optional</Text></Text>
+      <Text style={styles.profileHelp}>Add photos that help drivers recognize the correct {bakery ? "pickup" : "drop-off"} location.</Text>
+      {workspace.photos.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accessPhotoList}>{workspace.photos.map((item) => <View style={styles.accessPhotoCard} key={item.id}><Image source={{ uri: item.imageUrl }} style={styles.accessPhotoImage} /><Text style={styles.accessPhotoCaption} numberOfLines={2}>{item.caption || "Access photo"}</Text><Pressable onPress={() => deletePhoto(item.id)}><Text style={styles.contactDelete}>Delete</Text></Pressable></View>)}</ScrollView>}
+      <View style={styles.photoUploadPanel}>{photo && <Image source={{ uri: photo.uri }} style={styles.photoPreview} />}<View style={styles.photoUploadControls}><View style={styles.photoSourceButtons}><Pressable style={styles.calendarAddButton} onPress={() => choosePhoto("camera")}><Text style={styles.calendarAddButtonText}>Take photo</Text></Pressable><Pressable style={styles.calendarAddButton} onPress={() => choosePhoto("library")}><Text style={styles.calendarAddButtonText}>Choose photo</Text></Pressable></View><EditorField label="Caption" value={caption} onChangeText={setCaption} /><Pressable style={[styles.addContactButton, !photo && styles.disabledButton]} disabled={!photo} onPress={uploadPhoto}><Text style={styles.saveActionText}>Upload photo</Text></Pressable></View></View>
       <Text style={styles.subsectionTitle}>Organizational contacts</Text>
       {workspace.contacts.map((contact) => <View style={styles.contactRow} key={contact.id}><View style={styles.contactCopy}><Text style={styles.routeTitle}>{contact.isPrimary ? "★ " : ""}{contact.name}</Text><Text style={styles.routeDetail}>{contact.email} · {contact.phone}</Text></View>{contact.isPrimary ? <Text style={styles.primaryPill}>PRIMARY</Text> : <Pressable onPress={() => makePrimary(contact.id)}><Text style={styles.contactAction}>Make primary</Text></Pressable>}<Pressable disabled={workspace.contacts.length <= 1} onPress={() => deleteContact(contact.id)}><Text style={[styles.contactDelete, workspace.contacts.length <= 1 && styles.contactDisabled]}>Delete</Text></Pressable></View>)}
       <View style={styles.contactDraft}><EditorField label="Contact name" value={contactDraft.name} onChangeText={(name) => setContactDraft({ ...contactDraft, name })} /><EditorField label="Contact email" value={contactDraft.email} onChangeText={(email) => setContactDraft({ ...contactDraft, email })} /><EditorField label="Contact phone" value={contactDraft.phone} onChangeText={(phone) => setContactDraft({ ...contactDraft, phone })} /><Pressable style={styles.addContactButton} disabled={!contactDraft.name || !contactDraft.email || !contactDraft.phone} onPress={addContact}><Text style={styles.saveActionText}>+ Add contact</Text></Pressable></View>
@@ -844,10 +889,22 @@ const styles = StyleSheet.create({
   contactAction: { color: colors.forestSoft, fontSize: 8, fontWeight: "900" },
   contactDelete: { color: "#A34436", fontSize: 8, fontWeight: "900" },
   contactDisabled: { opacity: 0.35 },
-  profileFieldsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  profileFieldsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 16, columnGap: 14 },
+  profileFieldLandscape: { width: "48%" },
+  profileFieldPortrait: { width: "100%" },
   saveProfileButton: { alignSelf: "flex-end", minHeight: 42, marginTop: 14, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
   contactDraft: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", gap: 10, marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: "#F5F1E5" },
   addContactButton: { minHeight: 39, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center", marginBottom: 0 },
+  optionalLabel: { color: colors.sage, fontSize: 9, fontWeight: "700" },
+  profileHelp: { color: colors.sage, fontSize: 10, lineHeight: 16, marginBottom: 10 },
+  accessPhotoList: { gap: 12, paddingVertical: 5 },
+  accessPhotoCard: { width: 150, padding: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: "#FBFAF4" },
+  accessPhotoImage: { width: "100%", height: 92, borderRadius: 7, backgroundColor: colors.mint },
+  accessPhotoCaption: { minHeight: 28, color: colors.forestSoft, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 7 },
+  photoUploadPanel: { flexDirection: "row", gap: 14, marginTop: 12, padding: 13, borderRadius: 10, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: colors.border },
+  photoPreview: { width: 120, height: 100, borderRadius: 8, backgroundColor: colors.mint },
+  photoUploadControls: { flex: 1, gap: 5 },
+  photoSourceButtons: { flexDirection: "row", gap: 9 },
   calendarActions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 15, alignItems: "stretch" },
   calendarAddButton: { minHeight: 44, minWidth: 155, flexGrow: 1, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   calendarAddButtonPrimary: { backgroundColor: colors.forest },
