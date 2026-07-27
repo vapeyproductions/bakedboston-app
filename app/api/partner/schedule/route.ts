@@ -30,13 +30,21 @@ export async function PATCH(request: Request) {
     if (account.organizationType === "bakery") {
       const normalized = windows.map((window) => ({
         day: validDay(window.day),
+        businessOpen: validTime(window.businessOpen, "Business opening time"),
+        businessClose: validTime(window.businessClose, "Business closing time"),
         readyTime: validTime(window.readyTime, "Food-ready time"),
         pickupDeadline: validTime(window.pickupDeadline, "Pickup deadline"),
       }));
-      for (const window of normalized) if (window.readyTime >= window.pickupDeadline) throw new Error(`${window.day}: pickup deadline must be later than food-ready time.`);
+      for (const window of normalized) {
+        if (window.businessOpen >= window.businessClose) throw new Error(`${window.day}: business closing time must be later than opening time.`);
+        if (window.readyTime >= window.pickupDeadline) throw new Error(`${window.day}: pickup deadline must be later than food-ready time.`);
+        if (window.readyTime < window.businessOpen || window.pickupDeadline > window.businessClose) throw new Error(`${window.day}: pickup hours must fall within business hours.`);
+      }
       const days = normalized.map((window) => window.day);
       await db.update(bakeries).set({
         recurringDays: days.join(", "),
+        businessOpenTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.businessOpen]))),
+        businessCloseTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.businessClose]))),
         readyTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.readyTime]))),
         arrivalDeadline: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.pickupDeadline]))),
       }).where(eq(bakeries.id, account.organizationId));

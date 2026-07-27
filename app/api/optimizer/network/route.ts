@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { availabilityPauses, availabilityWindows, bakeries, pantries, partnerAccounts, rescueRoutes, scheduleExceptions } from "../../../../db/schema";
+import { availabilityPauses, availabilityWindows, bakeries, bakeryPickupOccurrences, driverRideRequests, pantries, partnerAccounts, rescueRoutes, routeOffers, scheduleExceptions } from "../../../../db/schema";
 
 function authorized(request: Request) {
   const expected = process.env.OPTIMIZER_API_KEY ?? "";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized." }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, accounts, windows, pauses, exceptions, routes] = await Promise.all([
+  const [bakeryRows, pantryRows, accounts, windows, pauses, exceptions, routes, pickupOccurrences, rideRequests, offers] = await Promise.all([
     db.select().from(bakeries).where(eq(bakeries.active, true)),
     db.select().from(pantries).where(eq(pantries.active, true)),
     db.select({
@@ -25,6 +25,9 @@ export async function GET(request: Request) {
     db.select().from(availabilityPauses),
     db.select().from(scheduleExceptions),
     db.select().from(rescueRoutes),
+    db.select().from(bakeryPickupOccurrences),
+    db.select().from(driverRideRequests),
+    db.select().from(routeOffers),
   ]);
   const registeredBakeries = new Set(accounts.filter((account) => account.organizationType === "bakery").map((account) => account.organizationId));
   const registeredPantries = new Set(accounts.filter((account) => account.organizationType === "pantry").map((account) => account.organizationId));
@@ -48,6 +51,8 @@ export async function GET(request: Request) {
       latitude: bakery.latitude,
       longitude: bakery.longitude,
       recurringDays: bakery.recurringDays,
+      businessOpenTime: bakery.businessOpenTime,
+      businessCloseTime: bakery.businessCloseTime,
       readyTime: bakery.readyTime,
       pickupDeadline: bakery.arrivalDeadline,
     })),
@@ -78,6 +83,9 @@ export async function GET(request: Request) {
       status: route.status,
       createdAt: route.createdAt,
     })),
+    pickupOccurrences: pickupOccurrences.filter((pickup) => registeredBakeries.has(pickup.bakeryId)),
+    rideRequests: rideRequests.filter((request) => ["active", "paused"].includes(request.status)),
+    routeOffers: offers,
   }, {
     headers: {
       "Cache-Control": "private, no-store",

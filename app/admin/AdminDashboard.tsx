@@ -9,6 +9,7 @@ import "../availability-calendar.css";
 
 type Bakery = {
   id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; readyTime: string;
+  businessOpenTime: string; businessCloseTime: string;
   arrivalDeadline: string; active: boolean; latitude: number | null; longitude: number | null;
   formattedAddress: string; googlePlaceId: string; addressValidationStatus: "unvalidated" | "validated" | "needs_review";
   contactName: string; contactEmail: string; contactPhone: string; businessPhone: string; notificationPhone: string;
@@ -63,6 +64,8 @@ type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizat
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };
 type DriverAccount = { id: number; email: string; displayName: string; active: boolean };
 type ScheduleException = { id: number; organizationType: PartnerKind; organizationId: number; exceptionDate: string };
+type PickupOccurrence = { id: number; bakeryId: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: string; confirmedAt: string | null };
+type InAppNotification = { id: number; recipientType: "driver" | "bakery" | "pantry" | "admin"; recipientId: number; title: string; body: string; actionRequired: boolean; createdAt: string };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => {
@@ -117,6 +120,16 @@ function parseBakerySchedule(bakery: Pick<Bakery, "readyTime" | "arrivalDeadline
   }
 }
 
+function parseBakeryBusinessHours(bakery: Pick<Bakery, "businessOpenTime" | "businessCloseTime">) {
+  try {
+    const opens = JSON.parse(bakery.businessOpenTime) as Record<string, string>;
+    const closes = JSON.parse(bakery.businessCloseTime) as Record<string, string>;
+    return Object.fromEntries(Object.keys(opens).map((day) => [day, { open: opens[day], close: closes[day] ?? "" }]));
+  } catch {
+    return {};
+  }
+}
+
 function formatTime(value: string) {
   if (!value) return "";
   const [hours, minutes] = value.split(":").map(Number);
@@ -163,6 +176,8 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [availabilityPauses, setAvailabilityPauses] = useState<AvailabilityPause[]>([]);
   const [drivers, setDrivers] = useState<DriverAccount[]>([]);
   const [scheduleExceptions, setScheduleExceptions] = useState<ScheduleException[]>([]);
+  const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
@@ -189,6 +204,8 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setAvailabilityPauses(data.availabilityPauses ?? []);
       setDrivers(data.drivers ?? []);
       setScheduleExceptions(data.scheduleExceptions ?? []);
+      setPickupOccurrences(data.pickupOccurrences ?? []);
+      setNotifications(data.notifications ?? []);
     }
     setLoading(false);
   };
@@ -293,7 +310,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       </section>
 
       {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={!modal.record ? [] : modal.kind === "pantry" ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : bakeryAccessPhotos.filter((photo) => photo.bakeryId === modal.record!.id)} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
-      {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
+      {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
 }
@@ -654,8 +671,8 @@ function AdminSettings({ currentUser, administrators, invitations, onChanged, se
   </div>;
 }
 
-function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, scheduleExceptions, contacts, onClose, onEdit, onChanged, setNotice }: {
-  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void;
+function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice }: {
+  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void;
 }) {
   const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">("overview");
   const [addressStatus, setAddressStatus] = useState(record.addressValidationStatus);
@@ -669,6 +686,7 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
   const schedulePaused = pauses.some((pause) => new Date(pause.endsAt) > now);
   const open = (recurringOpen && !schedulePaused) || activeAdditional.some((window) => !window.paused);
   const completed = routes.filter((route) => route.status === "completed").length;
+  const todayPickup = pickupOccurrences.find((pickup) => pickup.serviceDate === adminDateKey(now));
   async function acceptStandardizedAddress() {
     if (!record.formattedAddress || !window.confirm(`Use Google’s standardized address for ${record.name}?\n\n${record.formattedAddress}`)) return;
     setConfirmingAddress(true);
@@ -692,7 +710,7 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
     <header><div><span>{kind.toUpperCase()} WORKSPACE</span><h2>{record.name}</h2></div><button onClick={onClose}>×</button></header>
     <nav>{(["overview", "deliveries", "schedule", "profile"] as const).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{item}</button>)}</nav>
     <main>
-      {section === "overview" && <><article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>One-time windows</small><strong>{availability.length}</strong></article></div></>}
+      {section === "overview" && <>{kind === "bakery" && <article className={`adminPickupCommitment ${todayPickup?.status === "confirmed" || todayPickup?.status === "reserved" ? "confirmed" : ""}`}><small>TODAY’S PICKUP COMMITMENT</small><h3>{todayPickup ? todayPickup.status.replaceAll("_", " ") : "No dated pickup created"}</h3><p>{todayPickup ? `${new Date(todayPickup.pickupWindowStartsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(todayPickup.pickupDeadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "The daily occurrence appears when the bakery opens its web or mobile workspace."}</p></article>}<article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>Notifications</small><strong>{notifications.length}</strong></article></div></>}
       {section === "deliveries" && <RoutesTable routes={routes} />}
       {section === "schedule" && <div className="adminScheduleView"><div className="panelTitle"><div><span>RECURRING SCHEDULE</span><h2>Saved availability</h2></div></div>{kind === "pantry" ? <AdminReceivingCalendar pantry={record as Pantry} availability={availability} scheduleExceptions={scheduleExceptions} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} /> : <AdminBakeryCalendar bakery={record as Bakery} availability={availability} scheduleExceptions={scheduleExceptions} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} />}</div>}
       {section === "profile" && <div className="adminProfileSummary">
@@ -828,6 +846,7 @@ function RecordModal({ kind, record, contacts, photos, saving, onClose, onSave, 
 }) {
   const initialDays = record?.recurringDays.split(",").map((day) => day.trim()).filter(Boolean) ?? [];
   const existingBakerySchedule = kind === "bakery" && record ? parseBakerySchedule(record as Bakery) : {};
+  const existingBusinessHours = kind === "bakery" && record ? parseBakeryBusinessHours(record as Bakery) : {};
   const [bakeryDays, setBakeryDays] = useState<string[]>(initialDays);
   const existingWindows = kind === "pantry" && record ? parseSchedule(record as Pantry) : [];
   const displayWindows = existingWindows.map((window) => ({
@@ -862,12 +881,14 @@ function RecordModal({ kind, record, contacts, photos, saving, onClose, onSave, 
         <label>Business phone number <small>Visible to drivers and rescue partners for calls during business hours.</small><input name="businessPhone" type="tel" defaultValue={record?.businessPhone} /></label>
         <label>Notification contact <small>Email address or phone number monitored for upcoming delivery confirmations and notifications.</small><input name="notificationPhone" type="text" defaultValue={record?.notificationPhone} /></label>
         {record && <div className="wide"><ContactManager organizationType={kind} organizationId={record.id} contacts={contacts} onChanged={onChanged} setNotice={setNotice} /></div>}
-        {kind === "bakery" ? <>{record && <div className="wide"><AccessPhotoManager kind={kind} organizationId={record.id} photos={photos} onChanged={onChanged} setNotice={setNotice} /></div>}<fieldset className="wide bakeryHours"><legend>Pickup availability by day</legend><p>Turn on each pickup day and enter that day’s individual ready time and pickup deadline.</p>
+        {kind === "bakery" ? <>{record && <div className="wide"><AccessPhotoManager kind={kind} organizationId={record.id} photos={photos} onChanged={onChanged} setNotice={setNotice} /></div>}<fieldset className="wide bakeryHours"><legend>Business hours and pickup availability by day</legend><p>Business hours determine when opening reminders begin. Food-ready time and pickup deadline define the separate surplus pickup window.</p>
           {days.map((day) => {
             const enabled = bakeryDays.includes(day);
             const daySchedule = existingBakerySchedule[day];
             return <div className={`bakeryDayRow ${enabled ? "enabled" : ""}`} key={day}>
               <label className="dayToggle"><input type="checkbox" name={`bakeryDay_${day}`} checked={enabled} onChange={(event) => setBakeryDays((current) => event.target.checked ? [...current, day] : current.filter((currentDay) => currentDay !== day))} /><span>{day}</span></label>
+              <label>Business opens<input name={`bakeryBusinessOpen_${day}`} type="text" inputMode="text" defaultValue={existingBusinessHours[day]?.open ? formatTime(existingBusinessHours[day].open) : daySchedule?.readyTime ? formatTime(daySchedule.readyTime) : ""} placeholder="7:00 AM" disabled={!enabled} required={enabled} /></label>
+              <label>Business closes<input name={`bakeryBusinessClose_${day}`} type="text" inputMode="text" defaultValue={existingBusinessHours[day]?.close ? formatTime(existingBusinessHours[day].close) : daySchedule?.pickupDeadline ? formatTime(daySchedule.pickupDeadline) : ""} placeholder="6:00 PM" disabled={!enabled} required={enabled} /></label>
               <label>Food ready<input name={`bakeryReady_${day}`} type="text" inputMode="text" defaultValue={daySchedule?.readyTime ? formatTime(daySchedule.readyTime) : ""} placeholder="3:00 PM" disabled={!enabled} required={enabled} /></label>
               <label>Pickup deadline<input name={`bakeryDeadline_${day}`} type="text" inputMode="text" defaultValue={daySchedule?.pickupDeadline ? formatTime(daySchedule.pickupDeadline) : ""} placeholder="6:00 PM" disabled={!enabled} required={enabled} /></label>
             </div>;

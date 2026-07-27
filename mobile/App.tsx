@@ -23,13 +23,16 @@ type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" 
 type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention"; demo?: boolean };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
+type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
+type DriverRouteOffer = { id: number; status: "queued" | "offered" | "accepted" | "declined" | "expired" | "withdrawn"; expiresAt: string | null; estimatedBakeryArrival: string; estimatedPantryArrival: string; bakery: { name: string; address: string } | null; pantry: { name: string; address: string } | null };
+type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; acknowledgedAt: string | null; createdAt: string };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type WorkspaceData = {
   account: { accountEmail: string; administratorName: string; contactEmail: string; contactPhone: string };
   organization: {
     id: number; name: string; address: string; businessPhone: string; notificationPhone: string; dropoffInstructions: string;
-    recurringDays: string; readyTime?: string; arrivalDeadline?: string; openTime?: string; closeTime?: string; latestArrival?: string;
+    recurringDays: string; businessOpenTime?: string; businessCloseTime?: string; readyTime?: string; arrivalDeadline?: string; openTime?: string; closeTime?: string; latestArrival?: string;
   };
   contacts: MobileContact[];
   availabilityWindows: MobileWindow[];
@@ -37,7 +40,10 @@ type WorkspaceData = {
   scheduleExceptions: Array<{ id: number; exceptionDate: string }>;
   routes: MobileRoute[];
   photos: Array<{ id: number; imageUrl: string; caption: string }>;
+  pickupOccurrences: PickupOccurrence[];
+  notifications: DriverNotification[];
 };
+type PickupOccurrence = { id: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "cancelled"; confirmedAt: string | null };
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
 const demoDriverSession: Session = { role: "driver", accountId: 0, displayName: "Jordan Taylor", email: "jordan.driver@example.com", verificationStatus: "verified", demo: true };
@@ -351,10 +357,59 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [profileNotice, setProfileNotice] = useState("");
   const [search, setSearch] = useState({ date: localDateString(new Date()), earliest: "17:00", latest: "19:00", startZip: "", endZip: "" });
   const [searched, setSearched] = useState(false);
+  const [rideRequests, setRideRequests] = useState<DriverRideRequest[]>([]);
+  const [routeOffers, setRouteOffers] = useState<DriverRouteOffer[]>([]);
+  const [driverNotifications, setDriverNotifications] = useState<DriverNotification[]>([]);
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
-    if (!session.demo) loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
+    if (!session.demo) {
+      loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
+      loadDriverMatching().then((data) => {
+        setRideRequests(data.requests);
+        setRouteOffers(data.offers);
+        setDriverNotifications(data.notifications);
+      }).catch(() => setError("Could not load saved ride requests."));
+    }
   }, [session.demo]);
+  async function saveRideRequest() {
+    setError("");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(search.date) || search.earliest >= search.latest) {
+      setError("Choose a valid date and a latest finish after the earliest start.");
+      return;
+    }
+    if ((search.startZip && !/^\d{5}$/.test(search.startZip)) || (search.endZip && !/^\d{5}$/.test(search.endZip))) {
+      setError("ZIP-code preferences must contain five digits.");
+      return;
+    }
+    const draft: DriverRideRequest = {
+      id: -Date.now(), serviceDate: search.date,
+      earliestStart: mobileLocalDateTime(search.date, search.earliest),
+      latestFinish: mobileLocalDateTime(search.date, search.latest),
+      startZip: search.startZip, endZip: search.endZip, maximumExtraMinutes: null, status: "active",
+    };
+    if (session.demo) {
+      setRideRequests((current) => [draft, ...current]);
+      setSearched(true);
+      return;
+    }
+    try {
+      const data = await createDriverRideRequest(draft);
+      setRideRequests((current) => [data.request, ...current]);
+      setSearched(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save this ride request.");
+    }
+  }
+  async function respondToOffer(offer: DriverRouteOffer, action: "accept-offer" | "decline-offer") {
+    try {
+      await updateDriverMatching({ action, offerId: offer.id });
+      const data = await loadDriverMatching();
+      setRideRequests(data.requests); setRouteOffers(data.offers); setDriverNotifications(data.notifications);
+      Alert.alert(action === "accept-offer" ? "Route reserved" : "Offer declined", action === "accept-offer" ? "The bakery and pantry have been notified." : "Your saved request remains available for future matches.");
+    } catch (reason) {
+      Alert.alert("Could not update offer", reason instanceof Error ? reason.message : "Please try again.");
+    }
+  }
   const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
   const verificationLabel = verificationStatus === "verified" ? "Identity verified" : verificationStatus === "pending" ? "Verification pending" : verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
   const tabs: Array<{ id: DriverSection; label: string; icon: string }> = [
@@ -369,9 +424,9 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {session.demo && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />}
-      {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Find matching routes" dark onPress={() => setSearched(true)} /></View>{searched && <View style={styles.previewResults}><Text style={styles.previewLabel}>PROTOTYPE RESULTS — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verificationStatus === "verified"} key={route.id} />)}</View>}</View>}
-      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text><View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View></View>}
+      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} key={offer.id} />)}</>}
+      {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
+      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
     </ScrollView>
   </SafeAreaView>;
@@ -383,6 +438,29 @@ function DriverHome({ displayName, verified, onSearch }: { displayName: string; 
 
 function DriverRoutePreview({ route, verified }: { route: typeof previewDriverRoutes[number]; verified: boolean }) {
   return <View style={styles.driverRouteCard}><View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{route.timing}</Text><Text style={styles.driverRouteDrive}>{route.drive}</Text></View><Text style={styles.driverRouteName}>{route.bakery}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{route.pantry}</Text><View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {route.pickup}</Text><Text style={styles.driverRouteFact}>Finish {route.finish}</Text><Text style={styles.driverRouteFact}>{route.ending}</Text></View><Text style={styles.driverRouteReason}>{route.reason}</Text><Pressable disabled={!verified} style={[styles.driverReserveButton, !verified && styles.disabledButton]} onPress={() => Alert.alert("Preview only", "Live reservations will be connected to the optimization service.")}><Text style={styles.driverReserveButtonText}>{verified ? "View route" : "Verification required"}</Text></Pressable></View>;
+}
+
+function DriverRideRequestList({ requests }: { requests: DriverRideRequest[] }) {
+  if (!requests.length) return null;
+  return <View style={styles.savedRequestList}><Text style={styles.previewLabel}>SAVED RIDE REQUESTS</Text>{requests.map((request) => <View style={styles.savedRequestCard} key={request.id}>
+    <View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{new Date(`${request.serviceDate}T12:00:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><Text style={styles.driverRouteDrive}>{request.status}</Text></View>
+    <Text style={styles.connectedTitle}>{formatMobileTime(request.earliestStart)}–{formatMobileTime(request.latestFinish)}</Text>
+    <Text style={styles.connectedBody}>{request.startZip ? `Start near ${request.startZip}` : "Any starting area"} · {request.endZip ? `End near ${request.endZip}` : "Any destination"}</Text>
+    <Text style={styles.driverRouteReason}>We’ll evaluate this request whenever a bakery confirms a compatible pickup.</Text>
+  </View>)}</View>;
+}
+
+function LiveRouteOffer({ offer, onRespond }: { offer: DriverRouteOffer; onRespond: (offer: DriverRouteOffer, action: "accept-offer" | "decline-offer") => void }) {
+  return <View style={[styles.driverRouteCard, styles.liveOfferCard]}>
+    <View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{offer.status === "offered" ? "Held for you · 5 minutes" : "Reserved"}</Text><Text style={styles.driverRouteDrive}>{offer.status}</Text></View>
+    <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
+    <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {formatMobileTime(offer.estimatedBakeryArrival)}</Text><Text style={styles.driverRouteFact}>Arrival {formatMobileTime(offer.estimatedPantryArrival)}</Text></View>
+    {offer.status === "offered" && <View style={styles.offerActions}><Pressable onPress={() => onRespond(offer, "decline-offer")}><Text style={styles.offerDeclineText}>Not this one</Text></Pressable><Pressable style={styles.driverReserveButton} onPress={() => onRespond(offer, "accept-offer")}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable></View>}
+  </View>;
+}
+
+function DriverNotificationCard({ notification }: { notification: DriverNotification }) {
+  return <View style={styles.driverNotificationCard}><Text style={styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text><Text style={styles.connectedTitle}>{notification.title}</Text><Text style={styles.connectedBody}>{notification.body}</Text></View>;
 }
 
 function DriverProfilePage({ profile, notice, onChange, onSave, onSignOut }: { profile: DriverProfile; notice: string; onChange: (profile: DriverProfile) => void; onSave: () => void; onSignOut: () => void }) {
@@ -398,6 +476,25 @@ async function driverRequest(method: "GET" | "PATCH", body?: Record<string, unkn
 }
 async function loadDriverProfile() { return (await driverRequest("GET")).driver; }
 async function saveDriverProfile(profile: DriverProfile) { return (await driverRequest("PATCH", { email: profile.email, displayName: profile.displayName, phone: profile.phone, homeAddress: profile.homeAddress, homeZip: profile.homeZip })).driver; }
+async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Record<string, unknown>) {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/driver/requests`, {
+    method,
+    headers: { Authorization: `Bearer ${token ?? ""}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "Driver matching request failed.");
+  return data as { request: DriverRideRequest; requests: DriverRideRequest[]; offers: DriverRouteOffer[]; notifications: DriverNotification[] };
+}
+async function loadDriverMatching() { return driverMatchingRequest("GET"); }
+async function createDriverRideRequest(request: DriverRideRequest) {
+  return driverMatchingRequest("POST", {
+    serviceDate: request.serviceDate, earliestStart: request.earliestStart, latestFinish: request.latestFinish,
+    startZip: request.startZip, endZip: request.endZip, maximumExtraMinutes: request.maximumExtraMinutes,
+  });
+}
+async function updateDriverMatching(body: Record<string, unknown>) { return driverMatchingRequest("PATCH", body); }
 
 type PartnerSection = "overview" | "activity" | "schedule" | "profile";
 
@@ -417,8 +514,20 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
     await SecureStore.getItemAsync(TOKEN_KEY).then(async (token) => {
       if (!token) throw new Error("Your session has expired.");
       const response = await fetch(`${API_URL}/api/mobile/workspace`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await response.json();
+      const data = await response.json() as WorkspaceData & { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Could not load the workspace.");
+      if (bakery && !data.pickupOccurrences.some((occurrence) => occurrence.serviceDate === localDateString(new Date()))) {
+        const pickupWindow = mobileBakeryWindowForToday(data);
+        if (pickupWindow) {
+          const created = await workspaceRequest("POST", {
+            action: "create-pickup-occurrence",
+            serviceDate: localDateString(new Date()),
+            pickupWindowStartsAt: mobileLocalDateTime(localDateString(new Date()), pickupWindow.readyTime),
+            pickupDeadline: mobileLocalDateTime(localDateString(new Date()), pickupWindow.pickupDeadline),
+          });
+          if (created.response.ok) data.pickupOccurrences = [created.data.record, ...data.pickupOccurrences];
+        }
+      }
       setWorkspace(data);
     }).catch((error) => setWorkspaceError(error instanceof Error ? error.message : "Could not load the workspace."));
   }, []);
@@ -508,6 +617,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
   if (section === "overview") {
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
+      {bakery && <NativePickupConfirmation occurrence={workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(new Date()))} onChanged={onChanged} />}
+      {workspace.notifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
           <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
@@ -530,6 +641,47 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
   if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
   return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
+}
+
+function NativePickupConfirmation({ occurrence, onChanged }: { occurrence?: PickupOccurrence; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  async function respond(status: "confirmed" | "decision_deferred" | "insufficient_food") {
+    if (!occurrence) return;
+    if (status === "confirmed") {
+      const accepted = await new Promise<boolean>((resolve) => Alert.alert(
+        "Confirm today’s pickup?",
+        "Drivers may reserve this pickup after you confirm that food will be available.",
+        [{ text: "Cancel", style: "cancel", onPress: () => resolve(false) }, { text: "Confirm pickup", onPress: () => resolve(true) }],
+      ));
+      if (!accepted) return;
+    }
+    setBusy(true);
+    const { response, data } = await workspaceRequest("PATCH", { action: "update-pickup-occurrence", id: occurrence.id, status });
+    setBusy(false);
+    if (!response.ok) return Alert.alert("Could not update pickup", data.error ?? "Please try again.");
+    await onChanged();
+    if (status === "confirmed") Alert.alert("Pickup confirmed", data.matching?.matchedRequests ? `${data.matching.matchedRequests} saved driver requests matched this pickup.` : "This pickup is now available for driver matching.");
+  }
+  if (!occurrence) return null;
+  const confirmed = ["confirmed", "reserved"].includes(occurrence.status);
+  const unavailable = ["insufficient_food", "cancelled"].includes(occurrence.status);
+  return <View style={[styles.nativePickupConfirmation, confirmed && styles.nativePickupConfirmed, unavailable && styles.nativePickupUnavailable]}>
+    <Text style={styles.portalPanelKicker}>TODAY’S PICKUP COMMITMENT</Text>
+    <Text style={styles.portalPanelTitle}>{occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text>
+    <Text style={styles.portalFeatureBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text>
+    {!confirmed && !unavailable && <View style={styles.nativePickupActions}><Pressable disabled={busy} style={styles.nativeConfirmPickup} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>Confirm pickup</Text></Pressable><Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.offerDeclineText}>Decide later</Text></Pressable><Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.offerDeclineText}>Not enough food</Text></Pressable></View>}
+  </View>;
+}
+
+function mobileBakeryWindowForToday(workspace: WorkspaceData) {
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
+  try {
+    const ready = JSON.parse(workspace.organization.readyTime ?? "{}") as Record<string, string>;
+    const deadlines = JSON.parse(workspace.organization.arrivalDeadline ?? "{}") as Record<string, string>;
+    return ready[day] && deadlines[day] ? { readyTime: ready[day], pickupDeadline: deadlines[day] } : null;
+  } catch {
+    return null;
+  }
 }
 
 function MetricCard({ value, label }: { value: string; label: string }) {
@@ -716,6 +868,7 @@ function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeSc
   } catch { return [emptyNativeScheduleRow()]; }
 }
 function localDateString(value: Date) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`; }
+function mobileLocalDateTime(date: string, time: string) { return new Date(`${date}T${time}:00`).toISOString(); }
 function localTimeString(value: Date) { return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`; }
 function americanTime(value: string) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value);
@@ -1099,6 +1252,17 @@ const styles = StyleSheet.create({
   driverReserveButton: { minHeight: 41, marginTop: 14, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
   driverReserveButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   driverSearchCard: { marginTop: 18, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  savedRequestList: { marginTop: 20, gap: 10 },
+  savedRequestCard: { padding: 16, borderRadius: 12, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  liveOfferCard: { borderColor: colors.yellow, borderWidth: 2 },
+  offerActions: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 14 },
+  offerDeclineText: { color: colors.coral, fontSize: 9, fontWeight: "900" },
+  driverNotificationCard: { marginTop: 12, padding: 17, borderRadius: 12, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
+  nativePickupConfirmation: { marginBottom: 14, padding: 18, borderRadius: 13, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
+  nativePickupConfirmed: { backgroundColor: "#E8F4EA", borderColor: "#9FC7A8" },
+  nativePickupUnavailable: { backgroundColor: colors.paper, borderColor: colors.border },
+  nativePickupActions: { marginTop: 13, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 },
+  nativeConfirmPickup: { paddingHorizontal: 15, paddingVertical: 11, borderRadius: 8, backgroundColor: colors.forest },
   driverSearchTimeRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
   locationPreferenceButton: { minHeight: 42, marginBottom: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   locationPreferenceText: { color: colors.forest, fontSize: 9, fontWeight: "900" },

@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import "../availability-calendar.css";
 import "../profile-layout.css";
+import "../partner-notifications.css";
 
 type Kind = "bakery" | "pantry";
 type Organization = {
   id: number; name: string; address: string; contactName: string; contactEmail: string;
   contactPhone: string; businessPhone: string; notificationPhone: string; dropoffInstructions?: string;
-  recurringDays: string; readyTime?: string; arrivalDeadline?: string;
+  recurringDays: string; businessOpenTime?: string; businessCloseTime?: string; readyTime?: string; arrivalDeadline?: string;
   openTime?: string; closeTime?: string; latestArrival?: string;
 };
 type Account = {
@@ -22,6 +23,12 @@ type Route = { id: number; bakeryName: string; pantryName: string; driverName: s
 type OneTimeWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type AvailabilityPause = { id: number; endsAt: string };
 type ScheduleException = { id: number; exceptionDate: string };
+type PickupOccurrence = {
+  id: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string;
+  status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "cancelled";
+  confirmedAt: string | null;
+};
+type PartnerNotification = { id: number; title: string; body: string; actionRequired: boolean; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
 
 export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [] }: {
   kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
@@ -34,6 +41,9 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [availabilityPauses, setAvailabilityPauses] = useState<AvailabilityPause[]>([]);
   const [scheduleExceptions, setScheduleExceptions] = useState<ScheduleException[]>([]);
   const [availabilityDialog, setAvailabilityDialog] = useState(false);
+  const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
+  const [pickupBusy, setPickupBusy] = useState(false);
+  const [notifications, setNotifications] = useState<PartnerNotification[]>([]);
   const [windowDraft, setWindowDraft] = useState({ date: "", starts: "", ends: "", latest: "" });
   const scheduledOpen = organizationIsOpen(kind, organization, new Date()) && !scheduleExceptions.some((exception) => exception.exceptionDate === localDate(new Date()));
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
@@ -51,6 +61,40 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   // Initial hydration reads persisted one-time windows and pause state.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refreshAvailability(); }, []);
+  useEffect(() => {
+    fetch("/api/partner/notifications", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setNotifications(data?.notifications ?? []))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!bakery) return;
+    async function loadPickup() {
+      const response = await fetch("/api/partner/pickups", { cache: "no-store" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return;
+      let occurrences = (data.occurrences ?? []) as PickupOccurrence[];
+      const today = localDate(new Date());
+      if (!occurrences.some((occurrence) => occurrence.serviceDate === today)) {
+        const pickupWindow = bakeryWindowForDate(organization, new Date());
+        if (pickupWindow) {
+          const create = await fetch("/api/partner/pickups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              serviceDate: today,
+              pickupWindowStartsAt: localDateTime(today, pickupWindow.readyTime),
+              pickupDeadline: localDateTime(today, pickupWindow.pickupDeadline),
+            }),
+          });
+          const created = await create.json().catch(() => null);
+          if (create.ok) occurrences = [created.occurrence, ...occurrences];
+        }
+      }
+      setPickupOccurrences(occurrences);
+    }
+    void loadPickup();
+  }, [bakery, organization]);
   function showWindowDialog(useCurrentTime: boolean) {
     if (useCurrentTime && !window.confirm(`This will open ${organization.name} ${bakery ? "for pickup" : "to accept deliveries"} outside the saved recurring schedule. Continue?`)) return;
     const start = useCurrentTime ? new Date() : new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -84,6 +128,33 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     if (response.ok) setAvailabilityPauses((current) => current.filter((item) => item.id !== pause.id));
   }
 
+  async function respondToPickup(status: "confirmed" | "decision_deferred" | "insufficient_food") {
+    const occurrence = pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+    if (!occurrence) return;
+    const message = status === "confirmed"
+      ? "Confirm that food will be available during this pickup window? Drivers may reserve the route after you confirm."
+      : status === "insufficient_food"
+        ? "Mark today as not having enough leftover food for a pickup?"
+        : "";
+    if (message && !window.confirm(message)) return;
+    setPickupBusy(true);
+    const response = await fetch("/api/partner/pickups", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: occurrence.id, status }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setPickupOccurrences((current) => current.map((item) => item.id === occurrence.id ? data.occurrence : item));
+      prototypeAction(status === "confirmed"
+        ? data.matching?.matchedRequests
+          ? `Pickup confirmed. ${data.matching.matchedRequests} saved driver request${data.matching.matchedRequests === 1 ? "" : "s"} matched.`
+          : "Pickup confirmed and available for driver matching."
+        : status === "decision_deferred" ? "We’ll keep this pickup awaiting your decision." : "Today’s pickup was closed without changing your recurring schedule.");
+    } else prototypeAction(data?.error ?? "Could not update today’s pickup.");
+    setPickupBusy(false);
+  }
+
   function prototypeAction(message: string) {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 3500);
@@ -113,6 +184,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       {notice && <div className="prototypeNotice">{notice}</div>}
 
       {section === "overview" && <>
+        {bakery && <BakeryPickupConfirmation occurrence={pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()))} busy={pickupBusy} onRespond={respondToPickup} />}
         <div className="statusBanner">
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
             <h2>{available ? (activeOneTime ? "Open for a one-time receiving window." : bakery ? "A scheduled pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? "Delivery availability is paused." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
@@ -124,6 +196,10 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
           {!scheduledOpen && !activeOneTime && !pausedOneTime && <button onClick={() => showWindowDialog(true)}>{bakery ? "Start pickup window" : "Open to accept deliveries"}</button>}
         </div>
         <div className="workspaceGrid singleActivity"><ActivityCard activity={activity.slice(0, 3)} onAll={() => setSection("activity")} /></div>
+        {notifications.length > 0 && <PartnerNotificationList notifications={notifications.slice(0, 5)} onAcknowledge={async (notification) => {
+          const response = await fetch("/api/partner/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: notification.id, acknowledge: true }) });
+          if (response.ok) setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString(), acknowledgedAt: new Date().toISOString() } : item));
+        }} />}
       </>}
 
       {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} oneTimeWindows={oneTimeWindows} scheduleExceptions={scheduleExceptions} onWindowsChanged={refreshAvailability} onAddOneTime={() => showWindowDialog(false)} />}
@@ -132,6 +208,49 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     </section>
     {availabilityDialog && <div className="availabilityBackdrop"><section className="availabilityDialog"><span className="panelKicker">ONE-TIME AVAILABILITY</span><h2>{bakery ? "Add a pickup window" : "Add a receiving window"}</h2><p>This creates a single dated window and does not change the recurring schedule.</p><label>Date<input type="date" min={localDate(new Date())} value={windowDraft.date} onChange={(event) => setWindowDraft((current) => ({ ...current, date: event.target.value }))} /></label><MinuteTimeInput label={bakery ? "Food ready" : "Opens"} value={windowDraft.starts} onChange={(value) => setWindowDraft((current) => ({ ...current, starts: value }))} /><MinuteTimeInput label={bakery ? "Pickup deadline" : "Closes"} value={windowDraft.ends} onChange={(value) => setWindowDraft((current) => ({ ...current, ends: value }))} />{!bakery && <MinuteTimeInput label="Latest permitted arrival" value={windowDraft.latest} onChange={(value) => setWindowDraft((current) => ({ ...current, latest: value }))} />}<div><button onClick={() => setAvailabilityDialog(false)}>Cancel</button><button className="confirmAvailability" onClick={createOneTimeWindow}>Confirm availability</button></div></section></div>}
   </main>;
+}
+
+function BakeryPickupConfirmation({ occurrence, busy, onRespond }: {
+  occurrence?: PickupOccurrence; busy: boolean;
+  onRespond: (status: "confirmed" | "decision_deferred" | "insufficient_food") => void;
+}) {
+  if (!occurrence) return <section className="pickupConfirmationCard quiet"><span className="panelKicker">TODAY’S PICKUP</span><div><h2>No recurring pickup is scheduled today.</h2><p>You can add a one-time pickup from the Pickup schedule tab if food becomes available.</p></div></section>;
+  const confirmed = occurrence.status === "confirmed" || occurrence.status === "reserved";
+  const unavailable = occurrence.status === "insufficient_food" || occurrence.status === "cancelled";
+  return <section className={`pickupConfirmationCard ${confirmed ? "confirmed" : unavailable ? "unavailable" : ""}`}>
+    <div><span className="panelKicker">TODAY’S PICKUP COMMITMENT</span>
+      <h2>{occurrence.status === "reserved" ? "A driver has reserved this pickup." : confirmed ? "Pickup availability confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available for this pickup?"}</h2>
+      <p>{formatOccurrenceWindow(occurrence)} · {confirmed ? "This pickup can be matched with saved driver requests." : unavailable ? "Only today’s occurrence is closed; your recurring schedule is unchanged." : "Confirming makes this pickup available for advance driver reservations."}</p>
+    </div>
+    {!confirmed && !unavailable && <div className="pickupConfirmationActions">
+      <button disabled={busy} className="confirmPickup" onClick={() => onRespond("confirmed")}>Confirm pickup</button>
+      <button disabled={busy} onClick={() => onRespond("decision_deferred")}>Decide later</button>
+      <button disabled={busy} onClick={() => onRespond("insufficient_food")}>Not enough food today</button>
+    </div>}
+  </section>;
+}
+
+function PartnerNotificationList({ notifications, onAcknowledge }: { notifications: PartnerNotification[]; onAcknowledge: (notification: PartnerNotification) => void }) {
+  return <section className="partnerNotificationList"><div><span className="panelKicker">NOTIFICATIONS</span><h2>Operational updates</h2></div>{notifications.map((notification) => <article key={notification.id}><div><strong>{notification.title}</strong><p>{notification.body}</p></div>{notification.actionRequired && !notification.acknowledgedAt && <button onClick={() => onAcknowledge(notification)}>Acknowledge</button>}{notification.acknowledgedAt && <small>✓ Acknowledged</small>}</article>)}</section>;
+}
+
+function formatOccurrenceWindow(occurrence: PickupOccurrence) {
+  const options = { hour: "numeric", minute: "2-digit" } as const;
+  return `${new Date(occurrence.pickupWindowStartsAt).toLocaleTimeString([], options)}–${new Date(occurrence.pickupDeadline).toLocaleTimeString([], options)}`;
+}
+
+function bakeryWindowForDate(organization: Organization, date: Date) {
+  const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getDay()];
+  try {
+    const ready = JSON.parse(organization.readyTime ?? "{}") as Record<string, string>;
+    const deadlines = JSON.parse(organization.arrivalDeadline ?? "{}") as Record<string, string>;
+    return ready[day] && deadlines[day] ? { readyTime: ready[day], pickupDeadline: deadlines[day] } : null;
+  } catch {
+    if (!organization.recurringDays.split(",").map((value) => value.trim()).includes(day)) return null;
+    return organization.readyTime && organization.arrivalDeadline
+      ? { readyTime: organization.readyTime, pickupDeadline: organization.arrivalDeadline }
+      : null;
+  }
 }
 
 function ProfileEditor({ kind, organization, account, contacts: initialContacts, photos: initialPhotos, onSaved }: {
@@ -231,7 +350,7 @@ function ActivityCard({ activity, onAll }: { activity: Array<{ title: string; de
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => `${String(Math.floor(index / 2)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`);
-type ScheduleWindow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; readyTime: string; pickupDeadline: string };
+type ScheduleWindow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; businessOpen: string; businessClose: string; readyTime: string; pickupDeadline: string };
 
 function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, scheduleExceptions, onWindowsChanged, onAddOneTime }: { kind: Kind; organization: Organization; onSaved: (message: string) => void; oneTimeWindows: OneTimeWindow[]; scheduleExceptions: ScheduleException[]; onWindowsChanged: () => Promise<void>; onAddOneTime: () => void }) {
   const bakery = kind === "bakery";
@@ -272,7 +391,7 @@ function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, scheduleE
       {!bakery && <label>Repeats<select value={rows[selected].recurrence} onChange={(event) => update(selected, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>}
       {!bakery && rows[selected].recurrence === "monthly" && <label>Occurrence<select value={rows[selected].ordinal ?? 1} onChange={(event) => update(selected, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
       <label>Day<select value={rows[selected].day} onChange={(event) => update(selected, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label>
-      {bakery ? <><TimeSelect label="Food ready" value={rows[selected].readyTime} onChange={(value) => update(selected, { readyTime: value })} /><TimeSelect label="Pickup deadline" value={rows[selected].pickupDeadline} onChange={(value) => update(selected, { pickupDeadline: value })} /></> : <><TimeSelect label="Opens" value={rows[selected].open} onChange={(value) => update(selected, { open: value })} /><TimeSelect label="Closes" value={rows[selected].close} onChange={(value) => update(selected, { close: value })} /><TimeSelect label="Latest permitted arrival" value={rows[selected].latestArrival} onChange={(value) => update(selected, { latestArrival: value })} /></>}
+      {bakery ? <><TimeSelect label="Business opens" value={rows[selected].businessOpen} onChange={(value) => update(selected, { businessOpen: value })} /><TimeSelect label="Business closes" value={rows[selected].businessClose} onChange={(value) => update(selected, { businessClose: value })} /><TimeSelect label="Food ready" value={rows[selected].readyTime} onChange={(value) => update(selected, { readyTime: value })} /><TimeSelect label="Pickup deadline" value={rows[selected].pickupDeadline} onChange={(value) => update(selected, { pickupDeadline: value })} /></> : <><TimeSelect label="Opens" value={rows[selected].open} onChange={(value) => update(selected, { open: value })} /><TimeSelect label="Closes" value={rows[selected].close} onChange={(value) => update(selected, { close: value })} /><TimeSelect label="Latest permitted arrival" value={rows[selected].latestArrival} onChange={(value) => update(selected, { latestArrival: value })} /></>}
       <div className="calendarEditorActions"><button className="deleteWindow" disabled={rows.length <= 1} onClick={() => { setRows((current) => current.filter((_, index) => index !== selected)); setSelected(null); }}>Delete recurring window</button>{selectedDate && <button className="cancelOccurrence" onClick={cancelOccurrence}>Cancel scheduled hours on {new Date(`${selectedDate}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}</button>}<button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save schedule"}</button></div>
     </article>}
     {selectedOneTime !== null && oneTimeWindows.find((window) => window.id === selectedOneTime) && <OneTimeWindowEditor kind={kind} window={oneTimeWindows.find((item) => item.id === selectedOneTime)!} onClose={() => setSelectedOneTime(null)} onChanged={async () => { setSelectedOneTime(null); await onWindowsChanged(); }} onSaved={onSaved} />}
@@ -314,13 +433,20 @@ function localDate(value: Date) { return `${value.getFullYear()}-${String(value.
 function localTime(value: Date) { return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`; }
 function localDateTime(date: string, time: string) { return new Date(`${date}T${time}:00`).toISOString(); }
 function sameLocalDate(left: Date, right: Date) { return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate(); }
-function emptyWindow(): ScheduleWindow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", readyTime: "15:00", pickupDeadline: "18:00" }; }
+function emptyWindow(): ScheduleWindow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", businessOpen: "07:00", businessClose: "18:00", readyTime: "15:00", pickupDeadline: "18:00" }; }
 function parseOrganizationSchedule(kind: Kind, organization: Organization): ScheduleWindow[] {
   try {
     if (kind === "bakery") {
       const ready = JSON.parse(organization.readyTime ?? "{}") as Record<string, string>;
       const deadlines = JSON.parse(organization.arrivalDeadline ?? "{}") as Record<string, string>;
-      const rows = Object.keys(ready).map((day) => ({ ...emptyWindow(), day, readyTime: ready[day], pickupDeadline: deadlines[day] }));
+      const businessOpen = JSON.parse(organization.businessOpenTime ?? "{}") as Record<string, string>;
+      const businessClose = JSON.parse(organization.businessCloseTime ?? "{}") as Record<string, string>;
+      const rows = Object.keys(ready).map((day) => ({
+        ...emptyWindow(), day,
+        businessOpen: businessOpen[day] ?? ready[day],
+        businessClose: businessClose[day] ?? deadlines[day],
+        readyTime: ready[day], pickupDeadline: deadlines[day],
+      }));
       return rows.length ? rows : [emptyWindow()];
     }
     const opens = JSON.parse(organization.openTime ?? "[]") as Array<{ recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; time: string }>;

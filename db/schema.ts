@@ -16,6 +16,8 @@ export const bakeries = pgTable("bakeries", {
   businessPhone: text("business_phone").notNull().default(""),
   notificationPhone: text("notification_phone").notNull().default(""),
   recurringDays: text("recurring_days").notNull(),
+  businessOpenTime: text("business_open_time").notNull().default("{}"),
+  businessCloseTime: text("business_close_time").notNull().default("{}"),
   readyTime: text("ready_time").notNull(),
   arrivalDeadline: text("arrival_deadline").notNull(),
   active: boolean("active").notNull().default(true),
@@ -184,6 +186,71 @@ export const driverAccounts = pgTable("driver_accounts", {
 }, (table) => [
   uniqueIndex("driver_accounts_email_unique").on(table.email),
 ]);
+
+export const bakeryPickupOccurrences = pgTable("bakery_pickup_occurrences", {
+  id: serial("id").primaryKey(),
+  bakeryId: integer("bakery_id").notNull(),
+  serviceDate: text("service_date").notNull(),
+  pickupWindowStartsAt: timestamp("pickup_window_starts_at", { withTimezone: true }).notNull(),
+  pickupDeadline: timestamp("pickup_deadline", { withTimezone: true }).notNull(),
+  status: text("status", { enum: [
+    "scheduled", "awaiting_confirmation", "confirmed", "decision_deferred",
+    "insufficient_food", "reserved", "cancelled",
+  ] }).notNull().default("awaiting_confirmation"),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  confirmationNote: text("confirmation_note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("bakery_pickup_occurrence_unique").on(table.bakeryId, table.pickupWindowStartsAt),
+]);
+
+export const driverRideRequests = pgTable("driver_ride_requests", {
+  id: serial("id").primaryKey(),
+  driverId: integer("driver_id").notNull(),
+  serviceDate: text("service_date").notNull(),
+  earliestStart: timestamp("earliest_start", { withTimezone: true }).notNull(),
+  latestFinish: timestamp("latest_finish", { withTimezone: true }).notNull(),
+  startZip: text("start_zip").notNull().default(""),
+  endZip: text("end_zip").notNull().default(""),
+  maximumExtraMinutes: integer("maximum_extra_minutes"),
+  status: text("status", { enum: ["active", "paused", "matched", "expired", "cancelled"] }).notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const routeOffers = pgTable("route_offers", {
+  id: serial("id").primaryKey(),
+  pickupOccurrenceId: integer("pickup_occurrence_id").notNull(),
+  driverRequestId: integer("driver_request_id").notNull(),
+  driverId: integer("driver_id").notNull(),
+  pantryId: integer("pantry_id").notNull(),
+  rank: integer("rank").notNull().default(1),
+  score: doublePrecision("score").notNull().default(0),
+  estimatedBakeryArrival: timestamp("estimated_bakery_arrival", { withTimezone: true }).notNull(),
+  estimatedPantryArrival: timestamp("estimated_pantry_arrival", { withTimezone: true }).notNull(),
+  status: text("status", { enum: ["queued", "offered", "accepted", "declined", "expired", "withdrawn"] }).notNull().default("queued"),
+  offeredAt: timestamp("offered_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("route_offer_request_pickup_unique").on(table.driverRequestId, table.pickupOccurrenceId),
+]);
+
+export const inAppNotifications = pgTable("in_app_notifications", {
+  id: serial("id").primaryKey(),
+  recipientType: text("recipient_type", { enum: ["driver", "bakery", "pantry", "admin"] }).notNull(),
+  recipientId: integer("recipient_id").notNull(),
+  eventType: text("event_type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  actionRequired: boolean("action_required").notNull().default(false),
+  actionKey: text("action_key").notNull().default(""),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const mobileSessions = pgTable("mobile_sessions", {
   id: serial("id").primaryKey(),

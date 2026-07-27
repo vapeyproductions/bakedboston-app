@@ -5,7 +5,9 @@ import {
   availabilityPauses,
   availabilityWindows,
   bakeryAccessPhotos,
+  bakeryPickupOccurrences,
   bakeries,
+  inAppNotifications,
   mobileSessions,
   organizationContacts,
   pantries,
@@ -15,6 +17,7 @@ import {
   scheduleExceptions,
 } from "../../../../db/schema";
 import { writeAudit } from "../../../audit";
+import { matchConfirmedPickup } from "../../../pickup-matching";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -40,7 +43,7 @@ export async function GET(request: Request) {
     : (await db.select().from(pantries).where(eq(pantries.id, account.organizationId)).limit(1))[0];
   if (!organization) return Response.json({ error: "Organization unavailable." }, { status: 404 });
 
-  const [contacts, windows, pauses, exceptions, routes, photos] = await Promise.all([
+  const [contacts, windows, pauses, exceptions, routes, photos, pickupOccurrences, notifications] = await Promise.all([
     db.select().from(organizationContacts).where(and(
       eq(organizationContacts.organizationType, account.organizationType),
       eq(organizationContacts.organizationId, account.organizationId),
@@ -63,6 +66,13 @@ export async function GET(request: Request) {
     account.organizationType === "bakery"
       ? db.select().from(bakeryAccessPhotos).where(eq(bakeryAccessPhotos.bakeryId, organization.id)).orderBy(desc(bakeryAccessPhotos.createdAt))
       : db.select().from(pantryAccessPhotos).where(eq(pantryAccessPhotos.pantryId, organization.id)).orderBy(desc(pantryAccessPhotos.createdAt)),
+    account.organizationType === "bakery"
+      ? db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, organization.id)).orderBy(desc(bakeryPickupOccurrences.pickupWindowStartsAt))
+      : Promise.resolve([]),
+    db.select().from(inAppNotifications).where(and(
+      eq(inAppNotifications.recipientType, account.organizationType),
+      eq(inAppNotifications.recipientId, organization.id),
+    )).orderBy(desc(inAppNotifications.createdAt)),
   ]);
 
   return Response.json({
@@ -79,6 +89,8 @@ export async function GET(request: Request) {
     scheduleExceptions: exceptions,
     routes,
     photos,
+    pickupOccurrences,
+    notifications,
   });
 }
 
@@ -88,6 +100,21 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const db = getDb();
+    if (body.action === "create-pickup-occurrence") {
+      if (account.organizationType !== "bakery") throw new Error("Only bakery accounts can create pickup occurrences.");
+      const serviceDate = validDateOnly(body.serviceDate);
+      const pickupWindowStartsAt = validDateTime(body.pickupWindowStartsAt, "Pickup window start");
+      const pickupDeadline = validDateTime(body.pickupDeadline, "Pickup deadline");
+      if (pickupDeadline <= pickupWindowStartsAt) throw new Error("Pickup deadline must be later than the pickup start.");
+      const [existing] = await db.select().from(bakeryPickupOccurrences).where(and(
+        eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
+        eq(bakeryPickupOccurrences.pickupWindowStartsAt, pickupWindowStartsAt),
+      )).limit(1);
+      const record = existing ?? (await db.insert(bakeryPickupOccurrences).values({
+        bakeryId: account.organizationId, serviceDate, pickupWindowStartsAt, pickupDeadline,
+      }).returning())[0];
+      return Response.json({ record }, { status: existing ? 200 : 201 });
+    }
     if (body.action === "add-contact") {
       const contact = { name: required(body.name, "Contact name"), email: validEmail(body.email), phone: required(body.phone, "Contact phone number") };
       const [{ value }] = await db.select({ value: count() }).from(organizationContacts).where(and(eq(organizationContacts.organizationType, account.organizationType), eq(organizationContacts.organizationId, account.organizationId)));
@@ -124,6 +151,29 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const db = getDb();
+    if (body.action === "update-pickup-occurrence") {
+      if (account.organizationType !== "bakery") throw new Error("Only bakery accounts can confirm pickups.");
+      const id = Number(body.id);
+      const status = String(body.status ?? "");
+      if (!Number.isInteger(id) || !["confirmed", "decision_deferred", "insufficient_food"].includes(status)) throw new Error("Choose a valid pickup response.");
+      const [existing] = await db.select().from(bakeryPickupOccurrences).where(and(
+        eq(bakeryPickupOccurrences.id, id),
+        eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
+      )).limit(1);
+      if (!existing) throw new Error("Pickup occurrence not found.");
+      const [record] = await db.update(bakeryPickupOccurrences).set({
+        status: status as "confirmed" | "decision_deferred" | "insufficient_food",
+        confirmedAt: status === "confirmed" ? new Date() : null,
+        updatedAt: new Date(),
+      }).where(eq(bakeryPickupOccurrences.id, id)).returning();
+      let matching = { matchedRequests: 0, offered: false };
+      if (status === "confirmed") {
+        const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
+        if (bakery) matching = await matchConfirmedPickup(record, bakery.name, bakery.latitude, bakery.longitude);
+      }
+      await audit(account, `set pickup occurrence to ${status.replaceAll("_", " ")}`, record.serviceDate);
+      return Response.json({ record, matching });
+    }
     if (body.action === "update-profile") {
       const accountEmail = validEmail(body.accountEmail);
       const address = required(body.address, "Address");

@@ -105,6 +105,72 @@ if (!databaseUrl) {
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS date_of_birth text NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS identity_verification_status text NOT NULL DEFAULT 'not_started'`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS identity_verification_reference text NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS business_open_time text NOT NULL DEFAULT '{}'`;
+  await sql`ALTER TABLE bakeries ADD COLUMN IF NOT EXISTS business_close_time text NOT NULL DEFAULT '{}'`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS bakery_pickup_occurrences (
+      id serial PRIMARY KEY,
+      bakery_id integer NOT NULL,
+      service_date text NOT NULL,
+      pickup_window_starts_at timestamptz NOT NULL,
+      pickup_deadline timestamptz NOT NULL,
+      status text NOT NULL DEFAULT 'awaiting_confirmation',
+      confirmed_at timestamptz,
+      confirmation_note text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS bakery_pickup_occurrence_unique ON bakery_pickup_occurrences (bakery_id, pickup_window_starts_at)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS driver_ride_requests (
+      id serial PRIMARY KEY,
+      driver_id integer NOT NULL,
+      service_date text NOT NULL,
+      earliest_start timestamptz NOT NULL,
+      latest_finish timestamptz NOT NULL,
+      start_zip text NOT NULL DEFAULT '',
+      end_zip text NOT NULL DEFAULT '',
+      maximum_extra_minutes integer,
+      status text NOT NULL DEFAULT 'active',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS route_offers (
+      id serial PRIMARY KEY,
+      pickup_occurrence_id integer NOT NULL,
+      driver_request_id integer NOT NULL,
+      driver_id integer NOT NULL,
+      pantry_id integer NOT NULL,
+      rank integer NOT NULL DEFAULT 1,
+      score double precision NOT NULL DEFAULT 0,
+      estimated_bakery_arrival timestamptz NOT NULL,
+      estimated_pantry_arrival timestamptz NOT NULL,
+      status text NOT NULL DEFAULT 'queued',
+      offered_at timestamptz,
+      expires_at timestamptz,
+      responded_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS route_offer_request_pickup_unique ON route_offers (driver_request_id, pickup_occurrence_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS in_app_notifications (
+      id serial PRIMARY KEY,
+      recipient_type text NOT NULL,
+      recipient_id integer NOT NULL,
+      event_type text NOT NULL,
+      title text NOT NULL,
+      body text NOT NULL,
+      action_required boolean NOT NULL DEFAULT false,
+      action_key text NOT NULL DEFAULT '',
+      read_at timestamptz,
+      acknowledged_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
   await sql`
     CREATE TABLE IF NOT EXISTS mobile_sessions (
       id serial PRIMARY KEY,

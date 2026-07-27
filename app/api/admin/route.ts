@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, driverAccounts, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes, scheduleExceptions } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes, routeOffers, scheduleExceptions } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -12,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -51,6 +51,10 @@ export async function GET() {
     db.select().from(availabilityPauses).orderBy(desc(availabilityPauses.createdAt)),
     db.select({ id: driverAccounts.id, email: driverAccounts.email, displayName: driverAccounts.displayName, active: driverAccounts.active }).from(driverAccounts).orderBy(desc(driverAccounts.createdAt)),
     db.select().from(scheduleExceptions).orderBy(desc(scheduleExceptions.createdAt)),
+    db.select().from(bakeryPickupOccurrences).orderBy(desc(bakeryPickupOccurrences.createdAt)),
+    db.select().from(driverRideRequests).orderBy(desc(driverRideRequests.createdAt)),
+    db.select().from(routeOffers).orderBy(desc(routeOffers.createdAt)),
+    db.select().from(inAppNotifications).orderBy(desc(inAppNotifications.createdAt)).limit(500),
   ]);
 
   return Response.json({
@@ -61,6 +65,10 @@ export async function GET() {
     pantryAccessPhotos: pantryPhotoRows, bakeryAccessPhotos: bakeryPhotoRows, availabilityWindows: availabilityRows, availabilityPauses: pauseRows,
     drivers: driverRows,
     scheduleExceptions: exceptionRows,
+    pickupOccurrences: pickupRows,
+    driverRideRequests: rideRequestRows,
+    routeOffers: routeOfferRows,
+    notifications: notificationRows,
   });
 }
 
@@ -89,6 +97,8 @@ export async function POST(request: Request) {
       businessPhone: clean(body.businessPhone),
       notificationPhone: clean(body.notificationPhone),
       recurringDays: activeDays.join(", "),
+      businessOpenTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].businessOpen]))),
+      businessCloseTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].businessClose]))),
       readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
       arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).returning();
@@ -172,6 +182,8 @@ export async function PATCH(request: Request) {
         businessPhone: clean(body.businessPhone),
         notificationPhone: clean(body.notificationPhone),
         recurringDays: activeDays.join(", "),
+        businessOpenTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].businessOpen]))),
+        businessCloseTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].businessClose]))),
         readyTime: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].readyTime]))),
         arrivalDeadline: JSON.stringify(Object.fromEntries(activeDays.map((day) => [day, schedule[day].pickupDeadline]))),
       }).where(eq(bakeries.id, id)).returning();
@@ -306,12 +318,16 @@ function parseBakerySchedule(body: Record<string, string | number | boolean>) {
   const validDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const activeDays = validDays.filter((day) => body[`bakeryDay_${day}`]);
   if (!activeDays.length) throw new Error("Choose at least one pickup day.");
-  const schedule: Record<string, { readyTime: string; pickupDeadline: string }> = {};
+  const schedule: Record<string, { businessOpen: string; businessClose: string; readyTime: string; pickupDeadline: string }> = {};
   for (const day of activeDays) {
+    const businessOpen = normalizeTime(body[`bakeryBusinessOpen_${day}`], `${day} business opening time`);
+    const businessClose = normalizeTime(body[`bakeryBusinessClose_${day}`], `${day} business closing time`);
     const readyTime = normalizeTime(body[`bakeryReady_${day}`], `${day} ready time`);
     const pickupDeadline = normalizeTime(body[`bakeryDeadline_${day}`], `${day} pickup deadline`);
+    if (businessOpen >= businessClose) throw new Error(`${day}: business closing time must be after opening time.`);
     if (readyTime >= pickupDeadline) throw new Error(`${day}: pickup deadline must be after the ready time.`);
-    schedule[day] = { readyTime, pickupDeadline };
+    if (readyTime < businessOpen || pickupDeadline > businessClose) throw new Error(`${day}: the pickup window must fall within business hours.`);
+    schedule[day] = { businessOpen, businessClose, readyTime, pickupDeadline };
   }
   return schedule;
 }
