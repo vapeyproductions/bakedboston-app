@@ -382,7 +382,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
               {nav.map((item) => <PortalNavButton key={item.key} item={item} selected={section === item.key} onPress={() => setSection(item.key)} compact={false} />)}
             </View>
             <View style={styles.portalSideBottom}>
-              <Text style={styles.portalAccountEmail} numberOfLines={1}>{session.email}</Text>
+              <Text style={styles.portalAccountEmail} numberOfLines={1}>{workspace?.account.accountEmail ?? session.email}</Text>
               <Pressable onPress={onSignOut}><Text style={styles.portalSignOut}>Sign out</Text></Pressable>
             </View>
           </View>
@@ -463,7 +463,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   }
   if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
   if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
-  return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
+  return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
 }
 
 function MetricCard({ value, label }: { value: string; label: string }) {
@@ -487,7 +487,6 @@ function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceD
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
       <Text style={styles.portalPanelKicker}>DELIVERY HISTORY</Text>
-      <Text style={styles.portalFeatureTitle}>{bakery ? "Your pickups" : "Your deliveries"}</Text>
       <Text style={styles.portalFeatureBody}>Reserved, ongoing, and completed deliveries are synchronized with the BakedBoston web portal.</Text>
       <RouteList routes={workspace.routes} bakery={bakery} />
     </View>
@@ -638,27 +637,46 @@ function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeSc
 function localDateString(value: Date) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`; }
 function localTimeString(value: Date) { return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`; }
 
-function ProfilePage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
+function ProfilePage({ workspace, bakery, rightInset, onChanged }: { workspace: WorkspaceData; bakery: boolean; rightInset: number; onChanged: () => Promise<void> }) {
+  const [draft, setDraft] = useState({ accountEmail: workspace.account.accountEmail, address: workspace.organization.address, dropoffInstructions: workspace.organization.dropoffInstructions, businessPhone: workspace.organization.businessPhone, notificationPhone: workspace.organization.notificationPhone });
+  const [contactDraft, setContactDraft] = useState({ name: "", email: "", phone: "" });
+  const [notice, setNotice] = useState("");
+  useEffect(() => setDraft({ accountEmail: workspace.account.accountEmail, address: workspace.organization.address, dropoffInstructions: workspace.organization.dropoffInstructions, businessPhone: workspace.organization.businessPhone, notificationPhone: workspace.organization.notificationPhone }), [workspace]);
+  async function saveProfile() {
+    const { response, data } = await workspaceRequest("PATCH", { action: "update-profile", ...draft });
+    setNotice(response.ok ? "Profile saved." : data.error ?? "Could not save profile.");
+    if (response.ok) await onChanged();
+  }
+  async function addContact() {
+    const { response, data } = await workspaceRequest("POST", { action: "add-contact", ...contactDraft });
+    setNotice(response.ok ? "Contact added." : data.error ?? "Could not add contact.");
+    if (response.ok) { setContactDraft({ name: "", email: "", phone: "" }); await onChanged(); }
+  }
+  async function makePrimary(id: number) {
+    const { response, data } = await workspaceRequest("PATCH", { action: "make-primary-contact", id });
+    setNotice(response.ok ? "Primary contact updated." : data.error ?? "Could not update primary contact.");
+    if (response.ok) await onChanged();
+  }
+  async function deleteContact(id: number) {
+    const { response, data } = await workspaceRequest("DELETE", undefined, `?type=contact&id=${id}`);
+    setNotice(response.ok ? "Contact deleted." : data.error ?? "Could not delete contact.");
+    if (response.ok) await onChanged();
+  }
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
       <Text style={styles.portalPanelKicker}>ORGANIZATION SETTINGS</Text>
-      <Text style={styles.portalFeatureTitle}>Profile and contacts</Text>
-      <Text style={styles.portalFeatureBody}>These details are synchronized with the BakedBoston administrator and web partner portals.</Text>
+      <Text style={styles.portalFeatureBody}>Keep login, organization, and primary contact information current.</Text>
+      {notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}
       <Text style={styles.subsectionTitle}>Login</Text>
-      <InformationRow label="Account email" value={workspace.account.accountEmail} />
+      <EditorField label="Account email" value={draft.accountEmail} onChangeText={(accountEmail) => setDraft({ ...draft, accountEmail })} />
       <Text style={styles.subsectionTitle}>Organization channels</Text>
-      <InformationRow label={bakery ? "Business address" : "Delivery address"} value={workspace.organization.address} />
-      <InformationRow label={bakery ? "Pickup instructions" : "Drop-off instructions"} value={workspace.organization.dropoffInstructions || "Not provided"} />
-      <InformationRow label="Business phone number" value={workspace.organization.businessPhone || "Not provided"} />
-      <InformationRow label="Notification contact" value={workspace.organization.notificationPhone || "Not provided"} />
+      <View style={styles.profileFieldsGrid}><EditorField label={bakery ? "Business address" : "Delivery address"} value={draft.address} onChangeText={(address) => setDraft({ ...draft, address })} /><EditorField label={bakery ? "Pickup instructions" : "Drop-off instructions"} value={draft.dropoffInstructions} onChangeText={(dropoffInstructions) => setDraft({ ...draft, dropoffInstructions })} /><EditorField label="Business phone number" value={draft.businessPhone} onChangeText={(businessPhone) => setDraft({ ...draft, businessPhone })} /><EditorField label="Notification contact" value={draft.notificationPhone} onChangeText={(notificationPhone) => setDraft({ ...draft, notificationPhone })} /></View>
+      <Pressable style={styles.saveProfileButton} onPress={saveProfile}><Text style={styles.saveActionText}>Save profile</Text></Pressable>
       <Text style={styles.subsectionTitle}>Organizational contacts</Text>
-      {workspace.contacts.map((contact) => <View style={styles.contactRow} key={contact.id}><View style={styles.contactCopy}><Text style={styles.routeTitle}>{contact.isPrimary ? "★ " : ""}{contact.name}</Text><Text style={styles.routeDetail}>{contact.email} · {contact.phone}</Text></View>{contact.isPrimary && <Text style={styles.primaryPill}>PRIMARY</Text>}</View>)}
+      {workspace.contacts.map((contact) => <View style={styles.contactRow} key={contact.id}><View style={styles.contactCopy}><Text style={styles.routeTitle}>{contact.isPrimary ? "★ " : ""}{contact.name}</Text><Text style={styles.routeDetail}>{contact.email} · {contact.phone}</Text></View>{contact.isPrimary ? <Text style={styles.primaryPill}>PRIMARY</Text> : <Pressable onPress={() => makePrimary(contact.id)}><Text style={styles.contactAction}>Make primary</Text></Pressable>}<Pressable disabled={workspace.contacts.length <= 1} onPress={() => deleteContact(contact.id)}><Text style={[styles.contactDelete, workspace.contacts.length <= 1 && styles.contactDisabled]}>Delete</Text></Pressable></View>)}
+      <View style={styles.contactDraft}><EditorField label="Contact name" value={contactDraft.name} onChangeText={(name) => setContactDraft({ ...contactDraft, name })} /><EditorField label="Contact email" value={contactDraft.email} onChangeText={(email) => setContactDraft({ ...contactDraft, email })} /><EditorField label="Contact phone" value={contactDraft.phone} onChangeText={(phone) => setContactDraft({ ...contactDraft, phone })} /><Pressable style={styles.addContactButton} disabled={!contactDraft.name || !contactDraft.email || !contactDraft.phone} onPress={addContact}><Text style={styles.saveActionText}>+ Add contact</Text></Pressable></View>
     </View>
   </ScrollView>;
-}
-
-function InformationRow({ label, value }: { label: string; value: string }) {
-  return <View style={styles.informationRow}><Text style={styles.informationLabel}>{label}</Text><Text style={styles.informationValue}>{value}</Text></View>;
 }
 
 function initials(value: string) {
@@ -823,6 +841,13 @@ const styles = StyleSheet.create({
   contactRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.border },
   contactCopy: { flex: 1 },
   primaryPill: { color: colors.forest, fontSize: 7, fontWeight: "900", paddingHorizontal: 8, paddingVertical: 5, borderRadius: 10, backgroundColor: colors.mint },
+  contactAction: { color: colors.forestSoft, fontSize: 8, fontWeight: "900" },
+  contactDelete: { color: "#A34436", fontSize: 8, fontWeight: "900" },
+  contactDisabled: { opacity: 0.35 },
+  profileFieldsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  saveProfileButton: { alignSelf: "flex-end", minHeight: 42, marginTop: 14, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
+  contactDraft: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-end", gap: 10, marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: "#F5F1E5" },
+  addContactButton: { minHeight: 39, paddingHorizontal: 14, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center", marginBottom: 0 },
   calendarActions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 15, alignItems: "stretch" },
   calendarAddButton: { minHeight: 44, minWidth: 155, flexGrow: 1, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   calendarAddButtonPrimary: { backgroundColor: colors.forest },

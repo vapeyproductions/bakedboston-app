@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, count, desc, eq, gt, ne } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import {
   availabilityPauses,
@@ -82,6 +82,13 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const db = getDb();
+    if (body.action === "add-contact") {
+      const contact = { name: required(body.name, "Contact name"), email: validEmail(body.email), phone: required(body.phone, "Contact phone number") };
+      const [{ value }] = await db.select({ value: count() }).from(organizationContacts).where(and(eq(organizationContacts.organizationType, account.organizationType), eq(organizationContacts.organizationId, account.organizationId)));
+      const [record] = await db.insert(organizationContacts).values({ organizationType: account.organizationType, organizationId: account.organizationId, ...contact, isPrimary: Number(value) === 0 }).returning();
+      await audit(account, "added organizational contact", `${contact.name} · ${contact.email}`);
+      return Response.json({ record }, { status: 201 });
+    }
     if (body.action === "cancel-occurrence") {
       const exceptionDate = validDateOnly(body.exceptionDate);
       const existing = await db.select().from(scheduleExceptions).where(and(
@@ -111,6 +118,30 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const db = getDb();
+    if (body.action === "update-profile") {
+      const accountEmail = validEmail(body.accountEmail);
+      const address = required(body.address, "Address");
+      const organizationUpdate = { address, dropoffInstructions: clean(body.dropoffInstructions), businessPhone: clean(body.businessPhone), notificationPhone: clean(body.notificationPhone) };
+      const [duplicate] = await db.select({ id: partnerAccounts.id }).from(partnerAccounts).where(and(eq(partnerAccounts.accountEmail, accountEmail), ne(partnerAccounts.id, account.id))).limit(1);
+      if (duplicate) throw new Error("That account email is already in use.");
+      await db.update(partnerAccounts).set({ accountEmail, updatedAt: new Date() }).where(eq(partnerAccounts.id, account.id));
+      if (account.organizationType === "bakery") await db.update(bakeries).set(organizationUpdate).where(eq(bakeries.id, account.organizationId));
+      else await db.update(pantries).set(organizationUpdate).where(eq(pantries.id, account.organizationId));
+      await audit(account, "updated organization profile", "Account email, address, directions, or organization phone channels updated");
+      return Response.json({ ok: true });
+    }
+    if (body.action === "make-primary-contact") {
+      const id = Number(body.id);
+      const [contact] = await db.select().from(organizationContacts).where(eq(organizationContacts.id, id)).limit(1);
+      if (!contact || contact.organizationType !== account.organizationType || contact.organizationId !== account.organizationId) throw new Error("Contact not found.");
+      await db.update(organizationContacts).set({ isPrimary: false, updatedAt: new Date() }).where(and(eq(organizationContacts.organizationType, account.organizationType), eq(organizationContacts.organizationId, account.organizationId)));
+      await db.update(organizationContacts).set({ isPrimary: true, updatedAt: new Date() }).where(eq(organizationContacts.id, id));
+      const primary = { contactName: contact.name, contactEmail: contact.email, contactPhone: contact.phone };
+      if (account.organizationType === "bakery") await db.update(bakeries).set(primary).where(eq(bakeries.id, account.organizationId));
+      else await db.update(pantries).set(primary).where(eq(pantries.id, account.organizationId));
+      await audit(account, "changed primary organizational contact", contact.name);
+      return Response.json({ ok: true });
+    }
     if (body.action === "save-schedule") {
       const windows = Array.isArray(body.windows) ? body.windows as Array<Record<string, unknown>> : [];
       if (!windows.length) throw new Error("Add at least one recurring window.");
@@ -165,7 +196,23 @@ export async function DELETE(request: Request) {
   const id = Number(url.searchParams.get("id"));
   const type = url.searchParams.get("type");
   const db = getDb();
-  if (type === "exception") {
+  if (type === "contact") {
+    const [contact] = await db.select().from(organizationContacts).where(eq(organizationContacts.id, id)).limit(1);
+    if (!contact || contact.organizationType !== account.organizationType || contact.organizationId !== account.organizationId) return Response.json({ error: "Contact not found." }, { status: 404 });
+    const [{ value }] = await db.select({ value: count() }).from(organizationContacts).where(and(eq(organizationContacts.organizationType, account.organizationType), eq(organizationContacts.organizationId, account.organizationId)));
+    if (Number(value) <= 1) return Response.json({ error: "Every organization must retain at least one primary contact." }, { status: 409 });
+    await db.delete(organizationContacts).where(eq(organizationContacts.id, id));
+    if (contact.isPrimary) {
+      const [replacement] = await db.select().from(organizationContacts).where(and(eq(organizationContacts.organizationType, account.organizationType), eq(organizationContacts.organizationId, account.organizationId))).limit(1);
+      if (replacement) {
+        await db.update(organizationContacts).set({ isPrimary: true, updatedAt: new Date() }).where(eq(organizationContacts.id, replacement.id));
+        const primary = { contactName: replacement.name, contactEmail: replacement.email, contactPhone: replacement.phone };
+        if (account.organizationType === "bakery") await db.update(bakeries).set(primary).where(eq(bakeries.id, account.organizationId));
+        else await db.update(pantries).set(primary).where(eq(pantries.id, account.organizationId));
+      }
+    }
+    await audit(account, "deleted organizational contact", contact.name);
+  } else if (type === "exception") {
     const [record] = await db.select().from(scheduleExceptions).where(eq(scheduleExceptions.id, id)).limit(1);
     if (!record || record.organizationType !== account.organizationType || record.organizationId !== account.organizationId) return Response.json({ error: "Cancellation not found." }, { status: 404 });
     await db.delete(scheduleExceptions).where(eq(scheduleExceptions.id, id));
@@ -186,3 +233,6 @@ function validDateOnly(value: unknown) { const date = String(value ?? ""); if (!
 function validDateTime(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
 function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest arrival must fall inside the availability window."); }
 async function audit(account: typeof partnerAccounts.$inferSelect, action: string, details: string) { await writeAudit({ actorType: "partner", actorId: account.id, actorName: account.accountEmail, action, entityType: account.organizationType, entityId: account.organizationId, entityName: account.accountEmail, details }); }
+function clean(value: unknown) { return String(value ?? "").trim(); }
+function required(value: unknown, label: string) { const result = clean(value); if (!result) throw new Error(`${label} is required.`); return result; }
+function validEmail(value: unknown) { const email = required(value, "Email").toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid email address."); return email; }
