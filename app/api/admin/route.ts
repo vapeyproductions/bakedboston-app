@@ -144,15 +144,28 @@ export async function PATCH(request: Request) {
 
     const db = getDb();
     if (kind === "bakery") {
+      const [existing] = await db.select({ address: bakeries.address }).from(bakeries).where(eq(bakeries.id, id)).limit(1);
+      if (!existing) return Response.json({ error: "Bakery not found." }, { status: 404 });
       const contact = parsePrimaryContact(body);
       const schedule = parseBakerySchedule(body);
       const activeDays = Object.keys(schedule);
+      const address = required(body.address, "Address");
+      const addressChanged = address !== existing.address;
       const [record] = await db.update(bakeries).set({
         name: required(body.name, "Bakery name"),
-        address: required(body.address, "Address"),
+        address,
+        ...(addressChanged ? {
+          formattedAddress: "",
+          googlePlaceId: "",
+          addressValidationStatus: "unvalidated" as const,
+          latitude: null,
+          longitude: null,
+        } : {}),
         dropoffInstructions: clean(body.dropoffInstructions),
-        latitude: optionalNumber(body.latitude),
-        longitude: optionalNumber(body.longitude),
+        ...(!addressChanged ? {
+          latitude: optionalNumber(body.latitude),
+          longitude: optionalNumber(body.longitude),
+        } : {}),
         contactName: contact.name,
         contactEmail: contact.email,
         contactPhone: contact.phone,
@@ -169,15 +182,28 @@ export async function PATCH(request: Request) {
     }
 
     if (kind === "pantry") {
+      const [existing] = await db.select({ address: pantries.address }).from(pantries).where(eq(pantries.id, id)).limit(1);
+      if (!existing) return Response.json({ error: "Pantry not found." }, { status: 404 });
       const contact = parsePrimaryContact(body);
       const schedule = parsePantrySchedule(body);
       const activeDays = [...new Set(schedule.map((window) => window.day))];
+      const address = required(body.address, "Address");
+      const addressChanged = address !== existing.address;
       const [record] = await db.update(pantries).set({
         name: required(body.name, "Pantry name"),
-        address: required(body.address, "Address"),
+        address,
+        ...(addressChanged ? {
+          formattedAddress: "",
+          googlePlaceId: "",
+          addressValidationStatus: "unvalidated" as const,
+          latitude: null,
+          longitude: null,
+        } : {}),
         dropoffInstructions: clean(body.dropoffInstructions),
-        latitude: optionalNumber(body.latitude),
-        longitude: optionalNumber(body.longitude),
+        ...(!addressChanged ? {
+          latitude: optionalNumber(body.latitude),
+          longitude: optionalNumber(body.longitude),
+        } : {}),
         contactName: contact.name,
         contactEmail: contact.email,
         contactPhone: contact.phone,

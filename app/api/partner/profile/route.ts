@@ -28,11 +28,20 @@ export async function PATCH(request: Request) {
       updatedAt: new Date(),
     }).where(eq(partnerAccounts.id, accountId));
 
-    const organizationUpdate = { address, businessPhone, notificationPhone };
     if (account.organizationType === "bakery") {
-      await db.update(bakeries).set({ ...organizationUpdate, dropoffInstructions }).where(eq(bakeries.id, account.organizationId));
+      const [organization] = await db.select({ address: bakeries.address }).from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
+      const addressChanged = organization?.address !== address;
+      await db.update(bakeries).set({
+        address, businessPhone, notificationPhone, dropoffInstructions,
+        ...(addressChanged ? { formattedAddress: "", googlePlaceId: "", addressValidationStatus: "unvalidated" as const, latitude: null, longitude: null } : {}),
+      }).where(eq(bakeries.id, account.organizationId));
     } else {
-      await db.update(pantries).set({ ...organizationUpdate, dropoffInstructions }).where(eq(pantries.id, account.organizationId));
+      const [organization] = await db.select({ address: pantries.address }).from(pantries).where(eq(pantries.id, account.organizationId)).limit(1);
+      const addressChanged = organization?.address !== address;
+      await db.update(pantries).set({
+        address, businessPhone, notificationPhone, dropoffInstructions,
+        ...(addressChanged ? { formattedAddress: "", googlePlaceId: "", addressValidationStatus: "unvalidated" as const, latitude: null, longitude: null } : {}),
+      }).where(eq(pantries.id, account.organizationId));
     }
     await writeAudit({
       actorType: "partner", actorId: account.id, actorName: account.administratorName,

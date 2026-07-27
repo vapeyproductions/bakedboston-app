@@ -127,12 +127,25 @@ export async function PATCH(request: Request) {
     if (body.action === "update-profile") {
       const accountEmail = validEmail(body.accountEmail);
       const address = required(body.address, "Address");
-      const organizationUpdate = { address, dropoffInstructions: clean(body.dropoffInstructions), businessPhone: clean(body.businessPhone), notificationPhone: clean(body.notificationPhone) };
       const [duplicate] = await db.select({ id: partnerAccounts.id }).from(partnerAccounts).where(and(eq(partnerAccounts.accountEmail, accountEmail), ne(partnerAccounts.id, account.id))).limit(1);
       if (duplicate) throw new Error("That account email is already in use.");
       await db.update(partnerAccounts).set({ accountEmail, updatedAt: new Date() }).where(eq(partnerAccounts.id, account.id));
-      if (account.organizationType === "bakery") await db.update(bakeries).set(organizationUpdate).where(eq(bakeries.id, account.organizationId));
-      else await db.update(pantries).set(organizationUpdate).where(eq(pantries.id, account.organizationId));
+      const channels = { address, dropoffInstructions: clean(body.dropoffInstructions), businessPhone: clean(body.businessPhone), notificationPhone: clean(body.notificationPhone) };
+      if (account.organizationType === "bakery") {
+        const [organization] = await db.select({ address: bakeries.address }).from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
+        const addressChanged = organization?.address !== address;
+        await db.update(bakeries).set({
+          ...channels,
+          ...(addressChanged ? { formattedAddress: "", googlePlaceId: "", addressValidationStatus: "unvalidated" as const, latitude: null, longitude: null } : {}),
+        }).where(eq(bakeries.id, account.organizationId));
+      } else {
+        const [organization] = await db.select({ address: pantries.address }).from(pantries).where(eq(pantries.id, account.organizationId)).limit(1);
+        const addressChanged = organization?.address !== address;
+        await db.update(pantries).set({
+          ...channels,
+          ...(addressChanged ? { formattedAddress: "", googlePlaceId: "", addressValidationStatus: "unvalidated" as const, latitude: null, longitude: null } : {}),
+        }).where(eq(pantries.id, account.organizationId));
+      }
       await audit(account, "updated organization profile", "Account email, address, directions, or organization phone channels updated");
       return Response.json({ ok: true });
     }

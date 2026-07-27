@@ -10,12 +10,14 @@ import "../availability-calendar.css";
 type Bakery = {
   id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; readyTime: string;
   arrivalDeadline: string; active: boolean; latitude: number | null; longitude: number | null;
+  formattedAddress: string; googlePlaceId: string; addressValidationStatus: "unvalidated" | "validated" | "needs_review";
   contactName: string; contactEmail: string; contactPhone: string; businessPhone: string; notificationPhone: string;
 };
 type Pantry = {
   id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; openTime: string;
   closeTime: string; latestArrival: string; deliveriesSevenDays: number; active: boolean;
   latitude: number | null; longitude: number | null; contactName: string; contactEmail: string;
+  formattedAddress: string; googlePlaceId: string; addressValidationStatus: "unvalidated" | "validated" | "needs_review";
   contactPhone: string; businessPhone: string; notificationPhone: string;
 };
 type PartnerAccount = {
@@ -656,6 +658,9 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
   kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void;
 }) {
   const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">("overview");
+  const [addressStatus, setAddressStatus] = useState(record.addressValidationStatus);
+  const [displayAddress, setDisplayAddress] = useState(record.address);
+  const [confirmingAddress, setConfirmingAddress] = useState(false);
   const now = new Date();
   const activeAdditional = availability.filter((window) => new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const recurringOpen = !scheduleExceptions.some((exception) => exception.exceptionDate === adminDateKey(now)) && (kind === "pantry"
@@ -664,6 +669,25 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
   const schedulePaused = pauses.some((pause) => new Date(pause.endsAt) > now);
   const open = (recurringOpen && !schedulePaused) || activeAdditional.some((window) => !window.paused);
   const completed = routes.filter((route) => route.status === "completed").length;
+  async function acceptStandardizedAddress() {
+    if (!record.formattedAddress || !window.confirm(`Use Google’s standardized address for ${record.name}?\n\n${record.formattedAddress}`)) return;
+    setConfirmingAddress(true);
+    const response = await fetch("/api/admin/address-validation", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationType: kind, organizationId: record.id, action: "accept_standardized" }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setAddressStatus("validated");
+      setDisplayAddress(data.record.address);
+      await onChanged();
+      setNotice(`${record.name}'s standardized address was confirmed and is now eligible for optimization.`);
+    } else {
+      setNotice(data?.error ?? "Could not confirm this address.");
+    }
+    setConfirmingAddress(false);
+  }
   return <div className="modalBackdrop"><section className="adminPartnerWorkspace">
     <header><div><span>{kind.toUpperCase()} WORKSPACE</span><h2>{record.name}</h2></div><button onClick={onClose}>×</button></header>
     <nav>{(["overview", "deliveries", "schedule", "profile"] as const).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{item}</button>)}</nav>
@@ -671,7 +695,23 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
       {section === "overview" && <><article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>One-time windows</small><strong>{availability.length}</strong></article></div></>}
       {section === "deliveries" && <RoutesTable routes={routes} />}
       {section === "schedule" && <div className="adminScheduleView"><div className="panelTitle"><div><span>RECURRING SCHEDULE</span><h2>Saved availability</h2></div></div>{kind === "pantry" ? <AdminReceivingCalendar pantry={record as Pantry} availability={availability} scheduleExceptions={scheduleExceptions} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} /> : <AdminBakeryCalendar bakery={record as Bakery} availability={availability} scheduleExceptions={scheduleExceptions} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} />}</div>}
-      {section === "profile" && <div className="adminProfileSummary"><article><small>ADDRESS</small><strong>{record.address}</strong></article><article><small>BUSINESS PHONE</small><strong>{record.businessPhone || "—"}</strong></article><article><small>NOTIFICATION CONTACT</small><strong>{record.notificationPhone || "—"}</strong></article><article><small>ORGANIZATIONAL CONTACTS</small>{contacts.map((contact) => <div key={contact.id}><strong>{contact.isPrimary ? "★ Primary · " : ""}{contact.name}</strong><span>{contact.email} · {contact.phone}</span></div>)}</article><button className="solidBtn" onClick={onEdit}>Edit organization profile</button></div>}
+      {section === "profile" && <div className="adminProfileSummary">
+        <article className="adminAddressSummary">
+          <div className="adminAddressHeading"><small>ADDRESS</small><span className={`addressStatus ${addressStatus}`}>{addressStatus === "validated" ? "Validated" : addressStatus === "needs_review" ? "Needs review" : "Not yet validated"}</span></div>
+          <strong>{displayAddress}</strong>
+          {addressStatus === "validated" && <p>This location is eligible for live optimization.</p>}
+          {addressStatus === "unvalidated" && <p>This registered location will be checked during the next address-validation sync and is not yet eligible for optimization.</p>}
+          {addressStatus === "needs_review" && <div className="addressReviewPanel">
+            <p>Google found a standardized version that differs from the entered address. Confirm it before this location is used by the optimizer.</p>
+            <div><small>ENTERED ADDRESS</small><strong>{record.address}</strong></div>
+            <div><small>GOOGLE STANDARDIZED ADDRESS</small><strong>{record.formattedAddress || "No standardized address returned"}</strong></div>
+            <div className="addressReviewActions">
+              <button className="solidBtn" disabled={confirmingAddress || !record.formattedAddress} onClick={acceptStandardizedAddress}>{confirmingAddress ? "Confirming…" : "Accept standardized address"}</button>
+              <button onClick={onEdit}>Edit entered address</button>
+            </div>
+          </div>}
+        </article>
+        <article><small>BUSINESS PHONE</small><strong>{record.businessPhone || "—"}</strong></article><article><small>NOTIFICATION CONTACT</small><strong>{record.notificationPhone || "—"}</strong></article><article><small>ORGANIZATIONAL CONTACTS</small>{contacts.map((contact) => <div key={contact.id}><strong>{contact.isPrimary ? "★ Primary · " : ""}{contact.name}</strong><span>{contact.email} · {contact.phone}</span></div>)}</article><button className="solidBtn" onClick={onEdit}>Edit organization profile</button></div>}
     </main>
   </section></div>;
 }
