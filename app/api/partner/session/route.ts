@@ -1,8 +1,5 @@
-import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "../../../../db";
-import { partnerAccounts } from "../../../../db/schema";
-import { createPartnerCookieValue, partnerCookieName, verifyPartnerPassword } from "../../../partner-auth";
+import { authenticatePartnerAccount, createPartnerCookieValue, partnerCookieName } from "../../../partner-auth";
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -13,12 +10,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(new URL("/partners?error=role", request.url), 303);
   }
 
-  const db = getDb();
-  const [account] = await db.select().from(partnerAccounts)
-    .where(eq(partnerAccounts.accountEmail, email)).limit(1);
-  if (!account || !account.active || account.organizationType !== kind || !verifyPartnerPassword(password, account.passwordHash)) {
+  const result = await authenticatePartnerAccount(email, password, kind);
+  if (!result.account) {
     return NextResponse.redirect(new URL(`/partners?kind=${kind}&error=credentials`, request.url), 303);
   }
+  const account = result.account;
 
   const response = NextResponse.redirect(new URL(`/${kind}`, request.url), 303);
   response.cookies.set(partnerCookieName, createPartnerCookieValue(account.id), {

@@ -1,6 +1,9 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { getDb } from "../db";
+import { partnerAccounts } from "../db/schema";
 
 const COOKIE_NAME = "bakedboston-partner";
 
@@ -25,6 +28,27 @@ export function verifyPartnerPassword(password: string, stored: string) {
   const candidate = scryptSync(password, salt, 64);
   const expected = Buffer.from(hash, "hex");
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+}
+
+export async function authenticatePartnerAccount(
+  emailInput: string,
+  password: string,
+  expectedType: "bakery" | "pantry",
+) {
+  const email = emailInput.trim().toLowerCase();
+  const [account] = await getDb()
+    .select()
+    .from(partnerAccounts)
+    .where(eq(partnerAccounts.accountEmail, email))
+    .limit(1);
+
+  if (!account || !account.active || !verifyPartnerPassword(password, account.passwordHash)) {
+    return { account: null, reason: "credentials" as const };
+  }
+  if (account.organizationType !== expectedType) {
+    return { account: null, reason: "role" as const, actualType: account.organizationType };
+  }
+  return { account, reason: null };
 }
 
 export function createPartnerCookieValue(accountId: number) {

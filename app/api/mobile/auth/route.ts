@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { driverAccounts, mobileSessions, partnerAccounts } from "../../../../db/schema";
-import { hashPartnerPassword, verifyPartnerPassword } from "../../../partner-auth";
+import { authenticatePartnerAccount, hashPartnerPassword, verifyPartnerPassword } from "../../../partner-auth";
 
 const expiresInMs = 30 * 24 * 60 * 60 * 1000;
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -33,8 +33,14 @@ export async function POST(request: Request) {
       if (!driver || !driver.active || !verifyPartnerPassword(password, driver.passwordHash)) throw new Error("Email or password is incorrect.");
       accountId = driver.id; displayName = driver.displayName;
     } else {
-      const [partner] = await db.select().from(partnerAccounts).where(eq(partnerAccounts.accountEmail, email)).limit(1);
-      if (!partner || !partner.active || partner.organizationType !== role || !verifyPartnerPassword(password, partner.passwordHash)) throw new Error("Email, password, or selected role is incorrect.");
+      const result = await authenticatePartnerAccount(email, password, role);
+      if (!result.account) {
+        if (result.reason === "role") {
+          throw new Error(`This account is registered as a ${result.actualType}. Go back and select that organization type.`);
+        }
+        throw new Error("Email or password is incorrect.");
+      }
+      const partner = result.account;
       accountId = partner.id; displayName = partner.administratorName || partner.accountEmail;
     }
     const token = randomBytes(32).toString("base64url");
