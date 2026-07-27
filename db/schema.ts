@@ -77,6 +77,14 @@ export const availabilityPauses = pgTable("availability_pauses", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const scheduleExceptions = pgTable("schedule_exceptions", {
+  id: serial("id").primaryKey(),
+  organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),
+  organizationId: integer("organization_id").notNull(),
+  exceptionDate: text("exception_date").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const rescueRoutes = pgTable("rescue_routes", {
   id: serial("id").primaryKey(),
   bakeryName: text("bakery_name").notNull(),

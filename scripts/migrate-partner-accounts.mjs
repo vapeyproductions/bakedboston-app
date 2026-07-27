@@ -84,6 +84,15 @@ if (!databaseUrl) {
   `;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS driver_accounts_email_unique ON driver_accounts (email)`;
   await sql`
+    CREATE TABLE IF NOT EXISTS schedule_exceptions (
+      id serial PRIMARY KEY,
+      organization_type text NOT NULL,
+      organization_id integer NOT NULL,
+      exception_date text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS partner_invitations (
       id serial PRIMARY KEY,
       organization_type text NOT NULL,

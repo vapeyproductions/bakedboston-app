@@ -21,6 +21,7 @@ type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: st
 type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string | Date };
 type OneTimeWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type AvailabilityPause = { id: number; endsAt: string };
+type ScheduleException = { id: number; exceptionDate: string };
 
 export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [] }: {
   kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
@@ -31,9 +32,10 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [oneTimeWindows, setOneTimeWindows] = useState<OneTimeWindow[]>([]);
   const [availabilityPauses, setAvailabilityPauses] = useState<AvailabilityPause[]>([]);
+  const [scheduleExceptions, setScheduleExceptions] = useState<ScheduleException[]>([]);
   const [availabilityDialog, setAvailabilityDialog] = useState(false);
   const [windowDraft, setWindowDraft] = useState({ date: "", starts: "", ends: "", latest: "" });
-  const scheduledOpen = organizationIsOpen(kind, organization, new Date());
+  const scheduledOpen = organizationIsOpen(kind, organization, new Date()) && !scheduleExceptions.some((exception) => exception.exceptionDate === localDate(new Date()));
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
   const activeOneTime = oneTimeWindows.find((window) => !window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
   const pausedOneTime = oneTimeWindows.find((window) => window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
@@ -41,14 +43,16 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${route.scheduledArrival}`, status: route.status }));
   const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
   async function refreshAvailability() {
-    const response = await fetch("/api/partner/availability", { cache: "no-store" });
-    const data = await response.json().catch(() => null);
+    const [response, exceptionResponse] = await Promise.all([fetch("/api/partner/availability", { cache: "no-store" }), fetch("/api/partner/schedule-exceptions", { cache: "no-store" })]);
+    const [data, exceptionData] = await Promise.all([response.json().catch(() => null), exceptionResponse.json().catch(() => null)]);
     if (response.ok) { setOneTimeWindows(data.windows ?? []); setAvailabilityPauses(data.pauses ?? []); }
+    if (exceptionResponse.ok) setScheduleExceptions(exceptionData.exceptions ?? []);
   }
   // Initial hydration reads persisted one-time windows and pause state.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refreshAvailability(); }, []);
   function showWindowDialog(useCurrentTime: boolean) {
+    if (useCurrentTime && !window.confirm(`This will open ${organization.name} ${bakery ? "for pickup" : "to accept deliveries"} outside the saved recurring schedule. Continue?`)) return;
     const start = useCurrentTime ? new Date() : new Date(Date.now() + 24 * 60 * 60 * 1000);
     const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
     const latest = new Date(end.getTime() - 15 * 60 * 1000);
@@ -58,7 +62,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   async function createOneTimeWindow() {
     const startsAt = localDateTime(windowDraft.date, windowDraft.starts);
     const endsAt = localDateTime(windowDraft.date, windowDraft.ends);
-    const latestArrival = localDateTime(windowDraft.date, windowDraft.latest);
+    const latestArrival = bakery ? endsAt : localDateTime(windowDraft.date, windowDraft.latest);
     const response = await fetch("/api/partner/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startsAt, endsAt, latestArrival }) });
     const data = await response.json().catch(() => null);
     if (response.ok) { setOneTimeWindows((current) => [...current, data.record]); setAvailabilityDialog(false); prototypeAction("One-time availability window created."); }
@@ -113,20 +117,20 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
             <h2>{available ? (activeOneTime ? "Open for a one-time receiving window." : bakery ? "A scheduled pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? "Delivery availability is paused." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
             <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : available ? "Availability is based on the saved organization schedule." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p></div>
-          {!bakery && activeOneTime && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
-          {!bakery && pausedOneTime && <button onClick={() => setOneTimePaused(pausedOneTime, false)}>Resume availability</button>}
-          {!bakery && scheduledOpen && !schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={pauseSchedule}>Pause availability</button>}
-          {!bakery && scheduledOpen && schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={resumeSchedule}>Resume availability</button>}
-          {!bakery && !scheduledOpen && !activeOneTime && !pausedOneTime && <button onClick={() => showWindowDialog(true)}>Open to accept deliveries</button>}
+          {activeOneTime && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
+          {pausedOneTime && <button onClick={() => setOneTimePaused(pausedOneTime, false)}>Resume availability</button>}
+          {scheduledOpen && !schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={pauseSchedule}>Pause availability</button>}
+          {scheduledOpen && schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={resumeSchedule}>Resume availability</button>}
+          {!scheduledOpen && !activeOneTime && !pausedOneTime && <button onClick={() => showWindowDialog(true)}>{bakery ? "Start pickup window" : "Open to accept deliveries"}</button>}
         </div>
         <div className="workspaceGrid singleActivity"><ActivityCard activity={activity.slice(0, 3)} onAll={() => setSection("activity")} /></div>
       </>}
 
-      {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} oneTimeWindows={oneTimeWindows} onWindowsChanged={refreshAvailability} onAddOneTime={() => showWindowDialog(false)} />}
+      {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} oneTimeWindows={oneTimeWindows} scheduleExceptions={scheduleExceptions} onWindowsChanged={refreshAvailability} onAddOneTime={() => showWindowDialog(false)} />}
       {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
       {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
     </section>
-    {availabilityDialog && <div className="availabilityBackdrop"><section className="availabilityDialog"><span className="panelKicker">ONE-TIME AVAILABILITY</span><h2>Add a receiving window</h2><p>This creates a single dated window and does not change the recurring schedule.</p><label>Date<input type="date" min={localDate(new Date())} value={windowDraft.date} onChange={(event) => setWindowDraft((current) => ({ ...current, date: event.target.value }))} /></label><MinuteTimeInput label="Opens" value={windowDraft.starts} onChange={(value) => setWindowDraft((current) => ({ ...current, starts: value }))} /><MinuteTimeInput label="Closes" value={windowDraft.ends} onChange={(value) => setWindowDraft((current) => ({ ...current, ends: value }))} /><MinuteTimeInput label="Latest permitted arrival" value={windowDraft.latest} onChange={(value) => setWindowDraft((current) => ({ ...current, latest: value }))} /><div><button onClick={() => setAvailabilityDialog(false)}>Cancel</button><button className="confirmAvailability" onClick={createOneTimeWindow}>Confirm availability</button></div></section></div>}
+    {availabilityDialog && <div className="availabilityBackdrop"><section className="availabilityDialog"><span className="panelKicker">ONE-TIME AVAILABILITY</span><h2>{bakery ? "Add a pickup window" : "Add a receiving window"}</h2><p>This creates a single dated window and does not change the recurring schedule.</p><label>Date<input type="date" min={localDate(new Date())} value={windowDraft.date} onChange={(event) => setWindowDraft((current) => ({ ...current, date: event.target.value }))} /></label><MinuteTimeInput label={bakery ? "Food ready" : "Opens"} value={windowDraft.starts} onChange={(value) => setWindowDraft((current) => ({ ...current, starts: value }))} /><MinuteTimeInput label={bakery ? "Pickup deadline" : "Closes"} value={windowDraft.ends} onChange={(value) => setWindowDraft((current) => ({ ...current, ends: value }))} />{!bakery && <MinuteTimeInput label="Latest permitted arrival" value={windowDraft.latest} onChange={(value) => setWindowDraft((current) => ({ ...current, latest: value }))} />}<div><button onClick={() => setAvailabilityDialog(false)}>Cancel</button><button className="confirmAvailability" onClick={createOneTimeWindow}>Confirm availability</button></div></section></div>}
   </main>;
 }
 
@@ -229,11 +233,12 @@ const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => `${String(Math.floor(index / 2)).padStart(2, "0")}:${index % 2 ? "30" : "00"}`);
 type ScheduleWindow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; readyTime: string; pickupDeadline: string };
 
-function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, onWindowsChanged, onAddOneTime }: { kind: Kind; organization: Organization; onSaved: (message: string) => void; oneTimeWindows: OneTimeWindow[]; onWindowsChanged: () => Promise<void>; onAddOneTime: () => void }) {
+function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, scheduleExceptions, onWindowsChanged, onAddOneTime }: { kind: Kind; organization: Organization; onSaved: (message: string) => void; oneTimeWindows: OneTimeWindow[]; scheduleExceptions: ScheduleException[]; onWindowsChanged: () => Promise<void>; onAddOneTime: () => void }) {
   const bakery = kind === "bakery";
   const [rows, setRows] = useState<ScheduleWindow[]>(() => parseOrganizationSchedule(kind, organization));
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedOneTime, setSelectedOneTime] = useState<number | null>(null);
   useEffect(() => {
     fetch("/api/partner/schedule", { cache: "no-store" }).then((response) => response.json()).then((data) => {
@@ -248,56 +253,55 @@ function ScheduleEditor({ kind, organization, onSaved, oneTimeWindows, onWindows
     setSaving(false);
     onSaved(response.ok ? "Schedule saved. BB administrators now see the same schedule." : (data?.error ?? "Could not save schedule."));
   }
-  if (!bakery) return <div className="schedulePage">
-    <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>Receiving calendar</h2><p>View receiving windows by day. Select a window to edit or delete it.</p></div>
-    <div className="calendarToolbar"><button className="secondaryCalendarAction" onClick={onAddOneTime}>+ Add one-time availability window</button><button onClick={() => { setRows((current) => [...current, emptyWindow()]); setSelected(rows.length); setSelectedOneTime(null); }}>+ Add recurring window</button></div>
-    {selected !== null && rows[selected] && <article className="calendarWindowEditor"><div className="windowHeading"><div><span className="panelKicker">EDIT WINDOW</span><h3>{rows[selected].day} receiving window</h3></div><button onClick={() => setSelected(null)}>×</button></div>
-      <label>Repeats<select value={rows[selected].recurrence} onChange={(event) => update(selected, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>
-      {rows[selected].recurrence === "monthly" && <label>Occurrence<select value={rows[selected].ordinal ?? 1} onChange={(event) => update(selected, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
-      <label>Day<select value={rows[selected].day} onChange={(event) => update(selected, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label>
-      <TimeSelect label="Opens" value={rows[selected].open} onChange={(value) => update(selected, { open: value })} /><TimeSelect label="Closes" value={rows[selected].close} onChange={(value) => update(selected, { close: value })} /><TimeSelect label="Latest permitted arrival" value={rows[selected].latestArrival} onChange={(value) => update(selected, { latestArrival: value })} />
-      <div className="calendarEditorActions"><button className="deleteWindow" disabled={rows.length <= 1} onClick={() => { setRows((current) => current.filter((_, index) => index !== selected)); setSelected(null); }}>Delete window</button><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save schedule"}</button></div>
-    </article>}
-    {selectedOneTime !== null && oneTimeWindows.find((window) => window.id === selectedOneTime) && <OneTimeWindowEditor window={oneTimeWindows.find((item) => item.id === selectedOneTime)!} onClose={() => setSelectedOneTime(null)} onChanged={async () => { setSelectedOneTime(null); await onWindowsChanged(); }} onSaved={onSaved} />}
-    <ReceivingCalendar rows={rows} oneTimeWindows={oneTimeWindows} onSelect={(index) => { setSelected(index); setSelectedOneTime(null); }} onSelectOneTime={(id) => { setSelectedOneTime(id); setSelected(null); }} />
-    {selected === null && selectedOneTime === null && <div className="calendarSave"><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save recurring schedule"}</button></div>}
-  </div>;
+  async function cancelOccurrence() {
+    if (!selectedDate || !window.confirm(`Cancel scheduled hours on ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}? This affects only this date.`)) return;
+    const response = await fetch("/api/partner/schedule-exceptions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ exceptionDate: selectedDate }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) { setSelected(null); setSelectedDate(null); await onWindowsChanged(); onSaved(`Scheduled hours cancelled for ${new Date(`${selectedDate}T12:00:00`).toLocaleDateString()}.`); }
+    else onSaved(data?.error ?? "Could not cancel scheduled hours.");
+  }
+  async function restoreOccurrence(exception: ScheduleException) {
+    const response = await fetch(`/api/partner/schedule-exceptions?id=${exception.id}`, { method: "DELETE" });
+    if (response.ok) { await onWindowsChanged(); onSaved("Scheduled hours restored."); }
+  }
   return <div className="schedulePage">
-    <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>{bakery ? "When is surplus ready?" : "When can you receive?"}</h2><p>{bakery ? "Each day may have its own food-ready time and pickup deadline." : "Use multiple daily windows or monthly rules such as the second Saturday."}</p></div>
-    <article className="schedulePanel scheduleEditorPanel">
-      {rows.map((row, index) => <div className="partnerScheduleRow" key={index}><div className="windowHeading"><strong>{bakery ? "Pickup day" : "Receiving window"} {index + 1}</strong>{rows.length > 1 && <button onClick={() => setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}>Remove</button>}</div>
-        {!bakery && <label>Repeats<select value={row.recurrence} onChange={(event) => update(index, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>}
-        {!bakery && row.recurrence === "monthly" && <label>Occurrence<select value={row.ordinal ?? 1} onChange={(event) => update(index, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
-        <label>Day<select value={row.day} onChange={(event) => update(index, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label>
-        {bakery ? <><TimeSelect label="Food ready" value={row.readyTime} onChange={(value) => update(index, { readyTime: value })} /><TimeSelect label="Pickup deadline" value={row.pickupDeadline} onChange={(value) => update(index, { pickupDeadline: value })} /></> : <><TimeSelect label="Opens" value={row.open} onChange={(value) => update(index, { open: value })} /><TimeSelect label="Closes" value={row.close} onChange={(value) => update(index, { close: value })} /><TimeSelect label="Latest permitted arrival" value={row.latestArrival} onChange={(value) => update(index, { latestArrival: value })} /></>}
-      </div>)}
-      <button className="addWindow" onClick={() => setRows((current) => [...current, emptyWindow()])}>+ Add {bakery ? "pickup day" : "receiving window"}</button>
-      <div className="scheduleActions"><button disabled={saving} onClick={save}>{saving ? "Saving…" : "Save schedule"}</button></div>
-    </article>
+    <div className="sectionIntro"><span className="panelKicker">RECURRING AVAILABILITY</span><h2>{bakery ? "Pickup calendar" : "Receiving calendar"}</h2><p>View scheduled windows for the next four weeks. Select a window to edit, delete, or cancel only that date.</p></div>
+    <div className="calendarToolbar"><button className="secondaryCalendarAction" onClick={onAddOneTime}>+ Add one-time {bakery ? "pickup" : "availability"} window</button><button onClick={() => { setRows((current) => [...current, emptyWindow()]); setSelected(rows.length); setSelectedDate(null); setSelectedOneTime(null); }}>+ Add recurring window</button></div>
+    {selected !== null && rows[selected] && <article className="calendarWindowEditor"><div className="windowHeading"><div><span className="panelKicker">EDIT WINDOW</span><h3>{rows[selected].day} receiving window</h3></div><button onClick={() => setSelected(null)}>×</button></div>
+      {!bakery && <label>Repeats<select value={rows[selected].recurrence} onChange={(event) => update(selected, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>}
+      {!bakery && rows[selected].recurrence === "monthly" && <label>Occurrence<select value={rows[selected].ordinal ?? 1} onChange={(event) => update(selected, { ordinal: Number(event.target.value) })}>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}
+      <label>Day<select value={rows[selected].day} onChange={(event) => update(selected, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label>
+      {bakery ? <><TimeSelect label="Food ready" value={rows[selected].readyTime} onChange={(value) => update(selected, { readyTime: value })} /><TimeSelect label="Pickup deadline" value={rows[selected].pickupDeadline} onChange={(value) => update(selected, { pickupDeadline: value })} /></> : <><TimeSelect label="Opens" value={rows[selected].open} onChange={(value) => update(selected, { open: value })} /><TimeSelect label="Closes" value={rows[selected].close} onChange={(value) => update(selected, { close: value })} /><TimeSelect label="Latest permitted arrival" value={rows[selected].latestArrival} onChange={(value) => update(selected, { latestArrival: value })} /></>}
+      <div className="calendarEditorActions"><button className="deleteWindow" disabled={rows.length <= 1} onClick={() => { setRows((current) => current.filter((_, index) => index !== selected)); setSelected(null); }}>Delete recurring window</button>{selectedDate && <button className="cancelOccurrence" onClick={cancelOccurrence}>Cancel scheduled hours on {new Date(`${selectedDate}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}</button>}<button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save schedule"}</button></div>
+    </article>}
+    {selectedOneTime !== null && oneTimeWindows.find((window) => window.id === selectedOneTime) && <OneTimeWindowEditor kind={kind} window={oneTimeWindows.find((item) => item.id === selectedOneTime)!} onClose={() => setSelectedOneTime(null)} onChanged={async () => { setSelectedOneTime(null); await onWindowsChanged(); }} onSaved={onSaved} />}
+    <ReceivingCalendar kind={kind} rows={rows} oneTimeWindows={oneTimeWindows} scheduleExceptions={scheduleExceptions} onSelect={(index, date) => { setSelected(index); setSelectedDate(date); setSelectedOneTime(null); }} onSelectOneTime={(id) => { setSelectedOneTime(id); setSelected(null); }} onRestore={restoreOccurrence} />
+    {selected === null && selectedOneTime === null && <div className="calendarSave"><button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save recurring schedule"}</button></div>}
   </div>;
 }
 
-function ReceivingCalendar({ rows, oneTimeWindows, onSelect, onSelectOneTime }: { rows: ScheduleWindow[]; oneTimeWindows: OneTimeWindow[]; onSelect: (index: number) => void; onSelectOneTime: (id: number) => void }) {
+function ReceivingCalendar({ kind, rows, oneTimeWindows, scheduleExceptions, onSelect, onSelectOneTime, onRestore }: { kind: Kind; rows: ScheduleWindow[]; oneTimeWindows: OneTimeWindow[]; scheduleExceptions: ScheduleException[]; onSelect: (index: number, date: string) => void; onSelectOneTime: (id: number) => void; onRestore: (exception: ScheduleException) => void }) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const start = new Date(today); start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
   const dates = Array.from({ length: 28 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
   return <section className="monthlyReceivingCalendar"><div className="calendarMonthLabel"><strong>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</strong><span>Next four weeks</span></div><header>{days.map((day) => <strong key={day}>{day}</strong>)}</header><div className="calendarMonthGrid">{dates.map((date) => {
     const day = days[(date.getDay() + 6) % 7]; const occurrence = Math.ceil(date.getDate() / 7);
-    const recurring = rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && (row.recurrence === "weekly" || row.ordinal === occurrence));
+    const exception = scheduleExceptions.find((item) => item.exceptionDate === localDate(date));
+    const recurring = exception ? [] : rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && (row.recurrence === "weekly" || row.ordinal === occurrence));
     const dated = oneTimeWindows.filter((window) => sameLocalDate(new Date(window.startsAt), date));
-    return <div className={`calendarDate ${sameLocalDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{recurring.map(({ row, index }) => <button className="recurringEvent" key={`r-${index}`} onClick={() => onSelect(index)}><b>Recurring</b><small>{formatTime(row.open)}–{formatTime(row.close)}</small><small>Latest {formatTime(row.latestArrival)}</small></button>)}{dated.map((window) => <button className={`oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id} onClick={() => onSelectOneTime(window.id)}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></button>)}</div>;
+    return <div className={`calendarDate ${sameLocalDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{exception && <button className="cancelledEvent" onClick={() => onRestore(exception)}><b>Scheduled hours cancelled</b><small>Click to restore</small></button>}{recurring.map(({ row, index }) => <button className="recurringEvent" key={`r-${index}`} onClick={() => onSelect(index, localDate(date))}><b>Recurring</b><small>{formatTime(kind === "bakery" ? row.readyTime : row.open)}–{formatTime(kind === "bakery" ? row.pickupDeadline : row.close)}</small>{kind === "pantry" && <small>Latest {formatTime(row.latestArrival)}</small>}</button>)}{dated.map((window) => <button className={`oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id} onClick={() => onSelectOneTime(window.id)}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small>{kind === "pantry" && <small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small>}</button>)}</div>;
   })}</div></section>;
 }
 
-function OneTimeWindowEditor({ window, onClose, onChanged, onSaved }: { window: OneTimeWindow; onClose: () => void; onChanged: () => Promise<void>; onSaved: (message: string) => void }) {
+function OneTimeWindowEditor({ kind, window, onClose, onChanged, onSaved }: { kind: Kind; window: OneTimeWindow; onClose: () => void; onChanged: () => Promise<void>; onSaved: (message: string) => void }) {
   const start = new Date(window.startsAt); const end = new Date(window.endsAt); const latest = new Date(window.latestArrival);
   const [draft, setDraft] = useState({ date: localDate(start), starts: localTime(start), ends: localTime(end), latest: localTime(latest) });
   async function updateWindow() {
-    const response = await fetch("/api/partner/availability", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: window.id, startsAt: localDateTime(draft.date, draft.starts), endsAt: localDateTime(draft.date, draft.ends), latestArrival: localDateTime(draft.date, draft.latest) }) });
+    const response = await fetch("/api/partner/availability", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: window.id, startsAt: localDateTime(draft.date, draft.starts), endsAt: localDateTime(draft.date, draft.ends), latestArrival: kind === "bakery" ? localDateTime(draft.date, draft.ends) : localDateTime(draft.date, draft.latest) }) });
     const data = await response.json().catch(() => null); if (response.ok) { await onChanged(); onSaved("One-time availability window updated."); } else onSaved(data?.error ?? "Could not update window.");
   }
   async function remove() { const response = await fetch(`/api/partner/availability?id=${window.id}`, { method: "DELETE" }); if (response.ok) { await onChanged(); onSaved("One-time availability window deleted."); } }
-  return <article className="calendarWindowEditor"><div className="windowHeading"><div><span className="panelKicker">EDIT ONE-TIME WINDOW</span><h3>{new Date(window.startsAt).toLocaleDateString()}</h3></div><button onClick={onClose}>×</button></div><label>Date<input type="date" min={localDate(new Date())} value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} /></label><MinuteTimeInput label="Opens" value={draft.starts} onChange={(value) => setDraft((current) => ({ ...current, starts: value }))} /><MinuteTimeInput label="Closes" value={draft.ends} onChange={(value) => setDraft((current) => ({ ...current, ends: value }))} /><MinuteTimeInput label="Latest permitted arrival" value={draft.latest} onChange={(value) => setDraft((current) => ({ ...current, latest: value }))} /><div className="calendarEditorActions"><button className="deleteWindow" onClick={remove}>Delete window</button><button onClick={updateWindow}>Save changes</button></div></article>;
+  return <article className="calendarWindowEditor"><div className="windowHeading"><div><span className="panelKicker">EDIT ONE-TIME WINDOW</span><h3>{new Date(window.startsAt).toLocaleDateString()}</h3></div><button onClick={onClose}>×</button></div><label>Date<input type="date" min={localDate(new Date())} value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} /></label><MinuteTimeInput label={kind === "bakery" ? "Food ready" : "Opens"} value={draft.starts} onChange={(value) => setDraft((current) => ({ ...current, starts: value }))} /><MinuteTimeInput label={kind === "bakery" ? "Pickup deadline" : "Closes"} value={draft.ends} onChange={(value) => setDraft((current) => ({ ...current, ends: value }))} />{kind === "pantry" && <MinuteTimeInput label="Latest permitted arrival" value={draft.latest} onChange={(value) => setDraft((current) => ({ ...current, latest: value }))} />}<div className="calendarEditorActions"><button className="deleteWindow" onClick={remove}>Delete window</button><button onClick={updateWindow}>Save changes</button></div></article>;
 }
 
 function TimeSelect({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {

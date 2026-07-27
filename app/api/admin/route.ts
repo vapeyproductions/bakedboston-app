@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, driverAccounts, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, driverAccounts, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes, scheduleExceptions } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -12,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -50,6 +50,7 @@ export async function GET() {
     db.select().from(availabilityWindows).orderBy(desc(availabilityWindows.createdAt)),
     db.select().from(availabilityPauses).orderBy(desc(availabilityPauses.createdAt)),
     db.select({ id: driverAccounts.id, email: driverAccounts.email, displayName: driverAccounts.displayName, active: driverAccounts.active }).from(driverAccounts).orderBy(desc(driverAccounts.createdAt)),
+    db.select().from(scheduleExceptions).orderBy(desc(scheduleExceptions.createdAt)),
   ]);
 
   return Response.json({
@@ -59,6 +60,7 @@ export async function GET() {
     organizationContacts: contactRows,
     pantryAccessPhotos: pantryPhotoRows, bakeryAccessPhotos: bakeryPhotoRows, availabilityWindows: availabilityRows, availabilityPauses: pauseRows,
     drivers: driverRows,
+    scheduleExceptions: exceptionRows,
   });
 }
 
