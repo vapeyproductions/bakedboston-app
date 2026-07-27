@@ -166,10 +166,24 @@ export const driverAccounts = pgTable("driver_accounts", {
   id: serial("id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name").notNull(),
+  passwordHash: text("password_hash").notNull().default(""),
+  phone: text("phone").notNull().default(""),
+  homeZip: text("home_zip").notNull().default(""),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("driver_accounts_email_unique").on(table.email),
+]);
+
+export const mobileSessions = pgTable("mobile_sessions", {
+  id: serial("id").primaryKey(),
+  tokenHash: text("token_hash").notNull(),
+  role: text("role", { enum: ["driver", "bakery", "pantry"] }).notNull(),
+  accountId: integer("account_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("mobile_sessions_token_unique").on(table.tokenHash),
 ]);
 
 export const organizationContacts = pgTable("organization_contacts", {

@@ -1,5 +1,6 @@
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import * as SecureStore from "expo-secure-store";
+import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -13,7 +14,10 @@ import {
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 type Role = "driver" | "bakery" | "pantry";
-type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending";
+type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
+type Session = { role: Role; accountId: number; displayName: string; email: string };
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://baked-boston.com";
+const TOKEN_KEY = "bakedboston.mobileToken";
 
 const colors = {
   forest: "#173B2D",
@@ -37,6 +41,28 @@ const roleCopy: Record<Role, { icon: string; title: string; description: string 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const [role, setRole] = useState<Role | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  useEffect(() => {
+    SecureStore.getItemAsync(TOKEN_KEY).then(async (token) => {
+      if (!token) return;
+      const response = await fetch(`${API_URL}/api/mobile/auth`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) await SecureStore.deleteItemAsync(TOKEN_KEY);
+      else {
+        const data = await response.json();
+        setSession(data.session);
+        setRole(data.session.role); setScreen("workspace");
+      }
+    }).catch(() => undefined);
+  }, []);
+  async function authenticated(data: { token: string; session: Session }) {
+    await SecureStore.setItemAsync(TOKEN_KEY, data.token);
+    setSession(data.session); setRole(data.session.role); setScreen("workspace");
+  }
+  async function signOut() {
+    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    if (token) await fetch(`${API_URL}/api/mobile/auth`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+    await SecureStore.deleteItemAsync(TOKEN_KEY); setSession(null); setRole(null); setScreen("welcome");
+  }
 
   const chooseRole = (nextRole: Role) => {
     setRole(nextRole);
@@ -57,16 +83,18 @@ export default function App() {
       <StatusBar style={screen === "welcome" ? "light" : "dark"} />
       {screen === "welcome" ? (
         <WelcomeScreen onChoose={chooseRole} />
+      ) : screen === "workspace" && session ? (
+        <PortalHome session={session} onSignOut={signOut} />
       ) : (
         <AuthFrame onBack={back} role={role}>
           {screen === "driver-access" && (
-            <DriverAccess onCreate={() => setScreen("driver-register")} />
+            <DriverAccess onCreate={() => setScreen("driver-register")} onAuthenticated={authenticated} />
           )}
           {screen === "driver-register" && (
-            <DriverRegistration onComplete={() => setScreen("pending")} />
+            <DriverRegistration onAuthenticated={authenticated} />
           )}
           {screen === "partner-login" && role && (
-            <PartnerLogin role={role} onRequest={() => setScreen("partner-request")} />
+            <PartnerLogin role={role} onRequest={() => setScreen("partner-request")} onAuthenticated={authenticated} />
           )}
           {screen === "partner-request" && role && (
             <PartnerRequest role={role} onComplete={() => setScreen("pending")} />
@@ -145,7 +173,9 @@ function AuthFrame({ children, onBack, role }: { children: React.ReactNode; onBa
   );
 }
 
-function DriverAccess({ onCreate }: { onCreate: () => void }) {
+function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  async function login() { setBusy(true); setError(""); const response = await fetch(`${API_URL}/api/mobile/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", role: "driver", email, password }) }); const data = await response.json(); setBusy(false); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); }
   return <>
     <Text style={styles.authEyebrow}>DRIVER ACCESS</Text>
     <Text style={styles.authTitle}>Ready to rescue?</Text>
@@ -156,41 +186,48 @@ function DriverAccess({ onCreate }: { onCreate: () => void }) {
       <Text style={styles.dividerText}>OR SIGN IN</Text>
       <View style={styles.dividerLine} />
     </View>
-    <Field label="Email address" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
-    <Field label="Password" placeholder="Enter your password" secureTextEntry />
-    <PrimaryButton label="Sign in as driver" dark onPress={() => undefined} />
+    <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
+    <Field label="Password" value={password} onChangeText={setPassword} placeholder="Enter your password" secureTextEntry />
+    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    <PrimaryButton label={busy ? "Signing in…" : "Sign in as driver"} dark disabled={busy || !email || !password} onPress={login} />
     <Pressable><Text style={styles.linkText}>Forgot your password?</Text></Pressable>
   </>;
 }
 
-function DriverRegistration({ onComplete }: { onComplete: () => void }) {
+function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const [agreed, setAgreed] = useState(false);
+  const [form, setForm] = useState({ displayName: "", email: "", phone: "", homeZip: "", password: "" }); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  async function register() { setBusy(true); setError(""); const response = await fetch(`${API_URL}/api/mobile/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "register-driver", role: "driver", ...form }) }); const data = await response.json(); setBusy(false); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not create driver account."); }
   return <>
     <Text style={styles.authEyebrow}>NEW DRIVER</Text>
     <Text style={styles.authTitle}>Create your profile.</Text>
     <Text style={styles.authBody}>You’ll use this account to reserve routes, confirm pickups, and record completed deliveries.</Text>
-    <Field label="Full name" placeholder="Your name" />
-    <Field label="Email address" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
-    <Field label="Mobile number" placeholder="(617) 555-0123" keyboardType="phone-pad" />
-    <Field label="Home ZIP code" placeholder="02118" keyboardType="number-pad" />
-    <Field label="Create password" placeholder="At least 8 characters" secureTextEntry />
+    <Field label="Full name" value={form.displayName} onChangeText={(displayName) => setForm({ ...form, displayName })} placeholder="Your name" />
+    <Field label="Email address" value={form.email} onChangeText={(email) => setForm({ ...form, email })} placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" />
+    <Field label="Mobile number" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} placeholder="(617) 555-0123" keyboardType="phone-pad" />
+    <Field label="Home ZIP code" value={form.homeZip} onChangeText={(homeZip) => setForm({ ...form, homeZip })} placeholder="02118" keyboardType="number-pad" />
+    <Field label="Create password" value={form.password} onChangeText={(password) => setForm({ ...form, password })} placeholder="At least 10 characters" secureTextEntry />
     <Pressable style={styles.consentRow} onPress={() => setAgreed((current) => !current)}>
       <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>{agreed && <Text style={styles.checkmark}>✓</Text>}</View>
       <Text style={styles.consentText}>I agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
     </Pressable>
-    <PrimaryButton label="Create driver profile" disabled={!agreed} onPress={onComplete} />
+    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    <PrimaryButton label={busy ? "Creating profile…" : "Create driver profile"} disabled={!agreed || busy} onPress={register} />
   </>;
 }
 
-function PartnerLogin({ role, onRequest }: { role: Role; onRequest: () => void }) {
+function PartnerLogin({ role, onRequest, onAuthenticated }: { role: Role; onRequest: () => void; onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const organization = role === "bakery" ? "bakery" : "pantry";
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  async function login() { setBusy(true); setError(""); const response = await fetch(`${API_URL}/api/mobile/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", role, email, password }) }); const data = await response.json(); setBusy(false); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); }
   return <>
     <Text style={styles.authEyebrow}>APPROVED PARTNER</Text>
     <Text style={styles.authTitle}>Welcome back.</Text>
     <Text style={styles.authBody}>Sign in with the account linked to your approved {organization} organization.</Text>
-    <Field label="Work email" placeholder={`name@your${organization}.org`} keyboardType="email-address" autoCapitalize="none" />
-    <Field label="Password" placeholder="Enter your password" secureTextEntry />
-    <PrimaryButton label={`Sign in to ${organization} workspace`} dark onPress={() => undefined} />
+    <Field label="Work email" value={email} onChangeText={setEmail} placeholder={`name@your${organization}.org`} keyboardType="email-address" autoCapitalize="none" />
+    <Field label="Password" value={password} onChangeText={setPassword} placeholder="Enter your password" secureTextEntry />
+    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    <PrimaryButton label={busy ? "Signing in…" : `Sign in to ${organization} workspace`} dark disabled={busy || !email || !password} onPress={login} />
     <View style={styles.partnerHelp}>
       <Text style={styles.partnerHelpTitle}>Not registered with BakedBoston?</Text>
       <Text style={styles.partnerHelpBody}>Submit an access request. An administrator will verify your organization before an account is activated.</Text>
@@ -213,6 +250,20 @@ function PartnerRequest({ role, onComplete }: { role: Role; onComplete: () => vo
     <Field label="Notes" placeholder="Anything we should know?" multiline />
     <PrimaryButton label="Submit access request" onPress={onComplete} />
   </>;
+}
+
+function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const copy = roleCopy[session.role];
+  return <SafeAreaView style={styles.workspaceSafe} edges={["top", "bottom"]}>
+    <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable></View>
+    <ScrollView contentContainerStyle={styles.workspaceContent}>
+      <View style={styles.roleBadge}><Text>{copy.icon}</Text><Text style={styles.roleBadgeText}>{session.role}</Text></View>
+      <Text style={styles.authEyebrow}>SIGNED IN SECURELY</Text>
+      <Text style={styles.authTitle}>Welcome, {session.displayName || "partner"}.</Text>
+      <Text style={styles.authBody}>{session.role === "driver" ? "Your driver account is ready. Route discovery and reservations are the next app milestone." : `Your ${session.role} account is connected to BakedBoston. The native availability and activity workspace comes next.`}</Text>
+      <View style={styles.connectedCard}><Text style={styles.connectedTitle}>Account connected</Text><Text style={styles.connectedBody}>{session.email}</Text><Text style={styles.connectedBody}>Role: {session.role}</Text></View>
+    </ScrollView>
+  </SafeAreaView>;
 }
 
 function PendingScreen({ role, onDone }: { role: Role | null; onDone: () => void }) {
@@ -248,6 +299,15 @@ function PrimaryButton({ label, onPress, dark = false, disabled = false }: { lab
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   welcomeSafe: { flex: 1, backgroundColor: colors.forest },
+  workspaceSafe: { flex: 1, backgroundColor: colors.cream },
+  workspaceHeader: { minHeight: 64, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.paper },
+  workspaceBrand: { flex: 1, color: colors.forest, fontWeight: "900", fontSize: 18 },
+  workspaceSignOut: { color: colors.coral, fontWeight: "800" },
+  workspaceContent: { padding: 26, gap: 12 },
+  connectedCard: { marginTop: 12, padding: 20, borderRadius: 14, backgroundColor: colors.mint, borderWidth: 1, borderColor: colors.border },
+  connectedTitle: { color: colors.forest, fontWeight: "900", fontSize: 17, marginBottom: 8 },
+  connectedBody: { color: colors.forestSoft, marginTop: 4 },
+  errorText: { color: "#A34436", fontWeight: "700", marginBottom: 10 },
   welcomeScroll: { flexGrow: 1, paddingTop: 14 },
   brandRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, gap: 10 },
   brandMark: { width: 38, height: 38, borderRadius: 19, borderBottomLeftRadius: 6, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },

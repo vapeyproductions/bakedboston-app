@@ -92,6 +92,20 @@ if (!databaseUrl) {
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS password_hash text NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS phone text NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS home_zip text NOT NULL DEFAULT ''`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS mobile_sessions (
+      id serial PRIMARY KEY,
+      token_hash text NOT NULL,
+      role text NOT NULL,
+      account_id integer NOT NULL,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS mobile_sessions_token_unique ON mobile_sessions (token_hash)`;
   await sql`
     CREATE TABLE IF NOT EXISTS partner_invitations (
       id serial PRIMARY KEY,
