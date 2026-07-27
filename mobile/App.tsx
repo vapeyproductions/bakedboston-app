@@ -546,13 +546,13 @@ function RecurringNativeEditor({ row, bakery, date, busy, onChange, onClose, onS
   row: NativeScheduleRow; bakery: boolean; date?: string; busy: boolean; onChange: (patch: Partial<NativeScheduleRow>) => void; onClose: () => void; onSave: () => void; onDelete: () => void; onCancelDate?: () => void;
 }) {
   const { width, height } = useWindowDimensions(); const compact = width > height;
-  const heading = <View style={[styles.editorHeading, compact && styles.landscapeEditorHeading]}><View><Text style={styles.portalPanelKicker}>EDIT WINDOW</Text><Text style={styles.editorTitle}>{row.day}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
+  const heading = <View style={styles.editorHeading}><Text style={styles.portalPanelKicker}>EDIT WINDOW</Text><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
   const days = <View style={[styles.choiceRow, compact && styles.landscapeDayRow]}>{nativeDays.map((day) => <Pressable key={day} onPress={() => onChange({ day })} style={[styles.choicePill, compact && styles.landscapeDayPill, row.day === day && styles.choicePillSelected]}><Text style={[styles.choiceText, row.day === day && styles.choiceTextSelected]}>{day}</Text></Pressable>)}</View>;
   const recurrence = !bakery ? <View style={[styles.choiceRow, compact && styles.landscapeRecurrence]}><Pressable onPress={() => onChange({ recurrence: "weekly", ordinal: null })} style={[styles.choicePill, row.recurrence === "weekly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "weekly" && styles.choiceTextSelected]}>Every week</Text></Pressable><Pressable onPress={() => onChange({ recurrence: "monthly", ordinal: row.ordinal ?? 1 })} style={[styles.choicePill, row.recurrence === "monthly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "monthly" && styles.choiceTextSelected]}>Once a month</Text></Pressable></View> : null;
-  const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}>{!bakery && row.recurrence === "monthly" && <EditorField label="Occurrence (1–5)" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}{bakery ? <><EditorField label="Food ready (HH:MM)" value={row.readyTime} onChangeText={(readyTime) => onChange({ readyTime })} /><EditorField label="Pickup deadline (HH:MM)" value={row.pickupDeadline} onChangeText={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><EditorField label="Opens (HH:MM)" value={row.open} onChangeText={(open) => onChange({ open })} /><EditorField label="Closes (HH:MM)" value={row.close} onChangeText={(close) => onChange({ close })} /><EditorField label="Latest arrival (HH:MM)" value={row.latestArrival} onChangeText={(latestArrival) => onChange({ latestArrival })} /></>}</View>;
+  const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}>{!bakery && row.recurrence === "monthly" && <EditorField label="Occurrence" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}{bakery ? <><TimeEditorField label="Food ready" value={row.readyTime} onChange={(readyTime) => onChange({ readyTime })} /><TimeEditorField label="Pickup deadline" value={row.pickupDeadline} onChange={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><TimeEditorField label="Opens" value={row.open} onChange={(open) => onChange({ open })} /><TimeEditorField label="Closes" value={row.close} onChange={(close) => onChange({ close })} /><TimeEditorField label="Latest arrival" value={row.latestArrival} onChange={(latestArrival) => onChange({ latestArrival })} /></>}</View>;
   const actions = <View style={[styles.editorActions, compact && styles.landscapeEditorActions]}><Pressable style={styles.editorDeleteButton} onPress={onDelete}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>{onCancelDate && <Pressable style={styles.editorCancelButton} onPress={onCancelDate}><Text style={styles.editorCancelButtonText}>Cancel hours on {date}</Text></Pressable>}<Pressable style={[styles.saveAction, compact && styles.landscapeSaveAction]} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save changes"}</Text></Pressable></View>;
-  if (compact) return <View style={styles.nativeEditor}><View style={styles.landscapeEditorTop}>{heading}<View style={styles.landscapeRecurrenceOnly}>{recurrence}</View></View>{days}<View style={styles.landscapeEditorBottom}>{fields}</View>{actions}</View>;
-  return <View style={styles.nativeEditor}>{heading}{days}{recurrence}{fields}{actions}</View>;
+  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeRecurrenceBelowTitle}>{recurrence}</View>{days}<View style={styles.landscapeEditorBottom}>{fields}</View>{actions}</View>;
+  return <View style={styles.nativeEditor}>{heading}{recurrence}{days}{fields}{actions}</View>;
 }
 
 function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: MobileWindow; bakery: boolean; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
@@ -575,9 +575,9 @@ function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: Mo
     if (response.ok) await onSaved("One-time window deleted."); else setError(data.error ?? "Could not delete window.");
   }
   const heading = <View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New window"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
-  const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}><EditorField label="Date (YYYY-MM-DD)" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><EditorField label={bakery ? "Food ready (HH:MM)" : "Opens (HH:MM)"} value={draft.starts} onChangeText={(starts) => setDraft({ ...draft, starts })} /><EditorField label={bakery ? "Pickup deadline (HH:MM)" : "Closes (HH:MM)"} value={draft.ends} onChangeText={(ends) => setDraft({ ...draft, ends })} />{!bakery && <EditorField label="Latest arrival (HH:MM)" value={draft.latest} onChangeText={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}</View>;
+  const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}><EditorField label="Date" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><TimeEditorField label={bakery ? "Food ready" : "Opens"} value={draft.starts} onChange={(starts) => setDraft({ ...draft, starts })} /><TimeEditorField label={bakery ? "Pickup deadline" : "Closes"} value={draft.ends} onChange={(ends) => setDraft({ ...draft, ends })} />{!bakery && <TimeEditorField label="Latest arrival" value={draft.latest} onChange={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}</View>;
   const actions = <View style={[styles.editorActions, compact && styles.landscapeEditorActions]}>{window && <Pressable style={styles.editorDeleteButton} onPress={remove}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>}<Pressable style={[styles.saveAction, compact && styles.landscapeSaveAction]} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>;
-  if (compact) return <View style={styles.nativeEditor}><View style={styles.landscapeOneTimeTop}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New window"}</Text></View><View style={styles.landscapeOneTimeActions}>{window && <Pressable style={styles.editorDeleteButton} onPress={remove}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>}<Pressable style={[styles.saveAction, styles.landscapeSaveAction]} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable><Pressable style={styles.landscapeCloseButton} onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View></View><View style={styles.landscapeEditorBottom}>{fields}</View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}</View>;
+  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeEditorBottom}>{fields}</View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
   return <View style={styles.nativeEditor}>{heading}{fields}{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
 }
 
@@ -598,6 +598,21 @@ function FourWeekNativeCalendar({ bakery, rows, windows, exceptions, onRecurring
 
 function EditorField({ label, value, onChangeText }: { label: string; value: string; onChangeText: (value: string) => void }) {
   return <View style={styles.editorField}><Text style={styles.informationLabel}>{label}</Text><TextInput style={styles.editorInput} value={value} onChangeText={onChangeText} autoCapitalize="none" autoCorrect={false} /></View>;
+}
+
+function TimeEditorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [text, setText] = useState(() => americanTime(value));
+  useEffect(() => setText(americanTime(value)), [value]);
+  function commit() {
+    const parsed = parseAmericanTime(text);
+    if (parsed) {
+      onChange(parsed);
+      setText(americanTime(parsed));
+    } else {
+      setText(americanTime(value));
+    }
+  }
+  return <View style={styles.editorField}><Text style={styles.informationLabel}>{label}</Text><TextInput style={styles.editorInput} value={text} onChangeText={(next) => { setText(next); const parsed = parseAmericanTime(next); if (parsed) onChange(parsed); }} onBlur={commit} placeholder="9:00 AM" autoCapitalize="characters" autoCorrect={false} /></View>;
 }
 
 async function workspaceRequest(method: "POST" | "PATCH" | "DELETE", body?: Record<string, unknown>, query = "") {
@@ -639,6 +654,21 @@ function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeSc
 }
 function localDateString(value: Date) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`; }
 function localTimeString(value: Date) { return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`; }
+function americanTime(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) return value;
+  const hour = Number(match[1]);
+  return `${hour % 12 || 12}:${match[2]} ${hour >= 12 ? "PM" : "AM"}`;
+}
+function parseAmericanTime(value: string) {
+  const match = /^\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*$/i.exec(value);
+  if (!match) return null;
+  let hour = Number(match[1]); const minute = Number(match[2] ?? "00");
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+  if (match[3].toUpperCase() === "AM") hour %= 12;
+  else hour = hour % 12 + 12;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
 
 function ProfilePage({ workspace, bakery, rightInset, onChanged }: { workspace: WorkspaceData; bakery: boolean; rightInset: number; onChanged: () => Promise<void> }) {
   const { width, height } = useWindowDimensions(); const landscape = width > height;
@@ -924,6 +954,7 @@ const styles = StyleSheet.create({
   landscapeEditorHeading: { width: 118, marginBottom: 0, flexShrink: 0 },
   landscapeScheduleControls: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   landscapeRecurrenceOnly: { marginLeft: "auto" },
+  landscapeRecurrenceBelowTitle: { alignSelf: "flex-start", marginTop: -4 },
   landscapeDayRow: { width: "100%", flexWrap: "nowrap", marginTop: 8, marginBottom: 0, gap: 7 },
   landscapeDayPill: { flex: 1, minHeight: 36, paddingHorizontal: 8 },
   landscapeRecurrence: { flexWrap: "nowrap", marginBottom: 0 },
