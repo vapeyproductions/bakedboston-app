@@ -336,7 +336,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   const title = section === "overview" ? "Good afternoon." : nav.find((item) => item.key === section)?.label ?? "";
 
   return (
-    <SafeAreaView style={styles.portalSafe} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.portalSafe} edges={landscape ? ["top", "left", "right"] : ["top", "bottom"]}>
       <View style={[styles.portalShell, landscape ? styles.portalLandscape : styles.portalPortrait]}>
         {landscape ? (
           <View style={styles.portalSidebar}>
@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   portalNavIcon: { color: "#A7BDB1", width: 18, fontSize: 16, textAlign: "center" },
   portalSideNavLabel: { color: "#C1D0C8", fontSize: 11, fontWeight: "700", flex: 1 },
   portalNavSelectedText: { color: colors.white },
-  portalSideBottom: { marginTop: "auto", paddingVertical: 20, borderTopWidth: 1, borderColor: "#315443", gap: 8 },
+  portalSideBottom: { marginTop: "auto", paddingTop: 20, paddingBottom: 28, borderTopWidth: 1, borderColor: "#315443", gap: 8 },
   portalAccountEmail: { color: "#A7BDB1", fontSize: 9 },
   portalSignOut: { color: colors.coral, fontSize: 10, fontWeight: "900" },
   portalMobileHeader: { minHeight: 62, paddingHorizontal: 17, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.paper, borderBottomWidth: 1, borderColor: colors.border },
