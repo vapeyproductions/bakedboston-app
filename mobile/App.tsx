@@ -361,6 +361,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [rideRequests, setRideRequests] = useState<DriverRideRequest[]>([]);
   const [routeOffers, setRouteOffers] = useState<DriverRouteOffer[]>([]);
   const [driverNotifications, setDriverNotifications] = useState<DriverNotification[]>([]);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -423,8 +424,30 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     { id: "routes", label: "My routes", icon: "↗" },
     { id: "profile", label: "Profile", icon: "○" },
   ];
+  const driverName = profile?.displayName ?? session.displayName;
+  const driverEmail = profile?.email ?? session.email;
+  function signOutFromMenu() {
+    Alert.alert("Log out of BakedBoston?", "You’ll need to sign in again to access this driver profile.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: onSignOut },
+    ]);
+  }
   return <SafeAreaView style={styles.workspaceSafe} edges={["top", "bottom"]}>
-    <View style={styles.workspaceHeader}><View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text><View style={styles.driverHeaderStatus}><View style={[styles.verificationStatusDot, verificationStatus === "verified" && styles.verificationStatusDotVerified]} /><Text style={styles.driverHeaderStatusText}>{verificationLabel}</Text></View></View>
+    <View style={styles.workspaceHeader}>
+      <View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View><Text style={styles.workspaceBrand}>BakedBoston</Text>
+      <View style={styles.driverAccountControl}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open driver account menu" onPress={() => setAccountMenuOpen((open) => !open)} style={styles.driverAvatarButton}>
+          <Text style={styles.driverAvatarText}>{initials(driverName)}</Text><Text style={styles.driverAvatarChevron}>{accountMenuOpen ? "⌃" : "⌄"}</Text>
+        </Pressable>
+        {accountMenuOpen && <View style={styles.driverAccountMenu}>
+          <Text style={styles.driverAccountName}>{driverName}</Text>
+          <Text style={styles.driverAccountEmail} numberOfLines={1}>{driverEmail}</Text>
+          <View style={styles.driverApprovalRow}><View style={[styles.verificationStatusDot, verificationStatus === "verified" && styles.verificationStatusDotVerified]} /><Text style={styles.driverHeaderStatusText}>{verificationLabel}</Text></View>
+          <Pressable style={styles.driverAccountMenuItem} onPress={() => { setSection("profile"); setAccountMenuOpen(false); }}><Text style={styles.driverAccountMenuText}>View profile</Text></Pressable>
+          <Pressable style={styles.driverAccountMenuItem} onPress={signOutFromMenu}><Text style={styles.driverLogoutText}>Log out</Text></Pressable>
+        </View>}
+      </View>
+    </View>
     <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {session.demo && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
@@ -1301,12 +1324,23 @@ const styles = StyleSheet.create({
   portalFeatureButtonText: { color: colors.white, fontSize: 10, fontWeight: "900" },
   welcomeSafe: { flex: 1, backgroundColor: colors.forest },
   workspaceSafe: { flex: 1, backgroundColor: colors.cream },
-  workspaceHeader: { minHeight: 64, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.paper },
+  workspaceHeader: { zIndex: 100, minHeight: 64, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.paper },
   workspaceBrand: { flex: 1, color: colors.forest, fontWeight: "900", fontSize: 18 },
   workspaceSignOut: { color: colors.coral, fontWeight: "800" },
   workspaceContent: { padding: 26, gap: 12 },
   driverHeaderStatus: { flexDirection: "row", alignItems: "center", gap: 7 },
   driverHeaderStatusText: { color: colors.forestSoft, fontSize: 9, fontWeight: "800" },
+  driverAccountControl: { position: "relative", zIndex: 110 },
+  driverAvatarButton: { minWidth: 54, height: 40, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: 22, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.mint },
+  driverAvatarText: { color: colors.forest, fontSize: 11, fontWeight: "900" },
+  driverAvatarChevron: { color: colors.forestSoft, fontSize: 10, fontWeight: "900" },
+  driverAccountMenu: { position: "absolute", top: 47, right: 0, width: 245, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.paper, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 12 },
+  driverAccountName: { color: colors.forest, fontSize: 14, fontWeight: "900" },
+  driverAccountEmail: { marginTop: 4, color: colors.sage, fontSize: 9 },
+  driverApprovalRow: { marginTop: 13, marginBottom: 6, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 7, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border },
+  driverAccountMenuItem: { minHeight: 40, justifyContent: "center", borderBottomWidth: 1, borderBottomColor: colors.border },
+  driverAccountMenuText: { color: colors.forest, fontSize: 10, fontWeight: "900" },
+  driverLogoutText: { color: colors.coral, fontSize: 10, fontWeight: "900" },
   driverTabs: { minHeight: 64, paddingHorizontal: 10, flexDirection: "row", alignItems: "stretch", backgroundColor: colors.paper, borderBottomWidth: 1, borderBottomColor: colors.border },
   driverTab: { flex: 1, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 3, borderBottomWidth: 3, borderBottomColor: "transparent" },
   driverTabActive: { borderBottomColor: colors.coral },
