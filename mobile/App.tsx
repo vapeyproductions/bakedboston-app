@@ -389,7 +389,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     let timer: ReturnType<typeof setInterval> | undefined;
     if (!session.demo) {
-      void registerForDriverPushNotifications().catch(() => undefined);
+      void registerForPushNotifications().catch(() => undefined);
       loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
       const refreshMatching = async () => {
         const coordinates = await currentDriverCoordinates();
@@ -687,7 +687,7 @@ async function currentDriverCoordinates() {
   const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   return { latitude: location.coords.latitude, longitude: location.coords.longitude };
 }
-async function registerForDriverPushNotifications() {
+async function registerForPushNotifications() {
   if (!Device.isDevice) return;
   const existing = await Notifications.getPermissionsAsync();
   const permission = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
@@ -722,6 +722,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   const [workspaceError, setWorkspaceError] = useState("");
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => undefined);
+    void registerForPushNotifications().catch(() => undefined);
   }, []);
   const refreshWorkspace = useCallback(async () => {
     setWorkspaceError("");
