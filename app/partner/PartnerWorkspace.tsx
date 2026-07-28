@@ -197,9 +197,14 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
             <h2>{available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
             <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p>
-            {notifications[0] && <StatusNotification notification={notifications[0]} onAcknowledge={async (notification) => {
+            {notifications[0] && <StatusNotification notification={notifications[0]} onAcknowledge={async (notification, handoffAction) => {
               const pickupReady = notification.actionKey.startsWith("pickup-ready:");
-              const response = await fetch("/api/partner/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pickupReady ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) } : { id: notification.id, acknowledge: true }) });
+              const handoff = notification.actionKey.startsWith("confirm-handoff:");
+              const response = await fetch("/api/partner/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pickupReady
+                ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) }
+                : handoff
+                  ? { action: handoffAction ?? "confirm-handoff", offerId: Number(notification.actionKey.split(":")[1]) }
+                  : { id: notification.id, acknowledge: true }) });
               if (response.ok) setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString(), acknowledgedAt: new Date().toISOString() } : item));
             }} />}
             {bakery && <BakeryPickupConfirmation occurrence={todayPickup} busy={pickupBusy} onRespond={respondToPickup} showSummary={!notifications[0]} />}
@@ -242,8 +247,11 @@ function BakeryPickupConfirmation({ occurrence, busy, onRespond, showSummary }: 
   </section>;
 }
 
-function StatusNotification({ notification, onAcknowledge }: { notification: PartnerNotification; onAcknowledge: (notification: PartnerNotification) => void }) {
-  return <section className="statusNotification"><strong>{notification.title}</strong><span>{notification.body}</span>{notification.actionRequired && !notification.acknowledgedAt && <button onClick={() => onAcknowledge(notification)}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : "Acknowledge"}</button>}</section>;
+function StatusNotification({ notification, onAcknowledge }: { notification: PartnerNotification; onAcknowledge: (notification: PartnerNotification, handoffAction?: "confirm-handoff" | "handoff-not-picked-up") => void }) {
+  const handoff = notification.actionKey.startsWith("confirm-handoff:");
+  const arrivedAt = Number(notification.actionKey.split(":")[2] ?? 0);
+  const canReportMissing = handoff && arrivedAt > 0 && Date.now() - arrivedAt >= 15 * 60_000;
+  return <section className="statusNotification"><strong>{notification.title}</strong><span>{notification.body}</span>{notification.actionRequired && !notification.acknowledgedAt && <div className="statusNotificationActions"><button onClick={() => onAcknowledge(notification, handoff ? "confirm-handoff" : undefined)}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : "Acknowledge"}</button>{canReportMissing && <button className="secondaryStatusAction" onClick={() => { if (window.confirm("Confirm that the driver has not picked up the food? BakedBoston administrators will be notified.")) onAcknowledge(notification, "handoff-not-picked-up"); }}>Food was not picked up</button>}</div>}</section>;
 }
 
 function formatOccurrenceWindow(occurrence: PickupOccurrence) {

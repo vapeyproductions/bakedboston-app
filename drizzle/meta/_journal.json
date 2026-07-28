@@ -162,6 +162,13 @@
       "when": 1785223094796,
       "tag": "0022_clammy_senator_kelly",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785224801586,
+      "tag": "0023_giant_living_tribunal",
+      "breakpoints": true
     }
   ]
 }

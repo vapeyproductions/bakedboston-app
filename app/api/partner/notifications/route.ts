@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { inAppNotifications, partnerAccounts } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { markPickupReady } from "../../../pickup-readiness";
+import { recordBakeryHandoff } from "../../../bakery-handoffs";
 
 async function currentRecipient() {
   const accountId = await getPartnerAccountId();
@@ -32,6 +33,11 @@ export async function PATCH(request: Request) {
     if (recipient.type !== "bakery") return Response.json({ error: "Only bakery accounts can confirm pickup readiness." }, { status: 403 });
     const offer = await markPickupReady(recipient.id, Number(body.offerId));
     return offer ? Response.json({ offer }) : Response.json({ error: "Active pickup not found." }, { status: 404 });
+  }
+  if (body.action === "confirm-handoff" || body.action === "handoff-not-picked-up") {
+    if (recipient.type !== "bakery") return Response.json({ error: "Only bakery accounts can respond to pickup handoffs." }, { status: 403 });
+    const result = await recordBakeryHandoff(recipient.id, Number(body.offerId), body.action === "confirm-handoff");
+    return "error" in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result);
   }
   const id = Number(body.id);
   if (!Number.isInteger(id)) return Response.json({ error: "A valid notification is required." }, { status: 400 });

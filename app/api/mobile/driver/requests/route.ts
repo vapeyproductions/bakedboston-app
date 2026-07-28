@@ -460,14 +460,16 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         recipientType: "bakery", recipientId: bakery.id, eventType: "driver_arrived_at_bakery",
         threadKey: `pickup:${pickup.id}`,
         title: "Driver has arrived", body: `${driver.displayName} has arrived at ${bakery.name} for the pickup.`,
-        actionRequired: true, actionKey: `confirm-handoff:${offer.id}`,
+        actionRequired: true, actionKey: `confirm-handoff:${offer.id}:${now.getTime()}`,
       });
     } else if (nextStage === "picked_up") {
       await Promise.all([
         replaceOperationalNotification({
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_picked_up",
           threadKey: `pickup:${pickup.id}`,
-          title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}.`,
+          title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}. Please confirm the bakery handoff when convenient.`,
+          actionRequired: !offer.bakeryHandoffConfirmedAt && !offer.bakeryHandoffDisputedAt,
+          actionKey: offer.bakeryHandoffConfirmedAt || offer.bakeryHandoffDisputedAt ? "" : `confirm-handoff:${offer.id}:${offer.arrivedAtBakeryAt?.getTime() ?? now.getTime()}`,
         }),
         replaceOperationalNotification({
           recipientType: "pantry", recipientId: pantry.id, eventType: "delivery_en_route",

@@ -964,22 +964,28 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
 }
 
 function PartnerMobileNotificationCard({ notification, onChanged, compact = false }: { notification: DriverNotification; onChanged: () => Promise<void>; compact?: boolean }) {
-  async function acknowledge() {
+  async function acknowledge(handoffAction?: "confirm-handoff" | "handoff-not-picked-up") {
     try {
       const pickupReady = notification.actionKey.startsWith("pickup-ready:");
+      const handoff = notification.actionKey.startsWith("confirm-handoff:");
       await mobileNotificationsRequest("PATCH", pickupReady
         ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) }
-        : { id: notification.id, acknowledge: true });
+        : handoff
+          ? { action: handoffAction ?? "confirm-handoff", offerId: Number(notification.actionKey.split(":")[1]) }
+          : { id: notification.id, acknowledge: true });
       await onChanged();
     } catch (reason) {
       Alert.alert("Could not acknowledge notification", reason instanceof Error ? reason.message : "Please try again.");
     }
   }
+  const handoff = notification.actionKey.startsWith("confirm-handoff:");
+  const arrivedAt = Number(notification.actionKey.split(":")[2] ?? 0);
+  const canReportMissing = handoff && arrivedAt > 0 && Date.now() - arrivedAt >= 15 * 60_000;
   return <View style={compact ? styles.statusNotificationMobile : styles.driverNotificationCard}>
     <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
     <Text style={compact ? styles.statusNotificationTitle : styles.connectedTitle}>{notification.title}</Text>
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
-    {notification.actionRequired && !notification.acknowledgedAt && <Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={acknowledge}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : "Acknowledge"}</Text></Pressable>}
+    {notification.actionRequired && !notification.acknowledgedAt && <View style={styles.notificationActionRow}><Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined)}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : "Acknowledge"}</Text></Pressable>{canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}</View>}
     {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }
@@ -1650,6 +1656,8 @@ const styles = StyleSheet.create({
   statusNotificationTitle: { color: colors.white, fontSize: 12, fontWeight: "900", marginTop: 5 },
   statusNotificationBody: { color: "#B7CBC0", fontSize: 9, lineHeight: 14, marginTop: 4 },
   statusNotificationButton: { backgroundColor: colors.coral },
+  notificationActionRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 9 },
+  notificationSecondaryButton: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38" },
   driverSearchTimeRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
   locationPreferenceButton: { minHeight: 42, marginBottom: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   locationPreferenceText: { color: colors.forest, fontSize: 9, fontWeight: "900" },

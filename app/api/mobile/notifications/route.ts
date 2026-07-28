@@ -3,6 +3,7 @@ import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bakeryPickupOccurrences, inAppNotifications, mobileSessions, partnerAccounts } from "../../../../db/schema";
 import { markPickupReady } from "../../../pickup-readiness";
+import { recordBakeryHandoff } from "../../../bakery-handoffs";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -52,6 +53,11 @@ export async function PATCH(request: Request) {
     if (current.type !== "bakery") return Response.json({ error: "Only bakery accounts can confirm pickup readiness." }, { status: 403 });
     const offer = await markPickupReady(current.id, Number(body.offerId));
     return offer ? Response.json({ offer }) : Response.json({ error: "Active pickup not found." }, { status: 404 });
+  }
+  if (body.action === "confirm-handoff" || body.action === "handoff-not-picked-up") {
+    if (current.type !== "bakery") return Response.json({ error: "Only bakery accounts can respond to pickup handoffs." }, { status: 403 });
+    const result = await recordBakeryHandoff(current.id, Number(body.offerId), body.action === "confirm-handoff");
+    return "error" in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result);
   }
   const id = Number(body.id);
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "A valid notification is required." }, { status: 400 });

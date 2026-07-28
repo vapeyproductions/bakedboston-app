@@ -1,0 +1,1 @@
+ALTER TABLE "route_offers" ADD COLUMN "bakery_handoff_disputed_at" timestamp with time zone;

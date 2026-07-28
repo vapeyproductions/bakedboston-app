@@ -43,6 +43,17 @@
   font-size: 9px;
 }
 
+.statusNotificationActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.statusNotification .secondaryStatusAction {
+  border-color: #ffffff38;
+  background: transparent;
+}
+
 .statusNotification button {
   justify-self: start;
   margin-top: 4px;

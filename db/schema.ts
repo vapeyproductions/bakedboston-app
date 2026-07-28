@@ -249,6 +249,7 @@ export const routeOffers = pgTable("route_offers", {
   readyReminder20SentAt: timestamp("ready_reminder_20_sent_at", { withTimezone: true }),
   readyReminder15SentAt: timestamp("ready_reminder_15_sent_at", { withTimezone: true }),
   bakeryHandoffConfirmedAt: timestamp("bakery_handoff_confirmed_at", { withTimezone: true }),
+  bakeryHandoffDisputedAt: timestamp("bakery_handoff_disputed_at", { withTimezone: true }),
   status: text("status", { enum: ["queued", "offered", "accepted", "declined", "expired", "withdrawn", "cancelled"] }).notNull().default("queued"),
   offeredAt: timestamp("offered_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
