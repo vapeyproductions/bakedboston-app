@@ -49,7 +49,10 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
   const activeOneTime = oneTimeWindows.find((window) => !window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
   const pausedOneTime = oneTimeWindows.find((window) => window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
-  const available = (scheduledOpen && !schedulePaused) || Boolean(activeOneTime);
+  const todayPickup = pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+  const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
+  const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);
+  const available = recurringAvailable || Boolean(activeOneTime);
   const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${route.scheduledArrival}`, status: route.status }));
   const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
   async function refreshAvailability() {
@@ -192,11 +195,11 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
         {bakery && <BakeryPickupConfirmation occurrence={pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()))} busy={pickupBusy} onRespond={respondToPickup} />}
         <div className="statusBanner">
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
-            <h2>{available ? (activeOneTime ? "Open for a one-time receiving window." : bakery ? "A scheduled pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? "Delivery availability is paused." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
-            <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : available ? "Availability is based on the saved organization schedule." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p></div>
+            <h2>{available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
+            <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p></div>
           {activeOneTime && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
           {pausedOneTime && <button onClick={() => setOneTimePaused(pausedOneTime, false)}>Resume availability</button>}
-          {scheduledOpen && !schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={pauseSchedule}>Pause availability</button>}
+          {recurringAvailable && !activeOneTime && !pausedOneTime && <button onClick={pauseSchedule}>Pause availability</button>}
           {scheduledOpen && schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={resumeSchedule}>Resume availability</button>}
           {!scheduledOpen && !activeOneTime && !pausedOneTime && <button onClick={() => showWindowDialog(true)}>{bakery ? "Start pickup window" : "Open to accept deliveries"}</button>}
         </div>

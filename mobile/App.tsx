@@ -735,15 +735,20 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const upcoming = workspace.routes.find((route) => route.status !== "completed");
   const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
+  const todayPickup = workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
+  const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
+  const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
+    && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
+  const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime) || (scheduledBakeryOpen && pickupConfirmed));
   if (section === "overview") {
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
       {bakery && <NativePickupConfirmation occurrence={workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(new Date()))} onChanged={onChanged} />}
       {workspace.notifications.slice(0, 3).map((notification) => <PartnerMobileNotificationCard notification={notification} onChanged={onChanged} key={notification.id} />)}
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
-          <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
-          <Text style={styles.portalStatusTitle}>{paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? "Manage today’s pickup availability." : "Manage today’s delivery availability."}</Text>
-          <Text style={styles.portalStatusBody}>{activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}` : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
+          <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
+          <Text style={styles.portalStatusTitle}>{paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
+          <Text style={styles.portalStatusBody}>{activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}` : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}` : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
         </View>
         <Pressable style={styles.portalStatusButton} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
       </View>
@@ -820,6 +825,13 @@ function mobileBakeryWindowForToday(workspace: WorkspaceData) {
   } catch {
     return null;
   }
+}
+
+function mobileBakeryWindowIsOpen(workspace: WorkspaceData, now: Date) {
+  const window = mobileBakeryWindowForToday(workspace);
+  if (!window) return false;
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  return window.readyTime <= time && time <= window.pickupDeadline;
 }
 
 function MetricCard({ value, label }: { value: string; label: string }) {
