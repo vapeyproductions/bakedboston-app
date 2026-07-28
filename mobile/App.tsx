@@ -422,7 +422,6 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     { id: "home", label: "Home", icon: "⌂" },
     { id: "search", label: "Search", icon: "⌕" },
     { id: "routes", label: "My routes", icon: "↗" },
-    { id: "profile", label: "Profile", icon: "○" },
   ];
   const driverName = profile?.displayName ?? session.displayName;
   const driverEmail = profile?.email ?? session.email;
