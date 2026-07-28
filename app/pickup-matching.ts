@@ -117,7 +117,7 @@ function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
   return earthMiles * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function pantryAcceptsAt(pantry: typeof pantries.$inferSelect, arrival: Date) {
+export function pantryAcceptsAt(pantry: typeof pantries.$inferSelect, arrival: Date) {
   const day = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(arrival);
   const time = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",

@@ -9,7 +9,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bakedboston.app"
+      "bundleIdentifier": "com.bakedboston.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "BakedBoston uses your location while the app is open to calculate traffic-aware departure times for accepted deliveries."
+      }
     },
     "android": {
       "package": "com.bakedboston.app",
@@ -33,7 +36,8 @@
           "cameraPermission": "Allow BakedBoston to take access photos for drivers.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-location"
     ]
   }
 }

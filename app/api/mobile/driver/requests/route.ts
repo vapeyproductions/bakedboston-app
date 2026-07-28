@@ -39,8 +39,15 @@ async function currentDriver(request: Request) {
 export async function GET(request: Request) {
   const driver = await currentDriver(request);
   if (!driver) return Response.json({ error: "Session expired." }, { status: 401 });
+  const url = new URL(request.url);
+  const latitude = Number(url.searchParams.get("latitude"));
+  const longitude = Number(url.searchParams.get("longitude"));
+  const driverLocation = Number.isFinite(latitude) && Number.isFinite(longitude)
+    && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+    ? { latitude, longitude }
+    : null;
   await expireAndAdvanceOffers();
-  await processDepartureNotifications(driver.id);
+  await processDepartureNotifications(driver.id, driverLocation);
   const db = getDb();
   const [requests, offers, notifications] = await Promise.all([
     db.select().from(driverRideRequests).where(eq(driverRideRequests.driverId, driver.id)).orderBy(desc(driverRideRequests.createdAt)),

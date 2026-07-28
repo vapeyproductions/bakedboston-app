@@ -2,6 +2,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SecureStore from "expo-secure-store";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -375,13 +376,17 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     let timer: ReturnType<typeof setInterval> | undefined;
     if (!session.demo) {
       loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
-      const refreshMatching = () => loadDriverMatching().then((data) => {
+      const refreshMatching = async () => {
+        const coordinates = await currentDriverCoordinates();
+        return loadDriverMatching(coordinates).then((data) => {
         setRideRequests(data.requests);
         setRouteOffers(data.offers);
         setDriverNotifications(data.notifications);
-      }).catch(() => setError("Could not load saved ride requests."));
-      void refreshMatching();
-      timer = setInterval(refreshMatching, 20_000);
+        });
+      };
+      const safeRefreshMatching = () => refreshMatching().catch(() => setError("Could not load saved ride requests."));
+      void safeRefreshMatching();
+      timer = setInterval(safeRefreshMatching, 20_000);
     }
     return () => { if (timer) clearInterval(timer); };
   }, [session.demo]);
@@ -633,9 +638,10 @@ async function driverRequest(method: "GET" | "PATCH", body?: Record<string, unkn
 }
 async function loadDriverProfile() { return (await driverRequest("GET")).driver; }
 async function saveDriverProfile(profile: DriverProfile) { return (await driverRequest("PATCH", { email: profile.email, displayName: profile.displayName, phone: profile.phone, homeAddress: profile.homeAddress, homeZip: profile.homeZip })).driver; }
-async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Record<string, unknown>) {
+async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Record<string, unknown>, coordinates?: { latitude: number; longitude: number } | null) {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
-  const response = await fetch(`${API_URL}/api/mobile/driver/requests`, {
+  const query = coordinates ? `?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}` : "";
+  const response = await fetch(`${API_URL}/api/mobile/driver/requests${query}`, {
     method,
     headers: { Authorization: `Bearer ${token ?? ""}`, ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
@@ -644,7 +650,16 @@ async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Re
   if (!response.ok) throw new Error(data.error ?? "Driver matching request failed.");
   return data as { request: DriverRideRequest; requests: DriverRideRequest[]; offers: DriverRouteOffer[]; notifications: DriverNotification[] };
 }
-async function loadDriverMatching() { return driverMatchingRequest("GET"); }
+async function loadDriverMatching(coordinates?: { latitude: number; longitude: number } | null) { return driverMatchingRequest("GET", undefined, coordinates); }
+async function currentDriverCoordinates() {
+  const permission = await Location.getForegroundPermissionsAsync();
+  if (permission.status !== "granted") {
+    const requested = await Location.requestForegroundPermissionsAsync();
+    if (requested.status !== "granted") return null;
+  }
+  const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  return { latitude: location.coords.latitude, longitude: location.coords.longitude };
+}
 async function createDriverRideRequest(request: DriverRideRequest) {
   return driverMatchingRequest("POST", {
     serviceDate: request.serviceDate, earliestStart: request.earliestStart, latestFinish: request.latestFinish,
