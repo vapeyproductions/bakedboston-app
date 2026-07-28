@@ -17,7 +17,15 @@ export async function POST(request: Request) {
   }, { status: 400 });
   const event = verification.event as ReceivedEvent;
   if (event.type !== "email.received" || !event.data?.email_id) return Response.json({ ok: true });
-  const content = await retrieveReceivedEmail(event.data.email_id);
+  const contentResult = await retrieveReceivedEmail(event.data.email_id);
+  if (!contentResult.ok) return Response.json({
+    error: "Could not retrieve received email content.",
+    diagnostics: {
+      resendApiKeyConfigured: Boolean((process.env.RESEND_API_KEY ?? "").trim()),
+      receivingApiStatus: contentResult.status,
+    },
+  }, { status: 502 });
+  const content = contentResult.content;
   const caseId = findCaseId([...(event.data.to ?? []), event.data.subject ?? ""]);
   const reportId = caseId ? Number(caseId.split("-")[1]) : 0;
   const [report] = reportId
@@ -32,7 +40,16 @@ export async function POST(request: Request) {
   };
   if (!report) {
     try {
-      await getDb().insert(adminInboxMessages).values(message);
+      await getDb().insert(adminInboxMessages).values(message).onConflictDoUpdate({
+        target: adminInboxMessages.externalEmailId,
+        set: {
+          senderEmail: message.senderEmail,
+          recipientEmails: message.recipientEmails,
+          subject: message.subject,
+          body: message.body,
+          updatedAt: new Date(),
+        },
+      });
     } catch {
       // Resend retries webhooks. Treat an already-stored email id as successfully processed.
     }
@@ -43,6 +60,14 @@ export async function POST(request: Request) {
       reportId,
       direction: "inbound",
       ...message,
+    }).onConflictDoUpdate({
+      target: supportReportMessages.externalEmailId,
+      set: {
+        senderEmail: message.senderEmail,
+        recipientEmails: message.recipientEmails,
+        subject: message.subject,
+        body: message.body,
+      },
     });
     await getDb().update(supportReports).set({
       unreadReplyCount: sql`${supportReports.unreadReplyCount} + 1`,
@@ -90,10 +115,13 @@ function verifyWebhook(payload: string, headers: Headers): {
 }
 
 async function retrieveReceivedEmail(id: string) {
-  const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY ?? ""}` } });
-  if (!response.ok) return {} as { text?: string; html?: string; from?: string; subject?: string };
+  const response = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${(process.env.RESEND_API_KEY ?? "").trim()}` } });
+  if (!response.ok) return { ok: false as const, status: response.status };
   const result = await response.json() as Record<string, unknown>;
-  return (result.data && typeof result.data === "object" ? result.data : result) as { text?: string; html?: string; from?: string; subject?: string };
+  return {
+    ok: true as const,
+    content: (result.data && typeof result.data === "object" ? result.data : result) as { text?: string; html?: string; from?: string; subject?: string },
+  };
 }
 
 function findCaseId(values: string[]) {
