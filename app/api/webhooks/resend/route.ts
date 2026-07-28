@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from "crypto";
 import { eq, sql } from "drizzle-orm";
+import { Webhook } from "svix";
 import { getDb } from "../../../../db";
 import { adminInboxMessages, supportReportMessages, supportReports } from "../../../../db/schema";
 
@@ -10,8 +10,12 @@ type ReceivedEvent = {
 
 export async function POST(request: Request) {
   const payload = await request.text();
-  if (!verifyWebhook(payload, request.headers)) return Response.json({ error: "Invalid webhook signature." }, { status: 400 });
-  const event = JSON.parse(payload) as ReceivedEvent;
+  const verification = verifyWebhook(payload, request.headers);
+  if (!verification.ok) return Response.json({
+    error: "Invalid webhook signature.",
+    diagnostics: verification.diagnostics,
+  }, { status: 400 });
+  const event = verification.event as ReceivedEvent;
   if (event.type !== "email.received" || !event.data?.email_id) return Response.json({ ok: true });
   const content = await retrieveReceivedEmail(event.data.email_id);
   const caseId = findCaseId([...(event.data.to ?? []), event.data.subject ?? ""]);
@@ -50,23 +54,39 @@ export async function POST(request: Request) {
   return Response.json({ ok: true });
 }
 
-function verifyWebhook(payload: string, headers: Headers) {
-  const configured = process.env.RESEND_WEBHOOK_SECRET ?? "";
+function verifyWebhook(payload: string, headers: Headers): {
+  ok: true;
+  event: unknown;
+} | {
+  ok: false;
+  diagnostics: Record<string, boolean | number>;
+} {
+  const configured = (process.env.RESEND_WEBHOOK_SECRET ?? "").trim();
   const id = headers.get("svix-id") ?? "";
   const timestamp = headers.get("svix-timestamp") ?? "";
   const supplied = headers.get("svix-signature") ?? "";
-  if (!configured || !id || !timestamp || !supplied) return false;
-  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 5 * 60) return false;
-  const secret = configured.startsWith("whsec_") ? configured.slice(6) : configured;
-  let key: Buffer;
-  try { key = Buffer.from(secret, "base64"); } catch { return false; }
-  const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${payload}`).digest();
-  return supplied.split(" ").some((signature) => {
-    const encoded = signature.startsWith("v1,") ? signature.slice(3) : "";
-    if (!encoded) return false;
-    const candidate = Buffer.from(encoded, "base64");
-    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
-  });
+  const diagnostics = {
+    secretConfigured: Boolean(configured),
+    secretHasExpectedPrefix: configured.startsWith("whsec_"),
+    configuredLength: configured.length,
+    idReceived: Boolean(id),
+    timestampReceived: Boolean(timestamp),
+    signatureReceived: Boolean(supplied),
+    signatureLength: supplied.length,
+  };
+  if (!configured || !id || !timestamp || !supplied) return { ok: false, diagnostics };
+  try {
+    return {
+      ok: true,
+      event: new Webhook(configured).verify(payload, {
+        "svix-id": id,
+        "svix-timestamp": timestamp,
+        "svix-signature": supplied,
+      }),
+    };
+  } catch {
+    return { ok: false, diagnostics };
+  }
 }
 
 async function retrieveReceivedEmail(id: string) {
