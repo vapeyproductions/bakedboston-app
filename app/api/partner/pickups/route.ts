@@ -1,6 +1,6 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { bakeries, bakeryPickupOccurrences, inAppNotifications, partnerAccounts } from "../../../../db/schema";
+import { bakeries, bakeryPickupOccurrences, inAppNotifications, partnerAccounts, routeOffers } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
@@ -95,6 +95,21 @@ export async function PATCH(request: Request) {
         body: matching.matchedRequests
           ? `${matching.matchedRequests} saved driver request${matching.matchedRequests === 1 ? "" : "s"} matched this pickup.`
           : "You confirmed that food will be available during this pickup window. Drivers can now reserve a route that includes it.",
+      });
+    } else {
+      await db.update(routeOffers).set({ status: "withdrawn", respondedAt: new Date() }).where(and(
+        eq(routeOffers.pickupOccurrenceId, occurrence.id),
+        inArray(routeOffers.status, ["queued", "offered"]),
+      ));
+      await replaceOperationalNotification({
+        recipientType: "bakery",
+        recipientId: current.bakery.id,
+        eventType: status === "insufficient_food" ? "pickup_unavailable" : "pickup_decision_deferred",
+        threadKey: `pickup:${occurrence.id}`,
+        title: status === "insufficient_food" ? "No pickup planned today" : "Pickup decision postponed",
+        body: status === "insufficient_food"
+          ? "You marked today’s pickup unavailable. You can change this decision from the availability card."
+          : "This pickup is not available to drivers until food availability is confirmed.",
       });
     }
     await writeAudit({

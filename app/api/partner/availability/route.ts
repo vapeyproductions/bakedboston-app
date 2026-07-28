@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   const endsAt = validDate(body.endsAt, "Closing time");
   const latestArrival = validDate(body.latestArrival, "Latest permitted arrival");
   validateWindow(startsAt, endsAt, latestArrival);
-  if (startsAt.getTime() < Date.now() - 5 * 60 * 1000) return Response.json({ error: "Opening time cannot be in the past." }, { status: 400 });
+  if (endsAt.getTime() <= Date.now()) return Response.json({ error: "The one-time window must end in the future." }, { status: 400 });
   const [record] = await db.insert(availabilityWindows).values({ organizationType: current.organizationType, organizationId: current.organizationId, startsAt, endsAt, latestArrival, paused: false }).returning();
   await audit(current, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
   return Response.json({ record }, { status: 201 });

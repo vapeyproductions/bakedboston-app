@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, count, desc, eq, gt, ne } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, ne } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import {
   availabilityPauses,
@@ -14,10 +14,12 @@ import {
   pantryAccessPhotos,
   partnerAccounts,
   rescueRoutes,
+  routeOffers,
   scheduleExceptions,
 } from "../../../../db/schema";
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
+import { replaceOperationalNotification } from "../../../operational-notifications";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -100,6 +102,16 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const db = getDb();
+    if (body.action === "pause-availability") {
+      const endsAt = validDateTime(body.endsAt, "Pause end time");
+      const [record] = await db.insert(availabilityPauses).values({
+        organizationType: account.organizationType,
+        organizationId: account.organizationId,
+        endsAt,
+      }).returning();
+      await audit(account, "paused scheduled availability", endsAt.toISOString());
+      return Response.json({ record }, { status: 201 });
+    }
     if (body.action === "create-pickup-occurrence") {
       if (account.organizationType !== "bakery") throw new Error("Only bakery accounts can create pickup occurrences.");
       const serviceDate = validDateOnly(body.serviceDate);
@@ -170,9 +182,34 @@ export async function PATCH(request: Request) {
       if (status === "confirmed") {
         const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
         if (bakery) matching = await matchConfirmedPickup(record, bakery.name, bakery.latitude, bakery.longitude);
+      } else {
+        await db.update(routeOffers).set({ status: "withdrawn", respondedAt: new Date() }).where(and(
+          eq(routeOffers.pickupOccurrenceId, record.id),
+          inArray(routeOffers.status, ["queued", "offered"]),
+        ));
       }
+      await replaceOperationalNotification({
+        recipientType: "bakery",
+        recipientId: account.organizationId,
+        eventType: status === "confirmed" ? "pickup_confirmed" : status === "insufficient_food" ? "pickup_unavailable" : "pickup_decision_deferred",
+        threadKey: `pickup:${record.id}`,
+        title: status === "confirmed" ? "Today’s pickup is confirmed" : status === "insufficient_food" ? "No pickup planned today" : "Pickup decision postponed",
+        body: status === "confirmed"
+          ? "You confirmed that food will be available during this pickup window. Drivers can now reserve a route that includes it."
+          : status === "insufficient_food"
+            ? "You marked today’s pickup unavailable. You can change this decision from the availability card."
+            : "This pickup is not available to drivers until food availability is confirmed.",
+      });
       await audit(account, `set pickup occurrence to ${status.replaceAll("_", " ")}`, record.serviceDate);
       return Response.json({ record, matching });
+    }
+    if (body.action === "set-one-time-paused") {
+      const id = Number(body.id);
+      const [window] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
+      if (!window || window.organizationType !== account.organizationType || window.organizationId !== account.organizationId) throw new Error("Availability window not found.");
+      const [record] = await db.update(availabilityWindows).set({ paused: Boolean(body.paused) }).where(eq(availabilityWindows.id, id)).returning();
+      await audit(account, body.paused ? "paused one-time availability window" : "resumed one-time availability window", String(id));
+      return Response.json({ record });
     }
     if (body.action === "update-profile") {
       const accountEmail = validEmail(body.accountEmail);
@@ -265,7 +302,12 @@ export async function DELETE(request: Request) {
   const id = Number(url.searchParams.get("id"));
   const type = url.searchParams.get("type");
   const db = getDb();
-  if (type === "contact") {
+  if (type === "pause") {
+    const [record] = await db.select().from(availabilityPauses).where(eq(availabilityPauses.id, id)).limit(1);
+    if (!record || record.organizationType !== account.organizationType || record.organizationId !== account.organizationId) return Response.json({ error: "Pause not found." }, { status: 404 });
+    await db.delete(availabilityPauses).where(eq(availabilityPauses.id, id));
+    await audit(account, "resumed scheduled availability", String(id));
+  } else if (type === "contact") {
     const [contact] = await db.select().from(organizationContacts).where(eq(organizationContacts.id, id)).limit(1);
     if (!contact || contact.organizationType !== account.organizationType || contact.organizationId !== account.organizationId) return Response.json({ error: "Contact not found." }, { status: 404 });
     const [{ value }] = await db.select({ value: count() }).from(organizationContacts).where(and(eq(organizationContacts.organizationType, account.organizationType), eq(organizationContacts.organizationId, account.organizationId)));

@@ -839,6 +839,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
 }) {
   if (error) return <WorkspaceMessage title="Could not load workspace" body={error} />;
   if (!workspace) return <WorkspaceMessage title="Loading your workspace…" body="Syncing the latest BakedBoston information." />;
+  const stableWorkspace = workspace;
   const completed = workspace.routes.filter((route) => route.status === "completed");
   const now = new Date();
   const thisMonth = workspace.routes.filter((route) => {
@@ -847,23 +848,42 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   });
   const upcoming = workspace.routes.find((route) => route.status !== "completed");
   const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
+  const pausedOneTime = workspace.availabilityWindows.find((window) => window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
   const todayPickup = workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime) || (scheduledBakeryOpen && pickupConfirmed));
+  async function changeAvailability(action: "pause" | "resume" | "pause-one-time" | "resume-one-time") {
+    if ((action === "pause-one-time" || action === "resume-one-time") && (activeOneTime || pausedOneTime)) {
+      const window = activeOneTime ?? pausedOneTime!;
+      await workspaceRequest("PATCH", { action: "set-one-time-paused", id: window.id, paused: action === "pause-one-time" });
+    } else if (action === "resume") {
+      const pause = stableWorkspace.availabilityPauses.find((item) => new Date(item.endsAt) > now);
+      if (pause) await workspaceRequest("DELETE", undefined, `?type=pause&id=${pause.id}`);
+    } else {
+      await workspaceRequest("POST", { action: "pause-availability", endsAt: mobileAvailabilityEnd(stableWorkspace, bakery, now) });
+    }
+    await onChanged();
+  }
   if (section === "overview") {
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
-      {bakery && <NativePickupConfirmation occurrence={workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(new Date()))} onChanged={onChanged} />}
-      {workspace.notifications.slice(0, 3).map((notification) => <PartnerMobileNotificationCard notification={notification} onChanged={onChanged} key={notification.id} />)}
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
           <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
           <Text style={styles.portalStatusTitle}>{paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
           <Text style={styles.portalStatusBody}>{activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}` : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}` : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
+          {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} />}
+          {workspace.notifications[0] && <PartnerMobileNotificationCard notification={workspace.notifications[0]} onChanged={onChanged} compact />}
         </View>
-        <Pressable style={styles.portalStatusButton} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
+        <View style={styles.portalStatusActions}>
+          {activeOneTime && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
+          {pausedOneTime && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume-one-time")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
+          {!activeOneTime && !pausedOneTime && paused && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
+          {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
+          <Pressable style={styles.portalStatusSecondaryButton} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
+        </View>
       </View>
       <View style={[styles.portalMetrics, !landscape && styles.portalMetricsMobile]}>
         <MetricCard value={upcoming?.scheduledArrival ?? "—"} label="Next arrival" />
@@ -903,15 +923,20 @@ function NativePickupConfirmation({ occurrence, onChanged }: { occurrence?: Pick
   if (!occurrence) return null;
   const confirmed = ["confirmed", "reserved"].includes(occurrence.status);
   const unavailable = ["insufficient_food", "cancelled"].includes(occurrence.status);
-  return <View style={[styles.nativePickupConfirmation, confirmed && styles.nativePickupConfirmed, unavailable && styles.nativePickupUnavailable]}>
+  return <View style={styles.nativePickupStatusControls}>
     <Text style={styles.portalPanelKicker}>TODAY’S PICKUP COMMITMENT</Text>
-    <Text style={styles.portalPanelTitle}>{occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text>
-    <Text style={styles.portalFeatureBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text>
-    {!confirmed && !unavailable && <View style={styles.nativePickupActions}><Pressable disabled={busy} style={styles.nativeConfirmPickup} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>Confirm pickup</Text></Pressable><Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.offerDeclineText}>Decide later</Text></Pressable><Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.offerDeclineText}>Not enough food</Text></Pressable></View>}
+    <Text style={styles.statusNotificationTitle}>{occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text>
+    <Text style={styles.statusNotificationBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text>
+    {occurrence.status !== "reserved" && <View style={styles.nativePickupActions}>
+      {!confirmed && <Pressable disabled={busy} style={styles.nativeConfirmPickup} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>{unavailable ? "Change to food available" : "Food will be available"}</Text></Pressable>}
+      {confirmed && <Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Change to not enough food</Text></Pressable>}
+      {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.statusCardLink}>Decide later</Text></Pressable>}
+      {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Not enough food</Text></Pressable>}
+    </View>}
   </View>;
 }
 
-function PartnerMobileNotificationCard({ notification, onChanged }: { notification: DriverNotification; onChanged: () => Promise<void> }) {
+function PartnerMobileNotificationCard({ notification, onChanged, compact = false }: { notification: DriverNotification; onChanged: () => Promise<void>; compact?: boolean }) {
   async function acknowledge() {
     try {
       const pickupReady = notification.actionKey.startsWith("pickup-ready:");
@@ -923,11 +948,11 @@ function PartnerMobileNotificationCard({ notification, onChanged }: { notificati
       Alert.alert("Could not acknowledge notification", reason instanceof Error ? reason.message : "Please try again.");
     }
   }
-  return <View style={styles.driverNotificationCard}>
-    <Text style={styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
-    <Text style={styles.connectedTitle}>{notification.title}</Text>
-    <Text style={styles.connectedBody}>{notification.body}</Text>
-    {notification.actionRequired && !notification.acknowledgedAt && <Pressable style={styles.nativeNotificationButton} onPress={acknowledge}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : "Acknowledge"}</Text></Pressable>}
+  return <View style={compact ? styles.statusNotificationMobile : styles.driverNotificationCard}>
+    <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
+    <Text style={compact ? styles.statusNotificationTitle : styles.connectedTitle}>{notification.title}</Text>
+    <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
+    {notification.actionRequired && !notification.acknowledgedAt && <Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={acknowledge}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : "Acknowledge"}</Text></Pressable>}
     {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }
@@ -948,6 +973,17 @@ function mobileBakeryWindowIsOpen(workspace: WorkspaceData, now: Date) {
   if (!window) return false;
   const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   return window.readyTime <= time && time <= window.pickupDeadline;
+}
+
+function mobileAvailabilityEnd(workspace: WorkspaceData, bakery: boolean, now: Date) {
+  if (bakery) {
+    const window = mobileBakeryWindowForToday(workspace);
+    if (window) return mobileLocalDateTime(localDateString(now), window.pickupDeadline);
+  } else {
+    const row = nativeScheduleRows(workspace, false).find((item) => item.day === nativeDays[now.getDay()]);
+    if (row) return mobileLocalDateTime(localDateString(now), row.close);
+  }
+  return new Date(now.getTime() + 2 * 60 * 60_000).toISOString();
 }
 
 function MetricCard({ value, label }: { value: string; label: string }) {
@@ -1372,6 +1408,8 @@ const styles = StyleSheet.create({
   portalStatusTitle: { color: colors.white, fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 11 },
   portalStatusBody: { color: "#B7CBC0", fontSize: 11, lineHeight: 17, marginTop: 8, maxWidth: 520 },
   portalStatusButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
+  portalStatusActions: { gap: 8 },
+  portalStatusSecondaryButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38", alignItems: "center", justifyContent: "center" },
   portalStatusButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   portalMetrics: { flexDirection: "row", gap: 12 },
   portalMetricsMobile: { flexDirection: "column" },
@@ -1577,8 +1615,14 @@ const styles = StyleSheet.create({
   nativePickupConfirmation: { marginBottom: 14, padding: 18, borderRadius: 13, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
   nativePickupConfirmed: { backgroundColor: "#E8F4EA", borderColor: "#9FC7A8" },
   nativePickupUnavailable: { backgroundColor: colors.paper, borderColor: colors.border },
+  nativePickupStatusControls: { marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#FFFFFF24" },
   nativePickupActions: { marginTop: 13, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 },
   nativeConfirmPickup: { paddingHorizontal: 15, paddingVertical: 11, borderRadius: 8, backgroundColor: colors.forest },
+  statusCardLink: { color: "#D6E5DC", fontSize: 9, fontWeight: "900" },
+  statusNotificationMobile: { marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#FFFFFF24" },
+  statusNotificationTitle: { color: colors.white, fontSize: 12, fontWeight: "900", marginTop: 5 },
+  statusNotificationBody: { color: "#B7CBC0", fontSize: 9, lineHeight: 14, marginTop: 4 },
+  statusNotificationButton: { backgroundColor: colors.coral },
   driverSearchTimeRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
   locationPreferenceButton: { minHeight: 42, marginBottom: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   locationPreferenceText: { color: colors.forest, fontSize: 9, fontWeight: "900" },

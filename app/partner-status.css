@@ -1,0 +1,51 @@
+.statusBanner > div:first-child {
+  flex: 1;
+}
+
+.statusActions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statusCommitment,
+.statusNotification {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding-top: 15px;
+  border-top: 1px solid #ffffff24;
+}
+
+.statusCommitment > strong,
+.statusNotification > strong {
+  font-size: 12px;
+}
+
+.statusCommitment > span,
+.statusNotification > span {
+  color: #afc3b8;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.statusCommitment .pickupConfirmationActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.statusCommitment .pickupConfirmationActions button,
+.statusNotification button {
+  padding: 9px 11px;
+  font-size: 9px;
+}
+
+.statusNotification button {
+  justify-self: start;
+  margin-top: 4px;
+  border-color: var(--coral);
+  background: var(--coral);
+}
