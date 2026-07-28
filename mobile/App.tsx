@@ -7,6 +7,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -460,7 +461,42 @@ function LiveRouteOffer({ offer, onRespond }: { offer: DriverRouteOffer; onRespo
     <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
     <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {formatMobileTime(offer.estimatedBakeryArrival)}</Text><Text style={styles.driverRouteFact}>Arrival {formatMobileTime(offer.estimatedPantryArrival)}</Text></View>
     {offer.status === "offered" && <View style={styles.offerActions}><Pressable onPress={() => onRespond(offer, "decline-offer")}><Text style={styles.offerDeclineText}>Not this one</Text></Pressable><Pressable style={styles.driverReserveButton} onPress={() => onRespond(offer, "accept-offer")}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable></View>}
+    {offer.status === "accepted" && <View style={styles.routeDirectionActions}>
+      <Pressable style={styles.primaryDirectionButton} onPress={() => offer.bakery?.address && chooseNavigationApp(offer.bakery.name, offer.bakery.address)}><Text style={styles.portalStatusButtonText}>Directions to bakery</Text></Pressable>
+      <Pressable style={styles.secondaryDirectionButton} onPress={() => offer.pantry?.address && chooseNavigationApp(offer.pantry.name, offer.pantry.address)}><Text style={styles.secondaryDirectionText}>Directions to pantry · after pickup</Text></Pressable>
+    </View>}
   </View>;
+}
+
+function chooseNavigationApp(destinationName: string, address: string) {
+  const encodedDestination = encodeURIComponent(address);
+  const options = [
+    ...(Platform.OS === "ios" ? [{
+      text: "Apple Maps",
+      onPress: () => openNavigationUrl(`https://maps.apple.com/?daddr=${encodedDestination}&dirflg=d`),
+    }] : [{
+      text: "Default maps",
+      onPress: () => openNavigationUrl(`geo:0,0?q=${encodedDestination}`),
+    }]),
+    {
+      text: "Google Maps",
+      onPress: () => openNavigationUrl(`https://www.google.com/maps/dir/?api=1&destination=${encodedDestination}&travelmode=driving`),
+    },
+    {
+      text: "Waze",
+      onPress: () => openNavigationUrl(`https://waze.com/ul?q=${encodedDestination}&navigate=yes`),
+    },
+    { text: "Cancel", style: "cancel" as const },
+  ];
+  Alert.alert(`Directions to ${destinationName}`, address, options);
+}
+
+async function openNavigationUrl(url: string) {
+  try {
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert("Could not open directions", "Install or enable a mapping app, then try again.");
+  }
 }
 
 function DriverNotificationCard({ notification }: { notification: DriverNotification }) {
@@ -1301,6 +1337,10 @@ const styles = StyleSheet.create({
   savedRequestCard: { padding: 16, borderRadius: 12, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
   liveOfferCard: { borderColor: colors.yellow, borderWidth: 2 },
   offerActions: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 14 },
+  routeDirectionActions: { marginTop: 15, gap: 9 },
+  primaryDirectionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.forest },
+  secondaryDirectionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, backgroundColor: colors.paper },
+  secondaryDirectionText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
   offerDeclineText: { color: colors.coral, fontSize: 9, fontWeight: "900" },
   driverNotificationCard: { marginTop: 12, padding: 17, borderRadius: 12, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
   nativeNotificationButton: { alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.forest },
