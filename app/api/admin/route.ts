@@ -1,6 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes, routeOffers, scheduleExceptions, supportReports } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, pushDevices, rescueRoutes, routeOffers, scheduleExceptions, supportReports } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -49,7 +49,12 @@ export async function GET() {
     db.select().from(bakeryAccessPhotos).orderBy(desc(bakeryAccessPhotos.createdAt)),
     db.select().from(availabilityWindows).orderBy(desc(availabilityWindows.createdAt)),
     db.select().from(availabilityPauses).orderBy(desc(availabilityPauses.createdAt)),
-    db.select({ id: driverAccounts.id, email: driverAccounts.email, displayName: driverAccounts.displayName, active: driverAccounts.active }).from(driverAccounts).orderBy(desc(driverAccounts.createdAt)),
+    db.select({
+      id: driverAccounts.id, email: driverAccounts.email, displayName: driverAccounts.displayName,
+      phone: driverAccounts.phone, homeAddress: driverAccounts.homeAddress, homeZip: driverAccounts.homeZip,
+      dateOfBirth: driverAccounts.dateOfBirth, identityVerificationStatus: driverAccounts.identityVerificationStatus,
+      active: driverAccounts.active, createdAt: driverAccounts.createdAt,
+    }).from(driverAccounts).orderBy(desc(driverAccounts.createdAt)),
     db.select().from(scheduleExceptions).orderBy(desc(scheduleExceptions.createdAt)),
     db.select().from(bakeryPickupOccurrences).orderBy(desc(bakeryPickupOccurrences.createdAt)),
     db.select().from(driverRideRequests).orderBy(desc(driverRideRequests.createdAt)),
@@ -258,6 +263,16 @@ export async function DELETE(request: Request) {
   const db = getDb();
   if (kind === "pantry") {
     const [record] = await db.select({ name: pantries.name }).from(pantries).where(eq(pantries.id, id)).limit(1);
+    const accounts = await db.select({ id: partnerAccounts.id }).from(partnerAccounts).where(and(eq(partnerAccounts.organizationType, "pantry"), eq(partnerAccounts.organizationId, id)));
+    if (accounts.length) await db.delete(mobileSessions).where(and(eq(mobileSessions.role, "pantry"), inArray(mobileSessions.accountId, accounts.map((account) => account.id))));
+    await db.delete(partnerInvitations).where(and(eq(partnerInvitations.organizationType, "pantry"), eq(partnerInvitations.organizationId, id)));
+    await db.delete(availabilityWindows).where(and(eq(availabilityWindows.organizationType, "pantry"), eq(availabilityWindows.organizationId, id)));
+    await db.delete(availabilityPauses).where(and(eq(availabilityPauses.organizationType, "pantry"), eq(availabilityPauses.organizationId, id)));
+    await db.delete(scheduleExceptions).where(and(eq(scheduleExceptions.organizationType, "pantry"), eq(scheduleExceptions.organizationId, id)));
+    await db.delete(routeOffers).where(eq(routeOffers.pantryId, id));
+    await db.delete(inAppNotifications).where(and(eq(inAppNotifications.recipientType, "pantry"), eq(inAppNotifications.recipientId, id)));
+    await db.delete(pushDevices).where(and(eq(pushDevices.recipientType, "pantry"), eq(pushDevices.recipientId, id)));
+    await db.delete(supportReports).where(and(eq(supportReports.reporterType, "pantry"), eq(supportReports.reporterId, id)));
     await db.delete(partnerAccounts).where(and(
       eq(partnerAccounts.organizationType, "pantry"),
       eq(partnerAccounts.organizationId, id),
@@ -268,6 +283,18 @@ export async function DELETE(request: Request) {
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted pantry profile", entityType: "pantry", entityId: id, entityName: record?.name ?? "" });
   } else if (kind === "bakery") {
     const [record] = await db.select({ name: bakeries.name }).from(bakeries).where(eq(bakeries.id, id)).limit(1);
+    const accounts = await db.select({ id: partnerAccounts.id }).from(partnerAccounts).where(and(eq(partnerAccounts.organizationType, "bakery"), eq(partnerAccounts.organizationId, id)));
+    const pickups = await db.select({ id: bakeryPickupOccurrences.id }).from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, id));
+    if (accounts.length) await db.delete(mobileSessions).where(and(eq(mobileSessions.role, "bakery"), inArray(mobileSessions.accountId, accounts.map((account) => account.id))));
+    if (pickups.length) await db.delete(routeOffers).where(inArray(routeOffers.pickupOccurrenceId, pickups.map((pickup) => pickup.id)));
+    await db.delete(partnerInvitations).where(and(eq(partnerInvitations.organizationType, "bakery"), eq(partnerInvitations.organizationId, id)));
+    await db.delete(availabilityWindows).where(and(eq(availabilityWindows.organizationType, "bakery"), eq(availabilityWindows.organizationId, id)));
+    await db.delete(availabilityPauses).where(and(eq(availabilityPauses.organizationType, "bakery"), eq(availabilityPauses.organizationId, id)));
+    await db.delete(scheduleExceptions).where(and(eq(scheduleExceptions.organizationType, "bakery"), eq(scheduleExceptions.organizationId, id)));
+    await db.delete(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, id));
+    await db.delete(inAppNotifications).where(and(eq(inAppNotifications.recipientType, "bakery"), eq(inAppNotifications.recipientId, id)));
+    await db.delete(pushDevices).where(and(eq(pushDevices.recipientType, "bakery"), eq(pushDevices.recipientId, id)));
+    await db.delete(supportReports).where(and(eq(supportReports.reporterType, "bakery"), eq(supportReports.reporterId, id)));
     await db.delete(partnerAccounts).where(and(
       eq(partnerAccounts.organizationType, "bakery"),
       eq(partnerAccounts.organizationId, id),
@@ -276,6 +303,17 @@ export async function DELETE(request: Request) {
     await db.delete(bakeryAccessPhotos).where(eq(bakeryAccessPhotos.bakeryId, id));
     await db.delete(bakeries).where(eq(bakeries.id, id));
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted bakery profile", entityType: "bakery", entityId: id, entityName: record?.name ?? "" });
+  } else if (kind === "driver") {
+    const [record] = await db.select({ name: driverAccounts.displayName, email: driverAccounts.email }).from(driverAccounts).where(eq(driverAccounts.id, id)).limit(1);
+    if (!record) return Response.json({ error: "Driver not found." }, { status: 404 });
+    await db.delete(routeOffers).where(eq(routeOffers.driverId, id));
+    await db.delete(driverRideRequests).where(eq(driverRideRequests.driverId, id));
+    await db.delete(mobileSessions).where(and(eq(mobileSessions.role, "driver"), eq(mobileSessions.accountId, id)));
+    await db.delete(inAppNotifications).where(and(eq(inAppNotifications.recipientType, "driver"), eq(inAppNotifications.recipientId, id)));
+    await db.delete(pushDevices).where(and(eq(pushDevices.recipientType, "driver"), eq(pushDevices.recipientId, id)));
+    await db.delete(supportReports).where(and(eq(supportReports.reporterType, "driver"), eq(supportReports.reporterId, id)));
+    await db.delete(driverAccounts).where(eq(driverAccounts.id, id));
+    await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted driver profile and account", entityType: "driver", entityId: id, entityName: record.name, details: record.email });
   } else {
     return Response.json({ error: "Unknown record type" }, { status: 400 });
   }

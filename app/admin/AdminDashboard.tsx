@@ -63,7 +63,7 @@ type Route = {
 };
 type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };
-type DriverAccount = { id: number; email: string; displayName: string; active: boolean };
+type DriverAccount = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; identityVerificationStatus: string; active: boolean; createdAt: string };
 type ScheduleException = { id: number; organizationType: PartnerKind; organizationId: number; exceptionDate: string };
 type PickupOccurrence = { id: number; bakeryId: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: string; confirmedAt: string | null };
 type InAppNotification = { id: number; recipientType: "driver" | "bakery" | "pantry" | "admin"; recipientId: number; title: string; body: string; actionRequired: boolean; createdAt: string };
@@ -166,7 +166,7 @@ function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime"
 }
 
 export default function AdminDashboard({ user }: { user: { name: string; email: string; isMaster: boolean } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "map" | "routes" | "reports & support" | "change log" | "settings">("overview");
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "drivers" | "map" | "routes" | "reports & support" | "change log" | "settings">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -276,13 +276,14 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "accounts", "map", "routes", "reports & support", "change log", "settings"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "accounts", "drivers", "map", "routes", "reports & support", "change log", "settings"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "map" ? "⌖" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "drivers" ? "D" : item === "map" ? "⌖" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
               {item === "accounts" && <small>{partnerAccounts.length}</small>}
+              {item === "drivers" && <small>{drivers.length}</small>}
               {item === "reports & support" && <small>{supportReports.filter((report) => report.status === "submitted").length}</small>}
             </button>
           ))}
@@ -310,6 +311,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onView={(record) => setWorkspaceRecord({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
+            {tab === "drivers" && <DriversWorkspace drivers={drivers} onChanged={refresh} setNotice={setNotice} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
             {tab === "reports & support" && <ReportsWorkspace reports={supportReports} onChanged={refresh} />}
@@ -544,12 +546,14 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
     setAdding(false);
   }
   async function removeAccount(account: PartnerAccount) {
-    if (!window.confirm(`Remove login access for ${account.accountEmail}?`)) return;
-    const response = await fetch(`/api/admin/partner-accounts?id=${account.id}`, { method: "DELETE" });
+    const name = organizationName(account);
+    if (!window.confirm(`Permanently delete ${name}?\n\nThis will delete the entire ${account.organizationType} profile, its login account (${account.accountEmail}), schedules, contacts, access photos, notifications, and active matching records. This cannot be undone.`)) return;
+    const response = await fetch(`/api/admin?kind=${account.organizationType}&id=${account.organizationId}`, { method: "DELETE" });
+    const data = await response.json().catch(() => null);
     if (response.ok) {
-      setNotice("Organization login access removed.");
+      setNotice(`${name} and its account were permanently deleted.`);
       await onChanged();
-    }
+    } else setNotice(data?.error ?? "Could not delete this organization and account.");
   }
   const organizationName = (account: PartnerAccount) =>
     (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId)?.name ?? "Unknown organization";
@@ -568,10 +572,35 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       <button className="solidBtn" disabled={adding}>{adding ? "Sending…" : "Send account invitation"}</button>
     </form>
     <div className="accountListPanel"><label className="accountSearch">Search accounts<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Organization name or account email" /></label><div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Remove access</button></div></td></tr>)}
+      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Delete profile & account</button></div></td></tr>)}
       {!visibleAccounts.length && <tr><td colSpan={5}>{accounts.length ? "No accounts match this search." : "No partner accounts have been created yet."}</td></tr>}
     </tbody></table></div></div>
   </div>;
+}
+
+function DriversWorkspace({ drivers, onChanged, setNotice }: { drivers: DriverAccount[]; onChanged: () => Promise<void>; setNotice: (message: string) => void }) {
+  const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const visible = drivers.filter((driver) => `${driver.displayName} ${driver.email} ${driver.phone} ${driver.homeZip}`.toLowerCase().includes(search.trim().toLowerCase()));
+  async function remove(driver: DriverAccount) {
+    if (!window.confirm(`Permanently delete ${driver.displayName || driver.email}?\n\nThis will delete the driver profile, login account, saved ride requests, active route assignments, device sessions, notifications, and support reports. This cannot be undone.`)) return;
+    setDeletingId(driver.id);
+    const response = await fetch(`/api/admin?kind=driver&id=${driver.id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setNotice(`${driver.displayName || driver.email} and the associated driver account were permanently deleted.`);
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not delete this driver account.");
+    setDeletingId(null);
+  }
+  return <section className="driversWorkspace">
+    <div className="panelTitle"><div><span>DRIVER ACCOUNTS</span><h2>Registered drivers</h2></div></div>
+    <label className="accountSearch">Search drivers<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, or ZIP code" /></label>
+    <div className="tablePanel"><table><thead><tr><th>Driver</th><th>Contact</th><th>Home ZIP</th><th>Verification</th><th>Joined</th><th>Action</th></tr></thead><tbody>
+      {visible.map((driver) => <tr key={driver.id}><td><strong>{driver.displayName || "Unnamed driver"}</strong><small>{driver.active ? "Active account" : "Inactive account"}</small></td><td><span>{driver.email}</span><small>{driver.phone || "No phone number"}</small></td><td>{driver.homeZip || "—"}</td><td><span className="activePill">{driver.identityVerificationStatus.replaceAll("_", " ")}</span></td><td>{new Date(driver.createdAt).toLocaleDateString()}</td><td><div className="rowActions"><button className="deleteAction" disabled={deletingId === driver.id} onClick={() => remove(driver)}>{deletingId === driver.id ? "Deleting…" : "Delete profile & account"}</button></div></td></tr>)}
+      {!visible.length && <tr><td colSpan={6}>{drivers.length ? "No drivers match this search." : "No driver accounts have been registered yet."}</td></tr>}
+    </tbody></table></div>
+  </section>;
 }
 
 function MapWorkspace({ bakeries, pantries, accounts, onView }: { bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[]; onView: (kind: PartnerKind, record: Partner) => void }) {
