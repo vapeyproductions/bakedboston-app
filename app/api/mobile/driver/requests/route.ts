@@ -18,6 +18,7 @@ import {
 import { matchConfirmedPickup, pantryAcceptsAt } from "../../../../pickup-matching";
 import { processDepartureNotifications } from "../../../../departure-notifications";
 import { replaceOperationalNotification } from "../../../../operational-notifications";
+import { trafficAwareDriveMinutes } from "../../../../google-routes";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -442,6 +443,24 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
     db.select().from(pantries).where(eq(pantries.id, offer.pantryId)).limit(1),
   ]);
   if (bakery && pantry) {
+    let pantryEta = offer.estimatedPantryArrival;
+    if (nextStage === "picked_up" && bakery.latitude !== null && bakery.longitude !== null && pantry.latitude !== null && pantry.longitude !== null) {
+      const trafficMinutes = await trafficAwareDriveMinutes(
+        { latitude: bakery.latitude, longitude: bakery.longitude },
+        { latitude: pantry.latitude, longitude: pantry.longitude },
+      );
+      const fallbackMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
+      const driveMinutes = trafficMinutes ?? Math.max(5, Math.ceil(fallbackMiles / 25 * 60));
+      pantryEta = new Date(now.getTime() + driveMinutes * 60_000);
+      await db.update(routeOffers).set({ estimatedPantryArrival: pantryEta }).where(eq(routeOffers.id, offer.id));
+      const [activeRoute] = await db.select().from(rescueRoutes).where(and(
+        eq(rescueRoutes.bakeryName, bakery.name),
+        eq(rescueRoutes.pantryName, pantry.name),
+        eq(rescueRoutes.driverName, driver.displayName),
+        eq(rescueRoutes.status, "reserved"),
+      )).limit(1);
+      if (activeRoute) await db.update(rescueRoutes).set({ scheduledArrival: pantryEta.toISOString(), status: "ongoing" }).where(eq(rescueRoutes.id, activeRoute.id));
+    }
     if (nextStage === "en_route_to_bakery") {
       await Promise.all([
         replaceOperationalNotification({
@@ -467,7 +486,7 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         replaceOperationalNotification({
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_picked_up",
           threadKey: `pickup:${pickup.id}`,
-          title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}. Please confirm the bakery handoff when convenient.`,
+          title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}, with an estimated arrival of ${pantryEta.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}. Please confirm the bakery handoff when convenient.`,
           actionRequired: !offer.bakeryHandoffConfirmedAt && !offer.bakeryHandoffDisputedAt,
           actionKey: offer.bakeryHandoffConfirmedAt || offer.bakeryHandoffDisputedAt ? "" : `confirm-handoff:${offer.id}:${offer.arrivedAtBakeryAt?.getTime() ?? now.getTime()}`,
         }),
@@ -475,7 +494,7 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
           recipientType: "pantry", recipientId: pantry.id, eventType: "delivery_en_route",
           threadKey: `pickup:${pickup.id}`,
           title: "Your delivery is on the way",
-          body: `${driver.displayName} picked up food from ${bakery.name}. Current estimated arrival: ${offer.estimatedPantryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`,
+          body: `${driver.displayName} picked up food from ${bakery.name}. Traffic-aware estimated arrival: ${pantryEta.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`,
         }),
       ]);
     } else if (nextStage === "arrived_at_pantry") {
