@@ -139,6 +139,7 @@ export async function PATCH(request: Request) {
     if (action === "accept-offer") return acceptOffer(driver, Number(body.offerId));
     if (action === "decline-offer") return declineOffer(driver.id, Number(body.offerId));
     if (action === "route-progress") return progressRoute(driver, Number(body.offerId), String(body.stage ?? ""));
+    if (action === "cancel-route") return cancelRoute(driver, Number(body.offerId));
     const id = Number(body.id);
     const status = String(body.status ?? "");
     if (!Number.isInteger(id) || !["active", "paused", "cancelled"].includes(status)) throw new Error("Choose a valid ride-request action.");
@@ -151,6 +152,79 @@ export async function PATCH(request: Request) {
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not update this ride request." }, { status: 400 });
   }
+}
+
+async function cancelRoute(driver: typeof driverAccounts.$inferSelect, offerId: number) {
+  const db = getDb();
+  const [offer] = await db.select().from(routeOffers).where(and(
+    eq(routeOffers.id, offerId),
+    eq(routeOffers.driverId, driver.id),
+    eq(routeOffers.status, "accepted"),
+  )).limit(1);
+  if (!offer) return Response.json({ error: "Active route not found." }, { status: 404 });
+  if (["picked_up", "en_route_to_pantry", "arrived_at_pantry", "completed"].includes(offer.deliveryStage)) {
+    return Response.json({ error: "This delivery can no longer be cancelled because the food has been picked up." }, { status: 409 });
+  }
+
+  const [pickup] = await db.select().from(bakeryPickupOccurrences)
+    .where(eq(bakeryPickupOccurrences.id, offer.pickupOccurrenceId)).limit(1);
+  if (!pickup) return Response.json({ error: "Pickup occurrence not found." }, { status: 404 });
+  const [[bakery], [pantry]] = await Promise.all([
+    db.select().from(bakeries).where(eq(bakeries.id, pickup.bakeryId)).limit(1),
+    db.select().from(pantries).where(eq(pantries.id, offer.pantryId)).limit(1),
+  ]);
+  if (!bakery || !pantry) return Response.json({ error: "Route organizations are unavailable." }, { status: 409 });
+
+  const now = new Date();
+  const [cancelled] = await db.update(routeOffers).set({
+    status: "cancelled",
+    respondedAt: now,
+  }).where(and(
+    eq(routeOffers.id, offer.id),
+    eq(routeOffers.status, "accepted"),
+  )).returning();
+  if (!cancelled) return Response.json({ error: "The route changed on another device. Refresh and try again." }, { status: 409 });
+
+  await db.update(bakeryPickupOccurrences).set({
+    status: "confirmed",
+    updatedAt: now,
+  }).where(and(
+    eq(bakeryPickupOccurrences.id, pickup.id),
+    eq(bakeryPickupOccurrences.status, "reserved"),
+  ));
+  await db.update(driverRideRequests).set({
+    status: "active",
+    updatedAt: now,
+  }).where(and(
+    eq(driverRideRequests.id, offer.driverRequestId),
+    eq(driverRideRequests.status, "matched"),
+  ));
+  const [route] = await db.select().from(rescueRoutes).where(and(
+    eq(rescueRoutes.bakeryName, bakery.name),
+    eq(rescueRoutes.pantryName, pantry.name),
+    eq(rescueRoutes.driverName, driver.displayName),
+    eq(rescueRoutes.status, "reserved"),
+  )).limit(1);
+  if (route) await db.update(rescueRoutes).set({ status: "cancelled" }).where(eq(rescueRoutes.id, route.id));
+
+  await db.insert(inAppNotifications).values([
+    {
+      recipientType: "bakery", recipientId: bakery.id, eventType: "driver_cancelled_route",
+      title: "Driver cancelled the pickup",
+      body: `${driver.displayName} cancelled this delivery. The pickup is available for future driver searches again.`,
+    },
+    {
+      recipientType: "pantry", recipientId: pantry.id, eventType: "driver_cancelled_route",
+      title: "Planned delivery cancelled",
+      body: `${driver.displayName} cancelled the planned delivery from ${bakery.name}. A future match may select a different pantry.`,
+    },
+    {
+      recipientType: "driver", recipientId: driver.id, eventType: "route_cancelled",
+      title: "Delivery cancelled",
+      body: `The pickup from ${bakery.name} has returned to the available pickup pool.`,
+    },
+  ]);
+  return Response.json({ offer: cancelled });
 }
 
 async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId: number, nextStage: string) {

@@ -19,7 +19,7 @@ type Account = {
 };
 type Contact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: string };
-type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string | Date };
+type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string | Date };
 type OneTimeWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type AvailabilityPause = { id: number; endsAt: string };
 type ScheduleException = { id: number; exceptionDate: string };

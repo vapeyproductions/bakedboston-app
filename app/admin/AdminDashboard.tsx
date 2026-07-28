@@ -58,7 +58,7 @@ type BakeryDayHours = { readyTime: string; pickupDeadline: string };
 type BakerySchedule = Partial<Record<string, BakeryDayHours>>;
 type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
-  scheduledArrival: string; status: "reserved" | "ongoing" | "completed";
+  scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled";
 };
 type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };

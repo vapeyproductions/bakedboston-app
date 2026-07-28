@@ -99,7 +99,7 @@ export const rescueRoutes = pgTable("rescue_routes", {
   pantryName: text("pantry_name").notNull(),
   driverName: text("driver_name").notNull().default("Unassigned"),
   scheduledArrival: text("scheduled_arrival").notNull(),
-  status: text("status", { enum: ["reserved", "ongoing", "completed"] }).notNull(),
+  status: text("status", { enum: ["reserved", "ongoing", "completed", "cancelled"] }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -229,7 +229,7 @@ export const routeOffers = pgTable("route_offers", {
   score: doublePrecision("score").notNull().default(0),
   estimatedBakeryArrival: timestamp("estimated_bakery_arrival", { withTimezone: true }).notNull(),
   estimatedPantryArrival: timestamp("estimated_pantry_arrival", { withTimezone: true }).notNull(),
-  status: text("status", { enum: ["queued", "offered", "accepted", "declined", "expired", "withdrawn"] }).notNull().default("queued"),
+  status: text("status", { enum: ["queued", "offered", "accepted", "declined", "expired", "withdrawn", "cancelled"] }).notNull().default("queued"),
   offeredAt: timestamp("offered_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   respondedAt: timestamp("responded_at", { withTimezone: true }),
