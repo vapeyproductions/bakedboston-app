@@ -6,7 +6,10 @@ import { processDriverConfirmations } from "../../mobile/driver/requests/route";
 
 export async function GET(request: Request) {
   const authorization = request.headers.get("authorization");
-  if (!process.env.CRON_SECRET || authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+  const forwardedSecret = request.headers.get("x-bakedboston-cron-secret");
+  const authenticated = Boolean(process.env.CRON_SECRET)
+    && (authorization === `Bearer ${process.env.CRON_SECRET}` || forwardedSecret === process.env.CRON_SECRET);
+  if (!authenticated) {
     return Response.json({
       error: "Unauthorized.",
       diagnostics: {
@@ -15,6 +18,8 @@ export async function GET(request: Request) {
         authorizationReceived: Boolean(authorization),
         authorizationLength: authorization?.length ?? 0,
         bearerPrefixPresent: authorization?.startsWith("Bearer ") ?? false,
+        dedicatedHeaderReceived: Boolean(forwardedSecret),
+        dedicatedHeaderLength: forwardedSecret?.length ?? 0,
       },
     }, { status: 401 });
   }
