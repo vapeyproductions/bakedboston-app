@@ -382,5 +382,20 @@ if (!databaseUrl) {
     )
   `;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS support_report_messages_external_email_unique ON support_report_messages (external_email_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS admin_inbox_messages (
+      id serial PRIMARY KEY,
+      external_email_id text NOT NULL,
+      sender_email text DEFAULT '' NOT NULL,
+      recipient_emails text DEFAULT '[]' NOT NULL,
+      subject text DEFAULT '' NOT NULL,
+      body text DEFAULT '' NOT NULL,
+      status text DEFAULT 'unread' NOT NULL,
+      linked_report_id integer,
+      created_at timestamp with time zone DEFAULT now() NOT NULL,
+      updated_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS admin_inbox_messages_external_email_unique ON admin_inbox_messages (external_email_id)`;
   console.log("Partner-account database migration complete.");
 }
