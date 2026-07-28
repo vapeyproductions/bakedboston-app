@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, pushDevices, rescueRoutes, routeOffers, scheduleExceptions, supportReports } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
+import { sendAccountStatusEmail } from "../../account-email";
 
 async function authorized() {
   return isAdministrator();
@@ -263,7 +264,8 @@ export async function DELETE(request: Request) {
   const db = getDb();
   if (kind === "pantry") {
     const [record] = await db.select({ name: pantries.name }).from(pantries).where(eq(pantries.id, id)).limit(1);
-    const accounts = await db.select({ id: partnerAccounts.id }).from(partnerAccounts).where(and(eq(partnerAccounts.organizationType, "pantry"), eq(partnerAccounts.organizationId, id)));
+    const accounts = await db.select({ id: partnerAccounts.id, email: partnerAccounts.accountEmail }).from(partnerAccounts).where(and(eq(partnerAccounts.organizationType, "pantry"), eq(partnerAccounts.organizationId, id)));
+    const primaryContacts = await db.select({ email: organizationContacts.email }).from(organizationContacts).where(and(eq(organizationContacts.organizationType, "pantry"), eq(organizationContacts.organizationId, id), eq(organizationContacts.isPrimary, true)));
     if (accounts.length) await db.delete(mobileSessions).where(and(eq(mobileSessions.role, "pantry"), inArray(mobileSessions.accountId, accounts.map((account) => account.id))));
     await db.delete(partnerInvitations).where(and(eq(partnerInvitations.organizationType, "pantry"), eq(partnerInvitations.organizationId, id)));
     await db.delete(availabilityWindows).where(and(eq(availabilityWindows.organizationType, "pantry"), eq(availabilityWindows.organizationId, id)));
@@ -280,10 +282,12 @@ export async function DELETE(request: Request) {
     await db.delete(organizationContacts).where(and(eq(organizationContacts.organizationType, "pantry"), eq(organizationContacts.organizationId, id)));
     await db.delete(pantryAccessPhotos).where(eq(pantryAccessPhotos.pantryId, id));
     await db.delete(pantries).where(eq(pantries.id, id));
+    await sendAccountStatusEmail({ to: [...accounts.map((account) => account.email), ...primaryContacts.map((contact) => contact.email)], recipientName: record?.name ?? "Pantry", accountType: "pantry", action: "deleted" });
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted pantry profile", entityType: "pantry", entityId: id, entityName: record?.name ?? "" });
   } else if (kind === "bakery") {
     const [record] = await db.select({ name: bakeries.name }).from(bakeries).where(eq(bakeries.id, id)).limit(1);
-    const accounts = await db.select({ id: partnerAccounts.id }).from(partnerAccounts).where(and(eq(partnerAccounts.organizationType, "bakery"), eq(partnerAccounts.organizationId, id)));
+    const accounts = await db.select({ id: partnerAccounts.id, email: partnerAccounts.accountEmail }).from(partnerAccounts).where(and(eq(partnerAccounts.organizationType, "bakery"), eq(partnerAccounts.organizationId, id)));
+    const primaryContacts = await db.select({ email: organizationContacts.email }).from(organizationContacts).where(and(eq(organizationContacts.organizationType, "bakery"), eq(organizationContacts.organizationId, id), eq(organizationContacts.isPrimary, true)));
     const pickups = await db.select({ id: bakeryPickupOccurrences.id }).from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, id));
     if (accounts.length) await db.delete(mobileSessions).where(and(eq(mobileSessions.role, "bakery"), inArray(mobileSessions.accountId, accounts.map((account) => account.id))));
     if (pickups.length) await db.delete(routeOffers).where(inArray(routeOffers.pickupOccurrenceId, pickups.map((pickup) => pickup.id)));
@@ -302,6 +306,7 @@ export async function DELETE(request: Request) {
     await db.delete(organizationContacts).where(and(eq(organizationContacts.organizationType, "bakery"), eq(organizationContacts.organizationId, id)));
     await db.delete(bakeryAccessPhotos).where(eq(bakeryAccessPhotos.bakeryId, id));
     await db.delete(bakeries).where(eq(bakeries.id, id));
+    await sendAccountStatusEmail({ to: [...accounts.map((account) => account.email), ...primaryContacts.map((contact) => contact.email)], recipientName: record?.name ?? "Bakery", accountType: "bakery", action: "deleted" });
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted bakery profile", entityType: "bakery", entityId: id, entityName: record?.name ?? "" });
   } else if (kind === "driver") {
     const [record] = await db.select({ name: driverAccounts.displayName, email: driverAccounts.email }).from(driverAccounts).where(eq(driverAccounts.id, id)).limit(1);
@@ -313,6 +318,7 @@ export async function DELETE(request: Request) {
     await db.delete(pushDevices).where(and(eq(pushDevices.recipientType, "driver"), eq(pushDevices.recipientId, id)));
     await db.delete(supportReports).where(and(eq(supportReports.reporterType, "driver"), eq(supportReports.reporterId, id)));
     await db.delete(driverAccounts).where(eq(driverAccounts.id, id));
+    await sendAccountStatusEmail({ to: [record.email], recipientName: record.name || record.email, accountType: "driver", action: "deleted" });
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "deleted driver profile and account", entityType: "driver", entityId: id, entityName: record.name, details: record.email });
   } else {
     return Response.json({ error: "Unknown record type" }, { status: 400 });

@@ -555,6 +555,18 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       await onChanged();
     } else setNotice(data?.error ?? "Could not delete this organization and account.");
   }
+  async function setAccountActive(account: PartnerAccount, active: boolean) {
+    const name = organizationName(account);
+    if (!window.confirm(active
+      ? `Restore account access for ${name}? The account email and primary contact will be notified.`
+      : `Temporarily disable ${name}?\n\nThe organization will be unable to sign in until an administrator restores the account. The account email and primary contact will be notified.`)) return;
+    const response = await fetch("/api/admin/account-status", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: account.organizationType, id: account.organizationId, active }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setNotice(`${name} was ${active ? "restored" : "temporarily disabled"}.${data.emailSent ? " Notification email sent." : " The status changed, but the notification email could not be sent."}`);
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not change account access.");
+  }
   const organizationName = (account: PartnerAccount) =>
     (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId)?.name ?? "Unknown organization";
   const organizationRecord = (account: PartnerAccount) =>
@@ -572,7 +584,7 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       <button className="solidBtn" disabled={adding}>{adding ? "Sending…" : "Send account invitation"}</button>
     </form>
     <div className="accountListPanel"><label className="accountSearch">Search accounts<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Organization name or account email" /></label><div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className="activePill">{account.active ? "Active" : "Paused"}</span></td><td><div className="rowActions"><button className="deleteAction" onClick={() => removeAccount(account)}>Delete profile & account</button></div></td></tr>)}
+      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className={account.active ? "activePill" : "inactivePill"}>{account.active ? "Active" : "Disabled"}</span></td><td><div className="rowActions"><button onClick={() => setAccountActive(account, !account.active)}>{account.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" onClick={() => removeAccount(account)}>Delete profile & account</button></div></td></tr>)}
       {!visibleAccounts.length && <tr><td colSpan={5}>{accounts.length ? "No accounts match this search." : "No partner accounts have been created yet."}</td></tr>}
     </tbody></table></div></div>
   </div>;
@@ -593,11 +605,22 @@ function DriversWorkspace({ drivers, onChanged, setNotice }: { drivers: DriverAc
     } else setNotice(data?.error ?? "Could not delete this driver account.");
     setDeletingId(null);
   }
+  async function setActive(driver: DriverAccount, active: boolean) {
+    if (!window.confirm(active
+      ? `Restore account access for ${driver.displayName || driver.email}? The driver will receive an email.`
+      : `Temporarily disable ${driver.displayName || driver.email}?\n\nThe driver will be unable to sign in until an administrator restores the account. They will receive an email explaining that the account is temporarily disabled.`)) return;
+    const response = await fetch("/api/admin/account-status", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "driver", id: driver.id, active }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setNotice(`${driver.displayName || driver.email} was ${active ? "restored" : "temporarily disabled"}.${data.emailSent ? " Notification email sent." : " The status changed, but the notification email could not be sent."}`);
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not change driver access.");
+  }
   return <section className="driversWorkspace">
     <div className="panelTitle"><div><span>DRIVER ACCOUNTS</span><h2>Registered drivers</h2></div></div>
     <label className="accountSearch">Search drivers<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, or ZIP code" /></label>
     <div className="tablePanel"><table><thead><tr><th>Driver</th><th>Contact</th><th>Home ZIP</th><th>Verification</th><th>Joined</th><th>Action</th></tr></thead><tbody>
-      {visible.map((driver) => <tr key={driver.id}><td><strong>{driver.displayName || "Unnamed driver"}</strong><small>{driver.active ? "Active account" : "Inactive account"}</small></td><td><span>{driver.email}</span><small>{driver.phone || "No phone number"}</small></td><td>{driver.homeZip || "—"}</td><td><span className="activePill">{driver.identityVerificationStatus.replaceAll("_", " ")}</span></td><td>{new Date(driver.createdAt).toLocaleDateString()}</td><td><div className="rowActions"><button className="deleteAction" disabled={deletingId === driver.id} onClick={() => remove(driver)}>{deletingId === driver.id ? "Deleting…" : "Delete profile & account"}</button></div></td></tr>)}
+      {visible.map((driver) => <tr key={driver.id}><td><strong>{driver.displayName || "Unnamed driver"}</strong><small>{driver.active ? "Active account" : "Temporarily disabled"}</small></td><td><span>{driver.email}</span><small>{driver.phone || "No phone number"}</small></td><td>{driver.homeZip || "—"}</td><td><span className="activePill">{driver.identityVerificationStatus.replaceAll("_", " ")}</span></td><td>{new Date(driver.createdAt).toLocaleDateString()}</td><td><div className="rowActions"><button onClick={() => setActive(driver, !driver.active)}>{driver.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" disabled={deletingId === driver.id} onClick={() => remove(driver)}>{deletingId === driver.id ? "Deleting…" : "Delete profile & account"}</button></div></td></tr>)}
       {!visible.length && <tr><td colSpan={6}>{drivers.length ? "No drivers match this search." : "No driver accounts have been registered yet."}</td></tr>}
     </tbody></table></div>
   </section>;
