@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../db";
 import { bakeries, bakeryPickupOccurrences, inAppNotifications, routeOffers } from "../db/schema";
+import { replaceOperationalNotification } from "./operational-notifications";
 
 type ReminderField = "readyReminder30SentAt" | "readyReminder25SentAt" | "readyReminder20SentAt" | "readyReminder15SentAt";
 
@@ -24,10 +25,11 @@ export async function processPickupReadinessReminders() {
     if (!pickup) continue;
     const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, pickup.bakeryId)).limit(1);
     if (!bakery) continue;
-    await db.insert(inAppNotifications).values({
+    await replaceOperationalNotification({
       recipientType: "bakery",
       recipientId: bakery.id,
       eventType: "pickup_readiness_reminder",
+      threadKey: `pickup:${pickup.id}`,
       title: "Is the food ready for pickup?",
       body: `${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} is the current driver ETA. Confirm as soon as the food is packaged and ready.`,
       actionRequired: true,

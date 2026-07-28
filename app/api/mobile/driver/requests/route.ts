@@ -16,6 +16,7 @@ import {
 } from "../../../../../db/schema";
 import { matchConfirmedPickup } from "../../../../pickup-matching";
 import { processDepartureNotifications } from "../../../../departure-notifications";
+import { replaceOperationalNotification } from "../../../../operational-notifications";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -267,22 +268,27 @@ async function cancelRoute(driver: typeof driverAccounts.$inferSelect, offerId: 
   )).limit(1);
   if (route) await db.update(rescueRoutes).set({ status: "cancelled" }).where(eq(rescueRoutes.id, route.id));
 
-  await db.insert(inAppNotifications).values([
+  await Promise.all([
+    replaceOperationalNotification(
     {
       recipientType: "bakery", recipientId: bakery.id, eventType: "driver_cancelled_route",
+      threadKey: `pickup:${pickup.id}`,
       title: missedConfirmation ? "Driver did not reconfirm" : "Driver cancelled the pickup",
       body: `${driver.displayName} ${missedConfirmation ? "did not reconfirm this delivery in time" : "cancelled this delivery"}. The pickup is available for future driver searches again.`,
-    },
+    }),
+    replaceOperationalNotification(
     {
       recipientType: "pantry", recipientId: pantry.id, eventType: "driver_cancelled_route",
+      threadKey: `pickup:${pickup.id}`,
       title: "Planned delivery cancelled",
       body: `${driver.displayName} ${missedConfirmation ? "did not reconfirm" : "cancelled"} the planned delivery from ${bakery.name}. A future match may select a different pantry.`,
-    },
+    }),
+    db.insert(inAppNotifications).values(
     {
       recipientType: "driver", recipientId: driver.id, eventType: "route_cancelled",
       title: missedConfirmation ? "Reservation expired" : "Delivery cancelled",
       body: `${missedConfirmation ? "You did not reconfirm within 15 minutes. " : ""}The pickup from ${bakery.name} has returned to the available pickup pool.`,
-    },
+    }),
   ]);
   return Response.json({ offer: cancelled });
 }
@@ -329,37 +335,43 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
   ]);
   if (bakery && pantry) {
     if (nextStage === "en_route_to_bakery") {
-      await db.insert(inAppNotifications).values([
-        {
+      await Promise.all([
+        replaceOperationalNotification({
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_began_delivery",
+          threadKey: `pickup:${pickup.id}`,
           title: "Driver is on the way", body: `${driver.displayName} has begun the delivery and is traveling to ${bakery.name}. The food is planned for ${pantry.name}.`,
-        },
-        {
+        }),
+        replaceOperationalNotification({
           recipientType: "pantry", recipientId: pantry.id, eventType: "driver_began_delivery",
+          threadKey: `pickup:${pickup.id}`,
           title: "Delivery has begun", body: `${driver.displayName} is traveling to ${bakery.name} to collect the food planned for ${pantry.name}.`,
-        },
+        }),
       ]);
     } else if (nextStage === "arrived_at_bakery") {
-      await db.insert(inAppNotifications).values({
+      await replaceOperationalNotification({
         recipientType: "bakery", recipientId: bakery.id, eventType: "driver_arrived_at_bakery",
+        threadKey: `pickup:${pickup.id}`,
         title: "Driver has arrived", body: `${driver.displayName} has arrived at ${bakery.name} for the pickup.`,
         actionRequired: true, actionKey: `confirm-handoff:${offer.id}`,
       });
     } else if (nextStage === "picked_up") {
-      await db.insert(inAppNotifications).values([
-        {
+      await Promise.all([
+        replaceOperationalNotification({
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_picked_up",
+          threadKey: `pickup:${pickup.id}`,
           title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}.`,
-        },
-        {
+        }),
+        replaceOperationalNotification({
           recipientType: "pantry", recipientId: pantry.id, eventType: "delivery_en_route",
+          threadKey: `pickup:${pickup.id}`,
           title: "Your delivery is on the way",
           body: `${driver.displayName} picked up food from ${bakery.name}. Current estimated arrival: ${offer.estimatedPantryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`,
-        },
+        }),
       ]);
     } else if (nextStage === "arrived_at_pantry") {
-      await db.insert(inAppNotifications).values({
+      await replaceOperationalNotification({
         recipientType: "pantry", recipientId: pantry.id, eventType: "driver_arrived_at_pantry",
+        threadKey: `pickup:${pickup.id}`,
         title: "Driver has arrived", body: `${driver.displayName} has arrived with food from ${bakery.name}.`,
         actionRequired: true, actionKey: `confirm-delivery:${offer.id}`,
       });
@@ -421,25 +433,27 @@ async function acceptOffer(driver: typeof driverAccounts.$inferSelect, offerId: 
     scheduledArrival: offer.estimatedPantryArrival.toISOString(),
     status: "reserved",
   }).returning();
-  await db.insert(inAppNotifications).values([
-    {
+  await Promise.all([
+    replaceOperationalNotification({
       recipientType: "bakery", recipientId: bakery.id, eventType: "pickup_reserved",
+      threadKey: `pickup:${pickup.id}`,
       title: "A driver reserved this pickup",
       body: `${driver.displayName} is expected at approximately ${eta}. Food from ${bakery.name} will be delivered to ${pantry.name}.`,
       actionRequired: false,
-    },
-    {
+    }),
+    replaceOperationalNotification({
       recipientType: "pantry", recipientId: pantry.id, eventType: "delivery_reserved",
+      threadKey: `pickup:${pickup.id}`,
       title: "An incoming delivery was reserved",
       body: `${driver.displayName} will bring food from ${bakery.name}. Current estimated arrival: ${pantryEta}.`,
       actionRequired: false,
-    },
-    {
+    }),
+    db.insert(inAppNotifications).values({
       recipientType: "driver", recipientId: driver.id, eventType: "route_reserved",
       title: "Route reserved",
       body: `Pick up from ${bakery.name} around ${eta}, then deliver to ${pantry.name} around ${pantryEta}.`,
       actionRequired: true, actionKey: `confirm-route:${route.id}`,
-    },
+    }),
   ]);
   return Response.json({ offer: accepted, route });
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "in_app_notifications" ADD COLUMN "thread_key" text DEFAULT '' NOT NULL;

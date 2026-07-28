@@ -181,6 +181,18 @@ if (!databaseUrl) {
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_longitude double precision`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_location_at timestamptz`;
   await sql`ALTER TABLE in_app_notifications ADD COLUMN IF NOT EXISTS push_sent_at timestamptz`;
+  await sql`ALTER TABLE in_app_notifications ADD COLUMN IF NOT EXISTS thread_key text NOT NULL DEFAULT ''`;
+  await sql`
+    DELETE FROM in_app_notifications
+    WHERE thread_key = ''
+      AND recipient_type IN ('bakery', 'pantry')
+      AND event_type IN (
+        'pickup_confirmed', 'pickup_reserved', 'delivery_reserved',
+        'driver_began_delivery', 'pickup_readiness_reminder',
+        'driver_arrived_at_bakery', 'driver_picked_up', 'delivery_en_route',
+        'driver_arrived_at_pantry', 'driver_cancelled_route'
+      )
+  `;
   await sql`DELETE FROM in_app_notifications WHERE event_type = 'push_device_connected'`;
   await sql`
     UPDATE in_app_notifications

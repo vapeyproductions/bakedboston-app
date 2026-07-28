@@ -148,6 +148,13 @@
       "when": 1785220069782,
       "tag": "0020_gorgeous_redwing",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785221034204,
+      "tag": "0021_powerful_thunderball",
+      "breakpoints": true
     }
   ]
 }

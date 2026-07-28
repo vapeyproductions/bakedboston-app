@@ -270,6 +270,7 @@ export const inAppNotifications = pgTable("in_app_notifications", {
   recipientType: text("recipient_type", { enum: ["driver", "bakery", "pantry", "admin"] }).notNull(),
   recipientId: integer("recipient_id").notNull(),
   eventType: text("event_type").notNull(),
+  threadKey: text("thread_key").notNull().default(""),
   title: text("title").notNull(),
   body: text("body").notNull(),
   actionRequired: boolean("action_required").notNull().default(false),

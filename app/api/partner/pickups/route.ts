@@ -4,6 +4,7 @@ import { bakeries, bakeryPickupOccurrences, inAppNotifications, partnerAccounts 
 import { getPartnerAccountId } from "../../../partner-auth";
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
+import { replaceOperationalNotification } from "../../../operational-notifications";
 
 async function currentBakery() {
   const accountId = await getPartnerAccountId();
@@ -85,10 +86,11 @@ export async function PATCH(request: Request) {
     let matching = { matchedRequests: 0, offered: false };
     if (status === "confirmed") {
       matching = await matchConfirmedPickup(occurrence, current.bakery.name, current.bakery.latitude, current.bakery.longitude);
-      await db.insert(inAppNotifications).values({
+      await replaceOperationalNotification({
         recipientType: "bakery",
         recipientId: current.bakery.id,
         eventType: "pickup_confirmed",
+        threadKey: `pickup:${occurrence.id}`,
         title: "Today’s pickup is confirmed",
         body: matching.matchedRequests
           ? `${matching.matchedRequests} saved driver request${matching.matchedRequests === 1 ? "" : "s"} matched this pickup.`
