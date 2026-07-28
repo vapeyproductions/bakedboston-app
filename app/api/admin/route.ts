@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes, routeOffers, scheduleExceptions } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, rescueRoutes, routeOffers, scheduleExceptions, supportReports } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 
@@ -12,7 +12,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows, reportRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -55,6 +55,7 @@ export async function GET() {
     db.select().from(driverRideRequests).orderBy(desc(driverRideRequests.createdAt)),
     db.select().from(routeOffers).orderBy(desc(routeOffers.createdAt)),
     db.select().from(inAppNotifications).orderBy(desc(inAppNotifications.createdAt)).limit(500),
+    db.select().from(supportReports).orderBy(desc(supportReports.createdAt)).limit(500),
   ]);
 
   return Response.json({
@@ -69,6 +70,7 @@ export async function GET() {
     driverRideRequests: rideRequestRows,
     routeOffers: routeOfferRows,
     notifications: notificationRows,
+    supportReports: reportRows,
   });
 }
 

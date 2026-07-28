@@ -67,6 +67,7 @@ type DriverAccount = { id: number; email: string; displayName: string; active: b
 type ScheduleException = { id: number; organizationType: PartnerKind; organizationId: number; exceptionDate: string };
 type PickupOccurrence = { id: number; bakeryId: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: string; confirmedAt: string | null };
 type InAppNotification = { id: number; recipientType: "driver" | "bakery" | "pantry" | "admin"; recipientId: number; title: string; body: string; actionRequired: boolean; createdAt: string };
+type SupportReport = { id: number; reporterType: "driver" | "bakery" | "pantry" | "system"; reporterId: number | null; reporterName: string; routeOfferId: number | null; category: string; urgency: "routine" | "urgent" | "safety"; details: string; status: "submitted" | "reviewing" | "resolved" | "closed"; adminNotes: string; createdAt: string };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => {
@@ -165,7 +166,7 @@ function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime"
 }
 
 export default function AdminDashboard({ user }: { user: { name: string; email: string; isMaster: boolean } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "map" | "routes" | "change log" | "settings">("overview");
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "map" | "routes" | "reports & support" | "change log" | "settings">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -183,6 +184,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [scheduleExceptions, setScheduleExceptions] = useState<ScheduleException[]>([]);
   const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [supportReports, setSupportReports] = useState<SupportReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
@@ -211,6 +213,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setScheduleExceptions(data.scheduleExceptions ?? []);
       setPickupOccurrences(data.pickupOccurrences ?? []);
       setNotifications(data.notifications ?? []);
+      setSupportReports(data.supportReports ?? []);
     }
     setLoading(false);
   };
@@ -273,13 +276,14 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "accounts", "map", "routes", "change log", "settings"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "accounts", "map", "routes", "reports & support", "change log", "settings"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "map" ? "⌖" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "map" ? "⌖" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
               {item === "accounts" && <small>{partnerAccounts.length}</small>}
+              {item === "reports & support" && <small>{supportReports.filter((report) => report.status === "submitted").length}</small>}
             </button>
           ))}
         </nav>
@@ -308,6 +312,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
+            {tab === "reports & support" && <ReportsWorkspace reports={supportReports} onChanged={refresh} />}
             {tab === "change log" && <ChangeLog entries={auditEntries} />}
             {tab === "settings" && <AdminSettings currentUser={user} administrators={administrators} invitations={adminInvitations} onChanged={refresh} setNotice={setNotice} />}
           </>
@@ -318,6 +323,23 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
+}
+
+function ReportsWorkspace({ reports, onChanged }: { reports: SupportReport[]; onChanged: () => Promise<void> }) {
+  const [filter, setFilter] = useState<"open" | "all">("open");
+  const visible = filter === "all" ? reports : reports.filter((report) => !["resolved", "closed"].includes(report.status));
+  async function update(report: SupportReport, status: SupportReport["status"]) {
+    await fetch("/api/admin/reports", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: report.id, status, adminNotes: report.adminNotes }) });
+    await onChanged();
+  }
+  return <section className="reportsWorkspace">
+    <div className="reportsToolbar"><p>Reports from drivers, bakeries, and pantries appear here. Urgent and safety reports remain prominent until resolved.</p><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option value="open">Open reports</option><option value="all">All reports</option></select></div>
+    {!visible.length ? <div className="adminEmpty"><h2>No open reports</h2><p>New problem reports and flagged interactions will appear here.</p></div> : <div className="reportAdminList">{visible.map((report) => <article className={`adminReport ${report.urgency}`} key={report.id}>
+      <header><div><span>{report.urgency.toUpperCase()} · {report.reporterType.toUpperCase()}</span><h2>{report.category.replaceAll("_", " ")}</h2></div><strong>{report.status}</strong></header>
+      <p>{report.details}</p><small>{report.reporterName || "Unknown reporter"} · {new Date(report.createdAt).toLocaleString()}{report.routeOfferId ? ` · Route #${report.routeOfferId}` : ""}</small>
+      <div><button onClick={() => update(report, "reviewing")}>Mark reviewing</button><button onClick={() => update(report, "resolved")}>Resolve</button><a href="tel:+16172332956">Call BakedBoston support · 617-233-2956</a></div>
+    </article>)}</div>}
+  </section>;
 }
 
 function Overview({ bakeries, pantries, accounts, drivers, routes, completed, activeRoutes, averagePriority }: {

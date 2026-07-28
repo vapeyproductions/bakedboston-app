@@ -35,7 +35,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
 }) {
   const bakery = kind === "bakery";
-  const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile">("overview");
+  const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile" | "report">("overview");
   const [notice, setNotice] = useState("");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [oneTimeWindows, setOneTimeWindows] = useState<OneTimeWindow[]>([]);
@@ -182,13 +182,14 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
         <button className={section === "activity" ? "active" : ""} onClick={() => setSection("activity")}><span>↗</span> Delivery activity</button>
         <button className={section === "schedule" ? "active" : ""} onClick={() => setSection("schedule")}><span>◷</span> {bakery ? "Pickup schedule" : "Receiving schedule"}</button>
         <button className={section === "profile" ? "active" : ""} onClick={() => setSection("profile")}><span>⚙</span> Profile & contacts</button>
+        <button className={section === "report" ? "active" : ""} onClick={() => setSection("report")}><span>!</span> Report problem</button>
       </nav>
       <div className="sideBottom"><span>{account.accountEmail}</span><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>
     </aside>
 
     <section className="workspaceMain">
       <header className="workspaceHeader">
-        <div><p>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</p><h1>{section === "overview" ? "Good afternoon." : section === "schedule" ? (bakery ? "Pickup schedule" : "Receiving schedule") : section === "activity" ? "Delivery activity" : "Profile & contacts"}</h1></div>
+        <div><p>{bakery ? "BAKERY PARTNER" : "PANTRY PARTNER"}</p><h1>{section === "overview" ? "Good afternoon." : section === "schedule" ? (bakery ? "Pickup schedule" : "Receiving schedule") : section === "activity" ? "Delivery activity" : section === "report" ? "Report a problem" : "Profile & contacts"}</h1></div>
         <div className="accountMenu"><button className="profileButton" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}>{(primaryContact?.name || organization.name).split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()} <span>⌄</span></button>{accountMenuOpen && <div className="accountDropdown"><strong>{organization.name}</strong><small>{account.accountEmail}</small><button onClick={() => { setSection("profile"); setAccountMenuOpen(false); }}>Profile & contacts</button><button onClick={async () => { await fetch("/api/partner/session", { method: "DELETE" }); window.location.href = "/partners"; }}>Sign out</button></div>}</div>
       </header>
       {notice && <div className="prototypeNotice">{notice}</div>}
@@ -227,10 +228,41 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} oneTimeWindows={oneTimeWindows} scheduleExceptions={scheduleExceptions} onWindowsChanged={refreshAvailability} onAddOneTime={() => showWindowDialog(false)} />}
       {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
       {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
+      {section === "report" && <ReportProblemWeb />}
     </section>
     {availabilityDialog && <div className="availabilityBackdrop"><section className="availabilityDialog"><span className="panelKicker">ONE-TIME AVAILABILITY</span><h2>{bakery ? "Add a pickup window" : "Add a receiving window"}</h2><p>This creates a single dated window and does not change the recurring schedule.</p><label>Date<input type="date" min={localDate(new Date())} value={windowDraft.date} onChange={(event) => setWindowDraft((current) => ({ ...current, date: event.target.value }))} /></label><MinuteTimeInput label={bakery ? "Food ready" : "Opens"} value={windowDraft.starts} onChange={(value) => setWindowDraft((current) => ({ ...current, starts: value }))} /><MinuteTimeInput label={bakery ? "Pickup deadline" : "Closes"} value={windowDraft.ends} onChange={(value) => setWindowDraft((current) => ({ ...current, ends: value }))} />{!bakery && <><MinuteTimeInput label="Latest permitted arrival" value={windowDraft.latest} onChange={(value) => setWindowDraft((current) => ({ ...current, latest: value }))} /><ServiceModeSelect value={windowDraft.serviceMode} onChange={(serviceMode) => setWindowDraft((current) => ({ ...current, serviceMode }))} /></>}<div><button onClick={() => setAvailabilityDialog(false)}>Cancel</button><button className="confirmAvailability" onClick={createOneTimeWindow}>Confirm availability</button></div></section></div>}
   </main>;
 }
+
+function ReportProblemWeb() {
+  const [category, setCategory] = useState("technical_problem");
+  const [urgency, setUrgency] = useState<"routine" | "urgent" | "safety">("routine");
+  const [details, setDetails] = useState("");
+  const [message, setMessage] = useState("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const response = await fetch("/api/partner/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category, urgency, details }) });
+    const data = await response.json().catch(() => null);
+    setMessage(response.ok ? "Your report was sent to the BakedBoston administrator team." : data?.error ?? "Could not send this report.");
+    if (response.ok) setDetails("");
+  }
+  return <form className="reportProblemPanel" onSubmit={submit}>
+    <p>Tell BakedBoston what happened. Reports can cover a failed pickup or delivery, incorrect instructions, a difficult interaction, notifications, or a technical problem.</p>
+    <label>Problem type<select value={category} onChange={(event) => setCategory(event.target.value)}>{reportCategories.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+    <label>Urgency<select value={urgency} onChange={(event) => setUrgency(event.target.value as typeof urgency)}><option value="routine">Routine</option><option value="urgent">Urgent — help is needed soon</option><option value="safety">Safety concern</option></select></label>
+    <label>What happened?<textarea required value={details} onChange={(event) => setDetails(event.target.value)} placeholder="Include the delivery, time, people involved, and what help you need." /></label>
+    <button type="submit">Send report</button>
+    {(urgency === "urgent" || urgency === "safety") && <div className="supportCallout"><strong>Need help during an active delivery?</strong><a href="tel:+16172332956">Call BakedBoston support<br />617-233-2956</a>{urgency === "safety" && <small>If anyone is in immediate danger, call 911.</small>}</div>}
+    {message && <p>{message}</p>}
+  </form>;
+}
+
+const reportCategories = [
+  ["failed_pickup", "Failed pickup"], ["failed_delivery", "Failed delivery"], ["food_unavailable", "Food unavailable"],
+  ["driver_no_show", "Driver did not arrive"], ["organization_unavailable", "Organization unavailable"],
+  ["incorrect_instructions", "Incorrect directions or instructions"], ["difficult_interaction", "Difficult interaction"],
+  ["notification_problem", "Notification problem"], ["technical_problem", "Technical problem"], ["safety_concern", "Safety concern"], ["other", "Other"],
+];
 
 function BakeryPickupConfirmation({ occurrence, busy, onRespond, showSummary }: {
   occurrence?: PickupOccurrence; busy: boolean;

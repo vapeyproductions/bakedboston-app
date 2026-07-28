@@ -374,7 +374,7 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
   return <DriverPortal session={session} onSignOut={onSignOut} />;
 }
 
-type DriverSection = "home" | "search" | "routes" | "profile";
+type DriverSection = "home" | "search" | "routes" | "profile" | "report";
 const previewDriverRoutes = [
   { id: 1, timing: "Available now", bakery: "Sample bakery", pantry: "Sample pantry", pickup: "5:10 PM", finish: "6:05 PM", drive: "25 min driving", ending: "Ends near 02130", reason: "Best balance of travel time and pantry priority" },
   { id: 2, timing: "Later today", bakery: "Example pickup", pantry: "Example destination", pickup: "6:00 PM", finish: "6:50 PM", drive: "20 min driving", ending: "Ends near 02446", reason: "Short route toward the preferred destination" },
@@ -531,6 +531,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
           <Text style={styles.driverAccountEmail} numberOfLines={1}>{driverEmail}</Text>
           <View style={styles.driverApprovalRow}><View style={[styles.verificationStatusDot, verificationStatus === "verified" && styles.verificationStatusDotVerified]} /><Text style={styles.driverHeaderStatusText}>{verificationLabel}</Text></View>
           <Pressable style={styles.driverAccountMenuItem} onPress={() => { setSection("profile"); setAccountMenuOpen(false); }}><Text style={styles.driverAccountMenuText}>View profile</Text></Pressable>
+          <Pressable style={styles.driverAccountMenuItem} onPress={() => { setSection("report"); setAccountMenuOpen(false); }}><Text style={styles.driverAccountMenuText}>Report problem</Text></Pressable>
           <Pressable style={styles.driverAccountMenuItem} onPress={signOutFromMenu}><Text style={styles.driverLogoutText}>Log out</Text></Pressable>
         </View>}
       </View>
@@ -543,6 +544,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
       {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
+      {section === "report" && <ReportProblemMobile demo={Boolean(session.demo)} />}
     </ScrollView>
   </SafeAreaView>;
 }
@@ -634,6 +636,7 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
       {!showDetails && <Pressable style={styles.arrivalDetailsToggle} onPress={() => setDetailsExpanded(true)}><Text style={styles.secondaryDirectionText}>View arrival instructions and photos</Text></Pressable>}
       {showDetails && <DestinationArrivalDetails destination={destination} expanded={arrived} onClose={arrived ? undefined : () => setDetailsExpanded(false)} />}
       <Pressable style={styles.routeProgressButton} onPress={continueRoute}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
+      <Pressable onPress={() => Alert.alert("I need help", "For urgent help during this delivery, call BakedBoston support. You can also submit a detailed report from your account menu.", [{ text: "Cancel", style: "cancel" }, { text: "Call 617-233-2956", onPress: () => Linking.openURL("tel:+16172332956") }])}><Text style={styles.mobileSupportPhone}>I need help · Call BakedBoston support</Text></Pressable>
       {!["picked_up", "en_route_to_pantry", "arrived_at_pantry", "completed"].includes(offer.deliveryStage) && <Pressable onPress={() => onCancel(offer)}><Text style={styles.offerDeclineText}>Cancel delivery</Text></Pressable>}
       {laterDestination && <View style={styles.routeSecondaryDestination}><Text style={styles.previewLabel}>{bakeryFocused ? "AFTER PICKUP" : "PICKED UP FROM"}</Text><Text style={styles.connectedTitle}>{laterDestination.name}</Text><Text style={styles.connectedBody}>{laterDestination.address}</Text></View>}
     </View>}
@@ -744,7 +747,7 @@ async function createDriverRideRequest(request: DriverRideRequest) {
 }
 async function updateDriverMatching(body: Record<string, unknown>) { return driverMatchingRequest("PATCH", body); }
 
-type PartnerSection = "overview" | "activity" | "schedule" | "profile";
+type PartnerSection = "overview" | "activity" | "schedule" | "profile" | "report";
 
 function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const { width, height } = useWindowDimensions();
@@ -799,6 +802,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
     { key: "activity", icon: "↗", label: "Delivery activity" },
     { key: "schedule", icon: "◷", label: bakery ? "Pickup schedule" : "Receiving schedule" },
     { key: "profile", icon: "⚙", label: "Profile & contacts" },
+    { key: "report", icon: "!", label: "Report problem" },
   ];
   const title = section === "overview" ? "Good afternoon." : nav.find((item) => item.key === section)?.label ?? "";
 
@@ -928,7 +932,43 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   }
   if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
   if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
+  if (section === "report") return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]}><ReportProblemMobile /></ScrollView>;
   return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
+}
+
+const mobileReportCategories = [
+  ["failed_pickup", "Failed pickup"], ["failed_delivery", "Failed delivery"], ["food_unavailable", "Food unavailable"],
+  ["driver_no_show", "Driver did not arrive"], ["organization_unavailable", "Organization unavailable"],
+  ["incorrect_instructions", "Incorrect instructions"], ["difficult_interaction", "Difficult interaction"],
+  ["notification_problem", "Notification problem"], ["technical_problem", "Technical problem"], ["safety_concern", "Safety concern"], ["other", "Other"],
+] as const;
+
+function ReportProblemMobile({ routeOfferId, demo = false }: { routeOfferId?: number; demo?: boolean }) {
+  const [category, setCategory] = useState("technical_problem");
+  const [urgency, setUrgency] = useState<"routine" | "urgent" | "safety">("routine");
+  const [details, setDetails] = useState("");
+  const [message, setMessage] = useState("");
+  async function submit() {
+    if (!details.trim()) { Alert.alert("Add details", "Please describe what happened."); return; }
+    if (demo) { setMessage("Prototype report recorded for this session."); setDetails(""); return; }
+    try {
+      await submitMobileReport({ category, urgency, details, routeOfferId });
+      setMessage("Your report was sent to the BakedBoston administrator team."); setDetails("");
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : "Could not send this report."); }
+  }
+  return <View style={styles.reportProblemCard}>
+    <Text style={styles.authEyebrow}>REPORT PROBLEM</Text>
+    <Text style={styles.connectedTitle}>How can BakedBoston help?</Text>
+    <Text style={styles.connectedBody}>Select the closest issue and describe what happened. Include delivery details when applicable.</Text>
+    <Text style={styles.mobileReportLabel}>PROBLEM TYPE</Text>
+    <View style={styles.mobileReportChoices}>{mobileReportCategories.map(([value, label]) => <Pressable key={value} onPress={() => setCategory(value)} style={[styles.mobileReportChoice, category === value && styles.mobileReportChoiceSelected]}><Text style={[styles.mobileReportChoiceText, category === value && styles.mobileReportChoiceTextSelected]}>{label}</Text></Pressable>)}</View>
+    <Text style={styles.mobileReportLabel}>URGENCY</Text>
+    <View style={styles.mobileReportChoices}>{(["routine", "urgent", "safety"] as const).map((value) => <Pressable key={value} onPress={() => setUrgency(value)} style={[styles.mobileReportChoice, urgency === value && styles.mobileReportChoiceSelected]}><Text style={[styles.mobileReportChoiceText, urgency === value && styles.mobileReportChoiceTextSelected]}>{value === "routine" ? "Routine" : value === "urgent" ? "Urgent" : "Safety concern"}</Text></Pressable>)}</View>
+    <Field label="What happened?" value={details} onChangeText={setDetails} placeholder="Include the time, delivery, people involved, and what help you need." multiline />
+    <PrimaryButton label="Send report" dark onPress={submit} />
+    {(urgency === "urgent" || urgency === "safety") && <View style={styles.mobileSupportCallout}><Text style={styles.connectedTitle}>Need help during an active delivery?</Text><Pressable onPress={() => Linking.openURL("tel:+16172332956")}><Text style={styles.mobileSupportPhone}>Call BakedBoston support{"\n"}617-233-2956</Text></Pressable>{urgency === "safety" && <Text style={styles.mobileSafetyText}>If anyone is in immediate danger, call 911.</Text>}</View>}
+    {message ? <Text style={styles.calendarNotice}>{message}</Text> : null}
+  </View>;
 }
 
 function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occurrence?: PickupOccurrence; onChanged: () => Promise<void>; showSummary: boolean }) {
@@ -1195,6 +1235,14 @@ async function mobileNotificationsRequest(method: "GET" | "PATCH", body?: Record
   return data as { notifications: DriverNotification[]; pickupOccurrences: PickupOccurrence[] };
 }
 
+async function submitMobileReport(body: Record<string, unknown>) {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/reports`, { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "Could not send this report.");
+  return data;
+}
+
 function confirmRestore(date: string) {
   return new Promise<boolean>((resolve) => {
     const label = new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
@@ -1399,6 +1447,16 @@ function PrimaryButton({ label, onPress, dark = false, disabled = false }: { lab
 }
 
 const styles = StyleSheet.create({
+  reportProblemCard: { padding: 22, borderRadius: 14, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, gap: 8 },
+  mobileReportLabel: { marginTop: 14, color: colors.sage, fontSize: 8, fontWeight: "900", letterSpacing: 1.1 },
+  mobileReportChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 4 },
+  mobileReportChoice: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: "#FBFAF4" },
+  mobileReportChoiceSelected: { backgroundColor: colors.forest, borderColor: colors.forest },
+  mobileReportChoiceText: { color: colors.forest, fontSize: 9, fontWeight: "800" },
+  mobileReportChoiceTextSelected: { color: colors.white },
+  mobileSupportCallout: { marginTop: 14, padding: 18, borderRadius: 12, backgroundColor: "#FFF2DC" },
+  mobileSupportPhone: { marginTop: 10, color: colors.forest, fontSize: 16, lineHeight: 23, fontWeight: "900", textDecorationLine: "underline" },
+  mobileSafetyText: { marginTop: 12, color: "#9C3C2D", fontSize: 10, fontWeight: "700" },
   flex: { flex: 1 },
   portalSafe: { flex: 1, backgroundColor: colors.cream },
   portalShell: { flex: 1 },

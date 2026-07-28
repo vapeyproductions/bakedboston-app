@@ -172,6 +172,21 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const supportReports = pgTable("support_reports", {
+  id: serial("id").primaryKey(),
+  reporterType: text("reporter_type", { enum: ["driver", "bakery", "pantry", "system"] }).notNull(),
+  reporterId: integer("reporter_id"),
+  reporterName: text("reporter_name").notNull().default(""),
+  routeOfferId: integer("route_offer_id"),
+  category: text("category").notNull(),
+  urgency: text("urgency", { enum: ["routine", "urgent", "safety"] }).notNull().default("routine"),
+  details: text("details").notNull(),
+  status: text("status", { enum: ["submitted", "reviewing", "resolved", "closed"] }).notNull().default("submitted"),
+  adminNotes: text("admin_notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const driverAccounts = pgTable("driver_accounts", {
   id: serial("id").primaryKey(),
   email: text("email").notNull(),
