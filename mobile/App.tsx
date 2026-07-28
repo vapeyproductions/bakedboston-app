@@ -362,14 +362,18 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [driverNotifications, setDriverNotifications] = useState<DriverNotification[]>([]);
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
+    let timer: ReturnType<typeof setInterval> | undefined;
     if (!session.demo) {
       loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
-      loadDriverMatching().then((data) => {
+      const refreshMatching = () => loadDriverMatching().then((data) => {
         setRideRequests(data.requests);
         setRouteOffers(data.offers);
         setDriverNotifications(data.notifications);
       }).catch(() => setError("Could not load saved ride requests."));
+      void refreshMatching();
+      timer = setInterval(refreshMatching, 20_000);
     }
+    return () => { if (timer) clearInterval(timer); };
   }, [session.demo]);
   async function saveRideRequest() {
     setError("");
@@ -532,6 +536,17 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
     }).catch((error) => setWorkspaceError(error instanceof Error ? error.message : "Could not load the workspace."));
   }, []);
   useEffect(() => { void refreshWorkspace(); }, [refreshWorkspace]);
+  useEffect(() => {
+    const refreshNotifications = () => mobileNotificationsRequest("GET").then((data) => {
+      setWorkspace((current) => current ? {
+        ...current,
+        notifications: data.notifications,
+        ...(bakery ? { pickupOccurrences: data.pickupOccurrences } : {}),
+      } : current);
+    }).catch(() => undefined);
+    const timer = setInterval(refreshNotifications, 20_000);
+    return () => clearInterval(timer);
+  }, [bakery]);
   const nav: Array<{ key: PartnerSection; icon: string; label: string }> = [
     { key: "overview", icon: "⌂", label: "Overview" },
     { key: "activity", icon: "↗", label: "Delivery activity" },
@@ -618,7 +633,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   if (section === "overview") {
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
       {bakery && <NativePickupConfirmation occurrence={workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(new Date()))} onChanged={onChanged} />}
-      {workspace.notifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}
+      {workspace.notifications.slice(0, 3).map((notification) => <PartnerMobileNotificationCard notification={notification} onChanged={onChanged} key={notification.id} />)}
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
           <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
@@ -670,6 +685,24 @@ function NativePickupConfirmation({ occurrence, onChanged }: { occurrence?: Pick
     <Text style={styles.portalPanelTitle}>{occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text>
     <Text style={styles.portalFeatureBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text>
     {!confirmed && !unavailable && <View style={styles.nativePickupActions}><Pressable disabled={busy} style={styles.nativeConfirmPickup} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>Confirm pickup</Text></Pressable><Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.offerDeclineText}>Decide later</Text></Pressable><Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.offerDeclineText}>Not enough food</Text></Pressable></View>}
+  </View>;
+}
+
+function PartnerMobileNotificationCard({ notification, onChanged }: { notification: DriverNotification; onChanged: () => Promise<void> }) {
+  async function acknowledge() {
+    try {
+      await mobileNotificationsRequest("PATCH", { id: notification.id, acknowledge: true });
+      await onChanged();
+    } catch (reason) {
+      Alert.alert("Could not acknowledge notification", reason instanceof Error ? reason.message : "Please try again.");
+    }
+  }
+  return <View style={styles.driverNotificationCard}>
+    <Text style={styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
+    <Text style={styles.connectedTitle}>{notification.title}</Text>
+    <Text style={styles.connectedBody}>{notification.body}</Text>
+    {notification.actionRequired && !notification.acknowledgedAt && <Pressable style={styles.nativeNotificationButton} onPress={acknowledge}><Text style={styles.portalStatusButtonText}>Acknowledge</Text></Pressable>}
+    {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }
 
@@ -838,6 +871,18 @@ async function workspaceRequest(method: "POST" | "PATCH" | "DELETE", body?: Reco
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return { response, data: await response.json().catch(() => ({})) };
+}
+
+async function mobileNotificationsRequest(method: "GET" | "PATCH", body?: Record<string, unknown>) {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/notifications`, {
+    method,
+    headers: { Authorization: `Bearer ${token ?? ""}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "Could not synchronize notifications.");
+  return data as { notifications: DriverNotification[]; pickupOccurrences: PickupOccurrence[] };
 }
 
 function confirmRestore(date: string) {
@@ -1258,6 +1303,8 @@ const styles = StyleSheet.create({
   offerActions: { marginTop: 14, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 14 },
   offerDeclineText: { color: colors.coral, fontSize: 9, fontWeight: "900" },
   driverNotificationCard: { marginTop: 12, padding: 17, borderRadius: 12, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
+  nativeNotificationButton: { alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.forest },
+  nativeAcknowledged: { marginTop: 10, color: colors.forestSoft, fontSize: 9, fontWeight: "900" },
   nativePickupConfirmation: { marginBottom: 14, padding: 18, borderRadius: 13, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
   nativePickupConfirmed: { backgroundColor: "#E8F4EA", borderColor: "#9FC7A8" },
   nativePickupUnavailable: { backgroundColor: colors.paper, borderColor: colors.border },

@@ -62,10 +62,13 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void refreshAvailability(); }, []);
   useEffect(() => {
-    fetch("/api/partner/notifications", { cache: "no-store" })
+    const refresh = () => fetch("/api/partner/notifications", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
-      .then((data) => setNotifications(data?.notifications ?? []))
+      .then((data) => { if (data) setNotifications(data.notifications ?? []); })
       .catch(() => undefined);
+    void refresh();
+    const timer = window.setInterval(refresh, 20_000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     if (!bakery) return;
@@ -94,6 +97,8 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       setPickupOccurrences(occurrences);
     }
     void loadPickup();
+    const timer = window.setInterval(loadPickup, 20_000);
+    return () => window.clearInterval(timer);
   }, [bakery, organization]);
   function showWindowDialog(useCurrentTime: boolean) {
     if (useCurrentTime && !window.confirm(`This will open ${organization.name} ${bakery ? "for pickup" : "to accept deliveries"} outside the saved recurring schedule. Continue?`)) return;
