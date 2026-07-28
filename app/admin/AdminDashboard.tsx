@@ -326,18 +326,43 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
 }
 
 function ReportsWorkspace({ reports, onChanged }: { reports: SupportReport[]; onChanged: () => Promise<void> }) {
-  const [filter, setFilter] = useState<"open" | "all">("open");
-  const visible = filter === "all" ? reports : reports.filter((report) => !["resolved", "closed"].includes(report.status));
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
+  const urgencyOrder = { safety: 0, urgent: 1, routine: 2 };
+  const ordered = [...reports].sort((left, right) =>
+    urgencyOrder[left.urgency] - urgencyOrder[right.urgency]
+    || new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  const newReports = ordered.filter((report) => report.status === "submitted");
+  const reviewing = ordered.filter((report) => report.status === "reviewing");
+  const resolved = ordered.filter((report) => report.status === "resolved" || report.status === "closed");
   async function update(report: SupportReport, status: SupportReport["status"]) {
-    await fetch("/api/admin/reports", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: report.id, status, adminNotes: report.adminNotes }) });
-    await onChanged();
+    setBusyId(report.id);
+    setMessage("");
+    const response = await fetch("/api/admin/reports", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: report.id, status, adminNotes: report.adminNotes }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      await onChanged();
+      setMessage(status === "reviewing" ? "Report moved to Under Review." : status === "submitted" ? "Report returned to New Reports." : "Report moved to Resolved.");
+    } else {
+      setMessage(data?.error ?? "Could not update this report. Please try again.");
+    }
+    setBusyId(null);
   }
   return <section className="reportsWorkspace">
-    <div className="reportsToolbar"><p>Reports from drivers, bakeries, and pantries appear here. Urgent and safety reports remain prominent until resolved.</p><select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option value="open">Open reports</option><option value="all">All reports</option></select></div>
-    {!visible.length ? <div className="adminEmpty"><h2>No open reports</h2><p>New problem reports and flagged interactions will appear here.</p></div> : <div className="reportAdminList">{visible.map((report) => <article className={`adminReport ${report.urgency}`} key={report.id}>
-      <header><div><span>{report.urgency.toUpperCase()} · {report.reporterType.toUpperCase()}</span><h2>{report.category.replaceAll("_", " ")}</h2></div><strong>{report.status}</strong></header>
+    <div className="reportsToolbar"><p>Reports are ordered by urgency, then by the time they were submitted. Safety concerns appear first, followed by urgent and routine reports.</p></div>
+    {message && <div className="reportUpdateNotice">{message}</div>}
+    <ReportQueue title="New reports" empty="No new reports." reports={newReports} busyId={busyId} actions={(report) => <><button disabled={busyId === report.id} onClick={() => update(report, "reviewing")}>Mark under review</button><button disabled={busyId === report.id} onClick={() => update(report, "resolved")}>Mark resolved</button></>} />
+    <ReportQueue title="Under review" empty="No reports are currently under review." reports={reviewing} busyId={busyId} actions={(report) => <><button disabled={busyId === report.id} onClick={() => update(report, "resolved")}>Mark resolved</button><button disabled={busyId === report.id} onClick={() => update(report, "submitted")}>Return to new</button></>} />
+    <ReportQueue title="Resolved reports" empty="No reports have been resolved yet." reports={resolved} busyId={busyId} actions={(report) => <button disabled={busyId === report.id} onClick={() => update(report, "reviewing")}>Reopen under review</button>} />
+  </section>;
+}
+
+function ReportQueue({ title, empty, reports, busyId, actions }: { title: string; empty: string; reports: SupportReport[]; busyId: number | null; actions: (report: SupportReport) => React.ReactNode }) {
+  return <section className="reportQueue"><header><h2>{title}</h2><span>{reports.length}</span></header>
+    {!reports.length ? <p className="reportQueueEmpty">{empty}</p> : <div className="reportAdminList">{reports.map((report) => <article className={`adminReport ${report.urgency}`} key={report.id}>
+      <header><div><span>{report.urgency.toUpperCase()} · {report.reporterType.toUpperCase()}</span><h3>{report.category.replaceAll("_", " ")}</h3></div><strong>{busyId === report.id ? "Updating…" : report.status}</strong></header>
       <p>{report.details}</p><small>{report.reporterName || "Unknown reporter"} · {new Date(report.createdAt).toLocaleString()}{report.routeOfferId ? ` · Route #${report.routeOfferId}` : ""}</small>
-      <div><button onClick={() => update(report, "reviewing")}>Mark reviewing</button><button onClick={() => update(report, "resolved")}>Resolve</button><a href="tel:+16172332956">Call BakedBoston support · 617-233-2956</a></div>
+      <div>{actions(report)}</div>
     </article>)}</div>}
   </section>;
 }
