@@ -197,12 +197,12 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
             <h2>{available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
             <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p>
-            {bakery && <BakeryPickupConfirmation occurrence={todayPickup} busy={pickupBusy} onRespond={respondToPickup} />}
             {notifications[0] && <StatusNotification notification={notifications[0]} onAcknowledge={async (notification) => {
               const pickupReady = notification.actionKey.startsWith("pickup-ready:");
               const response = await fetch("/api/partner/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pickupReady ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) } : { id: notification.id, acknowledge: true }) });
               if (response.ok) setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString(), acknowledgedAt: new Date().toISOString() } : item));
             }} />}
+            {bakery && <BakeryPickupConfirmation occurrence={todayPickup} busy={pickupBusy} onRespond={respondToPickup} showSummary={!notifications[0]} />}
           </div>
           <div className="statusActions">
             {activeOneTime && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
@@ -223,16 +223,16 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   </main>;
 }
 
-function BakeryPickupConfirmation({ occurrence, busy, onRespond }: {
+function BakeryPickupConfirmation({ occurrence, busy, onRespond, showSummary }: {
   occurrence?: PickupOccurrence; busy: boolean;
   onRespond: (status: "confirmed" | "decision_deferred" | "insufficient_food") => void;
+  showSummary: boolean;
 }) {
   if (!occurrence) return null;
   const confirmed = occurrence.status === "confirmed" || occurrence.status === "reserved";
   const unavailable = occurrence.status === "insufficient_food" || occurrence.status === "cancelled";
-  return <section className="statusCommitment">
-    <strong>{occurrence.status === "reserved" ? "A driver has reserved this pickup." : confirmed ? "Food availability confirmed." : unavailable ? "Marked unavailable today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</strong>
-    <span>{formatOccurrenceWindow(occurrence)}</span>
+  return <section className={`statusCommitment ${showSummary ? "" : "controlsOnly"}`}>
+    {showSummary && <><strong>{occurrence.status === "reserved" ? "A driver has reserved this pickup." : confirmed ? "Food availability confirmed." : unavailable ? "Marked unavailable today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</strong><span>{formatOccurrenceWindow(occurrence)}</span></>}
     {occurrence.status !== "reserved" && <div className="pickupConfirmationActions">
       {!confirmed && <button disabled={busy} className="confirmPickup" onClick={() => onRespond("confirmed")}>{unavailable ? "Change to food available" : "Food will be available"}</button>}
       {confirmed && <button disabled={busy} onClick={() => onRespond("insufficient_food")}>Change to not enough food</button>}
