@@ -18,25 +18,11 @@ export async function POST(request: Request) {
     const db = getDb();
     let accountId: number;
     let displayName: string;
-    let prototype = false;
-    if (action === "prototype-driver") {
-      const prototypeEmail = "jordan.driver@example.com";
-      const [existing] = await db.select().from(driverAccounts).where(eq(driverAccounts.email, prototypeEmail)).limit(1);
-      const driver = existing ?? (await db.insert(driverAccounts).values({
-        email: prototypeEmail,
-        displayName: "Jordan Taylor",
-        phone: "(617) 555-0148",
-        homeAddress: "125 Example Street, Boston, MA",
-        homeZip: "02130",
-        dateOfBirth: "2000-04-18",
-        passwordHash: hashPartnerPassword(randomBytes(32).toString("hex")),
-        identityVerificationStatus: "verified",
-      }).returning())[0];
-      accountId = driver.id;
-      displayName = driver.displayName;
-      prototype = true;
-    } else if (action === "register-driver") {
+    let verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" | undefined;
+    if (action === "register-driver") {
+      if (body.acceptedTerms !== true) throw new Error("You must accept the Terms of Use before creating an account.");
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Enter a valid email address.");
+      if (password.length < 10) throw new Error("Create a password with at least 10 characters.");
       const existing = await db.select().from(driverAccounts).where(eq(driverAccounts.email, email)).limit(1);
       if (existing[0]) throw new Error("A driver account already uses this email.");
       const display = String(body.displayName ?? "").trim();
@@ -46,12 +32,23 @@ export async function POST(request: Request) {
       const dateOfBirth = String(body.dateOfBirth ?? "").trim();
       if (!display || !phone || !homeAddress || !/^\d{5}$/.test(homeZip)) throw new Error("Name, address, phone number, and five-digit ZIP code are required.");
       if (!meetsDriverAgeRequirement(dateOfBirth)) throw new Error("Drivers must enter a valid date of birth and be at least 16 years old.");
-      const [driver] = await db.insert(driverAccounts).values({ email, displayName: display, phone, homeAddress, homeZip, dateOfBirth, passwordHash: hashPartnerPassword(password) }).returning();
+      const [driver] = await db.insert(driverAccounts).values({
+        email,
+        displayName: display,
+        phone,
+        homeAddress,
+        homeZip,
+        dateOfBirth,
+        passwordHash: hashPartnerPassword(password),
+        identityVerificationStatus: "pending",
+      }).returning();
       accountId = driver.id; displayName = driver.displayName;
+      verificationStatus = driver.identityVerificationStatus;
     } else if (role === "driver") {
       const [driver] = await db.select().from(driverAccounts).where(eq(driverAccounts.email, email)).limit(1);
       if (!driver || !driver.active || !verifyPartnerPassword(password, driver.passwordHash)) throw new Error("Email or password is incorrect.");
       accountId = driver.id; displayName = driver.displayName;
+      verificationStatus = driver.identityVerificationStatus;
     } else {
       const result = await authenticatePartnerAccount(email, password, role);
       if (!result.account) {
@@ -69,9 +66,8 @@ export async function POST(request: Request) {
       role,
       accountId,
       displayName,
-      email: prototype ? "jordan.driver@example.com" : email,
-      verificationStatus: role === "driver" ? (prototype ? "verified" : "not_started") : undefined,
-      prototype,
+      email,
+      verificationStatus,
     } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not authenticate." }, { status: 400 });
@@ -92,7 +88,6 @@ export async function GET(request: Request) {
       displayName: driver.displayName,
       email: driver.email,
       verificationStatus: driver.identityVerificationStatus,
-      prototype: driver.email === "jordan.driver@example.com",
     } });
   }
   const [partner] = await db.select().from(partnerAccounts).where(eq(partnerAccounts.id, session.accountId)).limit(1);

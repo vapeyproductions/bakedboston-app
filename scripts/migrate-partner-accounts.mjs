@@ -397,5 +397,34 @@ if (!databaseUrl) {
     )
   `;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS admin_inbox_messages_external_email_unique ON admin_inbox_messages (external_email_id)`;
+  await sql`
+    DELETE FROM route_offers
+    WHERE driver_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
+  `;
+  await sql`
+    DELETE FROM driver_ride_requests
+    WHERE driver_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
+  `;
+  await sql`
+    DELETE FROM mobile_sessions
+    WHERE role = 'driver'
+      AND account_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
+  `;
+  await sql`
+    DELETE FROM in_app_notifications
+    WHERE recipient_type = 'driver'
+      AND recipient_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
+  `;
+  await sql`
+    DELETE FROM push_devices
+    WHERE recipient_type = 'driver'
+      AND recipient_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
+  `;
+  await sql`
+    DELETE FROM support_reports
+    WHERE reporter_type = 'driver'
+      AND reporter_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
+  `;
+  await sql`DELETE FROM driver_accounts WHERE email = 'jordan.driver@example.com'`;
   console.log("Partner-account database migration complete.");
 }

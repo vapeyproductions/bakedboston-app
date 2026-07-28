@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
 import { and, eq, gt, ne } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { driverAccounts, mobileSessions } from "../../../../db/schema";
+import { driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, pushDevices, routeOffers, supportReports } from "../../../../db/schema";
+import { sendAccountStatusEmail } from "../../../account-email";
+import { writeAudit } from "../../../audit";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 const bearer = (request: Request) => request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1] ?? "";
@@ -41,6 +43,28 @@ export async function PATCH(request: Request) {
     return Response.json({ driver: publicDriver(updated) });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not update profile." }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const driver = await currentDriver(request);
+    if (!driver) return Response.json({ error: "Session expired." }, { status: 401 });
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    if (body.confirm !== true) return Response.json({ error: "Account deletion must be confirmed." }, { status: 400 });
+    const db = getDb();
+    await db.delete(routeOffers).where(eq(routeOffers.driverId, driver.id));
+    await db.delete(driverRideRequests).where(eq(driverRideRequests.driverId, driver.id));
+    await db.delete(mobileSessions).where(and(eq(mobileSessions.role, "driver"), eq(mobileSessions.accountId, driver.id)));
+    await db.delete(inAppNotifications).where(and(eq(inAppNotifications.recipientType, "driver"), eq(inAppNotifications.recipientId, driver.id)));
+    await db.delete(pushDevices).where(and(eq(pushDevices.recipientType, "driver"), eq(pushDevices.recipientId, driver.id)));
+    await db.delete(supportReports).where(and(eq(supportReports.reporterType, "driver"), eq(supportReports.reporterId, driver.id)));
+    await db.delete(driverAccounts).where(eq(driverAccounts.id, driver.id));
+    await sendAccountStatusEmail({ to: [driver.email], recipientName: driver.displayName || driver.email, accountType: "driver", action: "deleted" }).catch(() => undefined);
+    await writeAudit({ actorType: "system", actorName: driver.displayName || driver.email, action: "driver deleted own account", entityType: "driver", entityId: driver.id, entityName: driver.displayName, details: driver.email });
+    return Response.json({ ok: true });
+  } catch {
+    return Response.json({ error: "Could not delete this account." }, { status: 400 });
   }
 }
 

@@ -160,12 +160,18 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const action = String(body.action ?? "");
-    if (action === "accept-offer") return acceptOffer(driver, Number(body.offerId));
+    if (action === "accept-offer") {
+      if (driver.identityVerificationStatus !== "verified") return Response.json({ error: "Your driver profile must be approved before you can reserve a route." }, { status: 403 });
+      return acceptOffer(driver, Number(body.offerId));
+    }
     if (action === "decline-offer") return declineOffer(driver.id, Number(body.offerId));
     if (action === "route-progress") return progressRoute(driver, Number(body.offerId), String(body.stage ?? ""));
     if (action === "cancel-route") return cancelRoute(driver, Number(body.offerId));
     if (action === "confirm-route") return confirmRoute(driver.id, Number(body.offerId));
-    if (action === "reserve-browse-route") return reserveBrowseRoute(driver, Number(body.pickupId), Number(body.pantryId));
+    if (action === "reserve-browse-route") {
+      if (driver.identityVerificationStatus !== "verified") return Response.json({ error: "Your driver profile must be approved before you can reserve a route." }, { status: 403 });
+      return reserveBrowseRoute(driver, Number(body.pickupId), Number(body.pantryId));
+    }
     const id = Number(body.id);
     const status = String(body.status ?? "");
     if (!Number.isInteger(id) || !["active", "paused", "cancelled"].includes(status)) throw new Error("Choose a valid ride-request action.");

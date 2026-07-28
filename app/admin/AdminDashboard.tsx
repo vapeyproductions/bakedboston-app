@@ -770,11 +770,23 @@ function DriversWorkspace({ drivers, onChanged, setNotice }: { drivers: DriverAc
       await onChanged();
     } else setNotice(data?.error ?? "Could not change driver access.");
   }
+  async function setVerification(driver: DriverAccount, verificationStatus: "pending" | "verified" | "needs_attention") {
+    const response = await fetch("/api/admin/account-status", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "driver", id: driver.id, verificationStatus }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setNotice(`${driver.displayName || driver.email} is now marked ${verificationStatus.replaceAll("_", " ")}.`);
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not change verification status.");
+  }
   return <section className="driversWorkspace">
     <div className="panelTitle"><div><span>DRIVER ACCOUNTS</span><h2>Registered drivers</h2></div><button className="outlineBtn" onClick={() => exportCsv("bakedboston-drivers.csv", ["Driver name", "Account email", "Phone", "Home ZIP", "Verification status", "Account status", "Joined"], drivers.map((driver) => [driver.displayName, driver.email, driver.phone, driver.homeZip, driver.identityVerificationStatus, driver.active ? "Active" : "Disabled", new Date(driver.createdAt).toLocaleDateString()]))}>Download driver CSV</button></div>
     <label className="accountSearch">Search drivers<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, or ZIP code" /></label>
     <div className="tablePanel"><table><thead><tr><th>Driver</th><th>Contact</th><th>Home ZIP</th><th>Verification</th><th>Joined</th><th>Action</th></tr></thead><tbody>
-      {visible.map((driver) => <tr key={driver.id}><td><strong>{driver.displayName || "Unnamed driver"}</strong><small>{driver.active ? "Active account" : "Temporarily disabled"}</small></td><td><span>{driver.email}</span><small>{driver.phone || "No phone number"}</small></td><td>{driver.homeZip || "—"}</td><td><span className="activePill">{driver.identityVerificationStatus.replaceAll("_", " ")}</span></td><td>{new Date(driver.createdAt).toLocaleDateString()}</td><td><div className="rowActions"><button onClick={() => setActive(driver, !driver.active)}>{driver.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" disabled={deletingId === driver.id} onClick={() => remove(driver)}>{deletingId === driver.id ? "Deleting…" : "Delete profile & account"}</button></div></td></tr>)}
+      {visible.map((driver) => <tr key={driver.id}><td><strong>{driver.displayName || "Unnamed driver"}</strong><small>{driver.active ? "Active account" : "Temporarily disabled"}</small></td><td><span>{driver.email}</span><small>{driver.phone || "No phone number"}</small></td><td>{driver.homeZip || "—"}</td><td><select aria-label={`Verification status for ${driver.displayName || driver.email}`} value={driver.identityVerificationStatus === "not_started" ? "pending" : driver.identityVerificationStatus} onChange={(event) => setVerification(driver, event.target.value as "pending" | "verified" | "needs_attention")}><option value="pending">Pending review</option><option value="verified">Verified</option><option value="needs_attention">Needs attention</option></select></td><td>{new Date(driver.createdAt).toLocaleDateString()}</td><td><div className="rowActions"><button onClick={() => setActive(driver, !driver.active)}>{driver.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" disabled={deletingId === driver.id} onClick={() => remove(driver)}>{deletingId === driver.id ? "Deleting…" : "Delete profile & account"}</button></div></td></tr>)}
       {!visible.length && <tr><td colSpan={6}>{drivers.length ? "No drivers match this search." : "No driver accounts have been registered yet."}</td></tr>}
     </tbody></table></div>
   </section>;

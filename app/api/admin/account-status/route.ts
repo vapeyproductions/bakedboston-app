@@ -11,16 +11,39 @@ export async function PATCH(request: Request) {
   const body = await request.json() as Record<string, unknown>;
   const kind = String(body.kind);
   const id = Number(body.id);
-  const active = Boolean(body.active);
   if (!Number.isInteger(id) || !["bakery", "pantry", "driver"].includes(kind)) return Response.json({ error: "Invalid account." }, { status: 400 });
   const db = getDb();
   if (kind === "driver") {
+    const verificationStatus = typeof body.verificationStatus === "string" ? body.verificationStatus : "";
+    if (verificationStatus) {
+      if (!["pending", "verified", "needs_attention"].includes(verificationStatus)) {
+        return Response.json({ error: "Invalid verification status." }, { status: 400 });
+      }
+      const [driver] = await db.update(driverAccounts)
+        .set({ identityVerificationStatus: verificationStatus as "pending" | "verified" | "needs_attention" })
+        .where(eq(driverAccounts.id, id))
+        .returning();
+      if (!driver) return Response.json({ error: "Driver not found." }, { status: 404 });
+      await writeAudit({
+        actorType: "admin",
+        actorId: actor.id,
+        actorName: actor.displayName,
+        action: `changed driver verification to ${verificationStatus.replaceAll("_", " ")}`,
+        entityType: "driver",
+        entityId: driver.id,
+        entityName: driver.displayName,
+        details: driver.email,
+      });
+      return Response.json({ account: driver });
+    }
+    const active = Boolean(body.active);
     const [driver] = await db.update(driverAccounts).set({ active }).where(eq(driverAccounts.id, id)).returning();
     if (!driver) return Response.json({ error: "Driver not found." }, { status: 404 });
     const emailSent = await sendAccountStatusEmail({ to: [driver.email], recipientName: driver.displayName || driver.email, accountType: "driver", action: active ? "restored" : "disabled" });
     await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: `${active ? "restored" : "temporarily disabled"} driver account`, entityType: "driver", entityId: driver.id, entityName: driver.displayName, details: driver.email });
     return Response.json({ account: driver, emailSent });
   }
+  const active = Boolean(body.active);
   const [account] = await db.update(partnerAccounts).set({ active, updatedAt: new Date() }).where(and(
     eq(partnerAccounts.organizationType, kind as "bakery" | "pantry"),
     eq(partnerAccounts.organizationId, id),

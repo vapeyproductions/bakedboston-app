@@ -25,7 +25,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-
 
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
-type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention"; demo?: boolean; prototype?: boolean };
+type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention" };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
 type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
@@ -68,7 +68,6 @@ type WorkspaceData = {
 type PickupOccurrence = { id: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "cancelled"; confirmedAt: string | null };
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
-const demoDriverSession: Session = { role: "driver", accountId: 0, displayName: "Jordan Taylor", email: "jordan.driver@example.com", verificationStatus: "verified", demo: true };
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
@@ -135,20 +134,9 @@ export default function App() {
     await SecureStore.deleteItemAsync(TOKEN_KEY); setSession(null); setRole(null); setScreen("welcome");
   }
 
-  const chooseRole = async (nextRole: Role) => {
+  const chooseRole = (nextRole: Role) => {
     setRole(nextRole);
-    if (nextRole === "driver") {
-      try {
-        const { response, data } = await postAuth({ action: "prototype-driver", role: "driver" });
-        if (!response.ok) throw new Error(data.error ?? "Could not open the prototype driver.");
-        await authenticated(data);
-      } catch (error) {
-        Alert.alert("Could not open driver mode", error instanceof Error ? error.message : "Please try again.");
-        setRole(null);
-      }
-    } else {
-      setScreen("partner-login");
-    }
+    setScreen(nextRole === "driver" ? "driver-access" : "partner-login");
   };
 
   const back = () => {
@@ -260,8 +248,8 @@ function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onA
   async function login() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "login", role: "driver", email, password }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not sign in."); } catch { setError("The login request timed out. Check your connection and try again."); } finally { setBusy(false); } }
   return <>
     <Text style={styles.authEyebrow}>DRIVER ACCESS</Text>
-    <Text style={styles.authTitle}>Ready to rescue?</Text>
-    <Text style={styles.authBody}>Create a volunteer profile to discover routes near you, or sign in to continue an existing rescue.</Text>
+    <Text style={styles.authTitle}>Ready to drive?</Text>
+    <Text style={styles.authBody}>Create a volunteer profile to discover routes near you, or sign in to continue with your existing account.</Text>
     <PrimaryButton label="Create driver account" onPress={onCreate} />
     <View style={styles.divider}>
       <View style={styles.dividerLine} />
@@ -282,14 +270,13 @@ function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onA
     />
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
     <PrimaryButton label={busy ? "Signing in…" : "Sign in as driver"} dark disabled={busy || !email || !password} onPress={login} />
-    <Pressable><Text style={styles.linkText}>Forgot your password?</Text></Pressable>
   </>;
 }
 
 function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const [agreed, setAgreed] = useState(false);
   const [form, setForm] = useState({ displayName: "", email: "", phone: "", homeAddress: "", homeZip: "", dateOfBirth: "", password: "" }); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
-  async function register() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "register-driver", role: "driver", ...form }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not create driver account."); } catch { setError("The registration request timed out. Check your connection and try again."); } finally { setBusy(false); } }
+  async function register() { setBusy(true); setError(""); try { const { response, data } = await postAuth({ action: "register-driver", role: "driver", acceptedTerms: agreed, ...form }); if (response.ok) await onAuthenticated(data); else setError(data.error ?? "Could not create driver account."); } catch { setError("The registration request timed out. Check your connection and try again."); } finally { setBusy(false); } }
   return <>
     <Text style={styles.authEyebrow}>NEW DRIVER</Text>
     <Text style={styles.authTitle}>Create your profile.</Text>
@@ -313,9 +300,10 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
     />
     <Pressable style={styles.consentRow} onPress={() => setAgreed((current) => !current)}>
       <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>{agreed && <Text style={styles.checkmark}>✓</Text>}</View>
-      <Text style={styles.consentText}>I agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
+      <Text style={styles.consentText}>I am at least 16 years old and agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
     </Pressable>
-    <View style={styles.verificationPreview}><Text style={styles.verificationPreviewTitle}>Identity verification required</Text><Text style={styles.verificationPreviewBody}>After creating your account, you’ll verify a government-issued ID before reserving a delivery. BakedBoston will store the verification result, not your ID images.</Text></View>
+    <View style={styles.legalLinks}><Pressable onPress={() => Linking.openURL("https://www.baked-boston.com/terms")}><Text style={styles.linkText}>Terms of Use</Text></Pressable><Pressable onPress={() => Linking.openURL("https://www.baked-boston.com/privacy")}><Text style={styles.linkText}>Privacy Policy</Text></Pressable></View>
+    <View style={styles.verificationPreview}><Text style={styles.verificationPreviewTitle}>Driver review required</Text><Text style={styles.verificationPreviewBody}>After you create your profile, BakedBoston will review your driver information before you can reserve a delivery. Your account will show as pending until that review is complete.</Text></View>
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
     <PrimaryButton label={busy ? "Creating profile…" : "Create driver profile"} disabled={!agreed || busy} onPress={register} />
   </>;
@@ -375,15 +363,10 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
 }
 
 type DriverSection = "home" | "search" | "routes" | "profile" | "report";
-const previewDriverRoutes = [
-  { id: 1, timing: "Available now", bakery: "Sample bakery", pantry: "Sample pantry", pickup: "5:10 PM", finish: "6:05 PM", drive: "25 min driving", ending: "Ends near 02130", reason: "Best balance of travel time and pantry priority" },
-  { id: 2, timing: "Later today", bakery: "Example pickup", pantry: "Example destination", pickup: "6:00 PM", finish: "6:50 PM", drive: "20 min driving", ending: "Ends near 02446", reason: "Short route toward the preferred destination" },
-];
 
 function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const demoProfile: DriverProfile = { id: 0, email: "jordan.driver@example.com", displayName: "Jordan Taylor", phone: "(617) 555-0148", homeAddress: "125 Example Street, Boston, MA", homeZip: "02130", dateOfBirth: "2000-04-18", verificationStatus: "verified" };
   const [section, setSection] = useState<DriverSection>("home");
-  const [profile, setProfile] = useState<DriverProfile | null>(session.demo ? demoProfile : null);
+  const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [error, setError] = useState("");
   const [profileNotice, setProfileNotice] = useState("");
   const [search, setSearch] = useState({ date: localDateString(new Date()), earliest: "17:00", latest: "19:00", startZip: "", endZip: "" });
@@ -396,24 +379,22 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     let timer: ReturnType<typeof setInterval> | undefined;
-    if (!session.demo) {
-      void registerForPushNotifications().catch(() => undefined);
-      loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
-      const refreshMatching = async () => {
-        const coordinates = await currentDriverCoordinates();
-        return loadDriverMatching(coordinates).then((data) => {
+    void registerForPushNotifications().catch(() => undefined);
+    loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
+    const refreshMatching = async () => {
+      const coordinates = await currentDriverCoordinates();
+      return loadDriverMatching(coordinates).then((data) => {
         setRideRequests(data.requests);
         setRouteOffers(data.offers);
         setDriverNotifications(data.notifications);
         setBrowseRoutes(data.browseRoutes);
-        });
-      };
-      const safeRefreshMatching = () => refreshMatching().catch(() => setError("Could not load saved ride requests."));
-      void safeRefreshMatching();
-      timer = setInterval(safeRefreshMatching, 20_000);
-    }
+      });
+    };
+    const safeRefreshMatching = () => refreshMatching().catch(() => setError("Could not load saved ride requests."));
+    void safeRefreshMatching();
+    timer = setInterval(safeRefreshMatching, 20_000);
     return () => { if (timer) clearInterval(timer); };
-  }, [session.demo]);
+  }, []);
   async function saveRideRequest() {
     setError("");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(search.date) || search.earliest >= search.latest) {
@@ -430,11 +411,6 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       latestFinish: mobileLocalDateTime(search.date, search.latest),
       startZip: search.startZip, endZip: search.endZip, maximumExtraMinutes: null, status: "active",
     };
-    if (session.demo) {
-      setRideRequests((current) => [draft, ...current]);
-      setSearched(true);
-      return;
-    }
     try {
       const data = await createDriverRideRequest(draft);
       setRideRequests((current) => [data.request, ...current]);
@@ -538,19 +514,18 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     </View>
     <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
-      {(session.demo || session.prototype) && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} showPreview={Boolean(session.demo || session.prototype)} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
-      {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
+      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
+      {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission is used to recommend nearby routes. You can use a ZIP code instead.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>Ride request saved. We’ll notify you when a confirmed pickup matches.</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
       {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
-      {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
-      {section === "report" && <ReportProblemMobile demo={Boolean(session.demo)} />}
+      {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} onDelete={async () => { try { await deleteDriverAccount(); await SecureStore.deleteItemAsync(TOKEN_KEY); onSignOut(); } catch (reason) { Alert.alert("Account not deleted", reason instanceof Error ? reason.message : "Please try again."); } }} />}
+      {section === "report" && <ReportProblemMobile />}
     </ScrollView>
   </SafeAreaView>;
 }
 
-function DriverHome({ displayName, verified, onSearch, showPreview }: { displayName: string; verified: boolean; onSearch: () => void; showPreview: boolean }) {
-  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{!verified && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>Verify your identity</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>You can preview and search for routes now. Reservations will become available after secure identity verification.</Text><PrimaryButton label="Verify identity" dark onPress={() => Alert.alert("Identity verification", "The secure Stripe Identity connection will be enabled after BakedBoston’s Stripe account and development build are configured.")} /></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>Nearby routes available now or within the next two hours, ranked for efficient travel.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View>{showPreview && <><Text style={styles.previewLabel}>PROTOTYPE PREVIEW — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verified} key={route.id} />)}</>}</View>;
+function DriverHome({ displayName, verified, onSearch }: { displayName: string; verified: boolean; onSearch: () => void }) {
+  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{!verified && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>Driver review pending</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>BakedBoston is reviewing your driver information. You can explore available routes now; reserving a delivery becomes available when your profile is approved.</Text></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>Nearby routes available now or within the next two hours, ranked for efficient travel.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View></View>;
 }
 
 function BrowseRouteCard({ route, onReserve }: { route: BrowseRoute; onReserve: () => void }) {
@@ -562,10 +537,6 @@ function BrowseRouteCard({ route, onReserve }: { route: BrowseRoute; onReserve: 
     <Text style={styles.driverRouteReason}>Pickup around {formatMobileTime(route.estimatedBakeryArrival)} · Finish around {formatMobileTime(route.estimatedPantryArrival)}</Text>
     <Pressable style={styles.driverReserveButton} onPress={onReserve}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable>
   </View>;
-}
-
-function DriverRoutePreview({ route, verified }: { route: typeof previewDriverRoutes[number]; verified: boolean }) {
-  return <View style={styles.driverRouteCard}><View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{route.timing}</Text><Text style={styles.driverRouteDrive}>{route.drive}</Text></View><Text style={styles.driverRouteName}>{route.bakery}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{route.pantry}</Text><View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {route.pickup}</Text><Text style={styles.driverRouteFact}>Finish {route.finish}</Text><Text style={styles.driverRouteFact}>{route.ending}</Text></View><Text style={styles.driverRouteReason}>{route.reason}</Text><Pressable disabled={!verified} style={[styles.driverReserveButton, !verified && styles.disabledButton]} onPress={() => Alert.alert("Preview only", "Live reservations will be connected to the optimization service.")}><Text style={styles.driverReserveButtonText}>{verified ? "View route" : "Verification required"}</Text></Pressable></View>;
 }
 
 function DriverRideRequestList({ requests }: { requests: DriverRideRequest[] }) {
@@ -686,8 +657,14 @@ function DriverNotificationCard({ notification }: { notification: DriverNotifica
   return <View style={styles.driverNotificationCard}><Text style={styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text><Text style={styles.connectedTitle}>{notification.title}</Text><Text style={styles.connectedBody}>{notification.body}</Text></View>;
 }
 
-function DriverProfilePage({ profile, notice, onChange, onSave, onSignOut }: { profile: DriverProfile; notice: string; onChange: (profile: DriverProfile) => void; onSave: () => void; onSignOut: () => void }) {
-  return <View><Text style={styles.authEyebrow}>DRIVER ACCOUNT</Text><Text style={styles.driverPageTitle}>Profile</Text><View style={styles.driverProfileCard}><Field label="Legal name" value={profile.displayName} onChangeText={(displayName) => onChange({ ...profile, displayName })} /><Field label="Account email" value={profile.email} onChangeText={(email) => onChange({ ...profile, email })} keyboardType="email-address" autoCapitalize="none" /><Field label="Mobile number" value={profile.phone} onChangeText={(phone) => onChange({ ...profile, phone })} keyboardType="phone-pad" /><Field label="Home address" value={profile.homeAddress} onChangeText={(homeAddress) => onChange({ ...profile, homeAddress })} /><Field label="Home ZIP code" value={profile.homeZip} onChangeText={(homeZip) => onChange({ ...profile, homeZip })} keyboardType="number-pad" /><Field label="Date of birth" value={profile.dateOfBirth} editable={false} /><Text style={styles.privateProfileNote}>Your address and date of birth are private and are not shown to bakeries or pantries.</Text>{notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}<PrimaryButton label="Save profile" dark onPress={onSave} /></View><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable></View>;
+function DriverProfilePage({ profile, notice, onChange, onSave, onSignOut, onDelete }: { profile: DriverProfile; notice: string; onChange: (profile: DriverProfile) => void; onSave: () => void; onSignOut: () => void; onDelete: () => Promise<void> }) {
+  function confirmDeletion() {
+    Alert.alert("Delete your BakedBoston account?", "This permanently deletes your driver profile, saved ride requests, route assignments, notifications, and login access. This cannot be undone.", [
+      { text: "Keep account", style: "cancel" },
+      { text: "Delete account", style: "destructive", onPress: () => void onDelete() },
+    ]);
+  }
+  return <View><Text style={styles.authEyebrow}>DRIVER ACCOUNT</Text><Text style={styles.driverPageTitle}>Profile</Text><View style={styles.driverProfileCard}><Field label="Legal name" value={profile.displayName} onChangeText={(displayName) => onChange({ ...profile, displayName })} /><Field label="Account email" value={profile.email} onChangeText={(email) => onChange({ ...profile, email })} keyboardType="email-address" autoCapitalize="none" /><Field label="Mobile number" value={profile.phone} onChangeText={(phone) => onChange({ ...profile, phone })} keyboardType="phone-pad" /><Field label="Home address" value={profile.homeAddress} onChangeText={(homeAddress) => onChange({ ...profile, homeAddress })} /><Field label="Home ZIP code" value={profile.homeZip} onChangeText={(homeZip) => onChange({ ...profile, homeZip })} keyboardType="number-pad" /><Field label="Date of birth" value={profile.dateOfBirth} editable={false} /><Text style={styles.privateProfileNote}>Your address and date of birth are private and are not shown to bakeries or pantries.</Text>{notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}<PrimaryButton label="Save profile" dark onPress={onSave} /></View><Pressable onPress={onSignOut}><Text style={styles.workspaceSignOut}>Sign out</Text></Pressable><Pressable onPress={confirmDeletion}><Text style={styles.deleteAccountLink}>Delete account</Text></Pressable></View>;
 }
 
 async function driverRequest(method: "GET" | "PATCH", body?: Record<string, unknown>) {
@@ -699,6 +676,16 @@ async function driverRequest(method: "GET" | "PATCH", body?: Record<string, unkn
 }
 async function loadDriverProfile() { return (await driverRequest("GET")).driver; }
 async function saveDriverProfile(profile: DriverProfile) { return (await driverRequest("PATCH", { email: profile.email, displayName: profile.displayName, phone: profile.phone, homeAddress: profile.homeAddress, homeZip: profile.homeZip })).driver; }
+async function deleteDriverAccount() {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/driver`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "Could not delete this account.");
+}
 async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Record<string, unknown>, coordinates?: { latitude: number; longitude: number } | null) {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
   const query = coordinates ? `?latitude=${coordinates.latitude}&longitude=${coordinates.longitude}` : "";
@@ -1659,6 +1646,7 @@ const styles = StyleSheet.create({
   workspaceHeader: { zIndex: 100, minHeight: 64, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.paper },
   workspaceBrand: { flex: 1, color: colors.forest, fontWeight: "900", fontSize: 18 },
   workspaceSignOut: { color: colors.coral, fontWeight: "800" },
+  deleteAccountLink: { marginTop: 22, color: "#A34231", fontSize: 10, fontWeight: "900", textDecorationLine: "underline" },
   workspaceContent: { padding: 26, gap: 12 },
   driverHeaderStatus: { flexDirection: "row", alignItems: "center", gap: 7 },
   driverHeaderStatusText: { color: colors.forestSoft, fontSize: 9, fontWeight: "800" },
@@ -1680,8 +1668,6 @@ const styles = StyleSheet.create({
   driverTabText: { color: colors.sage, fontSize: 8, fontWeight: "900" },
   driverTabTextActive: { color: colors.forest },
   driverContent: { padding: 20, paddingBottom: 50 },
-  driverDemoBanner: { alignSelf: "flex-start", marginBottom: 16, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 14, backgroundColor: "#FFF0D4" },
-  driverDemoBannerText: { color: "#8A5A12", fontSize: 8, fontWeight: "900", letterSpacing: 0.7 },
   driverPageTitle: { color: colors.forest, fontSize: 28, lineHeight: 34, fontWeight: "900", letterSpacing: -0.7, marginTop: 5, marginBottom: 9 },
   driverFeedHeading: { marginTop: 24, marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },
   driverSearchShortcut: { minHeight: 39, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
@@ -1815,6 +1801,7 @@ const styles = StyleSheet.create({
   input: { minHeight: 52, borderWidth: 1, borderColor: "#C8D3CB", borderRadius: 9, backgroundColor: colors.paper, color: colors.forest, paddingHorizontal: 14, fontSize: 14 },
   multiline: { minHeight: 100, paddingTop: 14, textAlignVertical: "top" },
   linkText: { textAlign: "center", color: colors.forestSoft, fontSize: 11, fontWeight: "800", marginTop: 17 },
+  legalLinks: { flexDirection: "row", justifyContent: "center", gap: 22, marginBottom: 2 },
   consentRow: { flexDirection: "row", gap: 11, alignItems: "flex-start", marginVertical: 9 },
   checkbox: { width: 23, height: 23, borderRadius: 6, borderWidth: 1, borderColor: "#AFC0B5", backgroundColor: colors.paper, alignItems: "center", justifyContent: "center" },
   checkboxSelected: { backgroundColor: colors.forest, borderColor: colors.forest },
