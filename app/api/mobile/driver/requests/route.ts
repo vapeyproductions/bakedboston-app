@@ -3,12 +3,14 @@ import { and, desc, eq, gt, ne } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import {
   bakeries,
+  bakeryAccessPhotos,
   bakeryPickupOccurrences,
   driverAccounts,
   driverRideRequests,
   inAppNotifications,
   mobileSessions,
   pantries,
+  pantryAccessPhotos,
   rescueRoutes,
   routeOffers,
 } from "../../../../../db/schema";
@@ -53,11 +55,15 @@ export async function GET(request: Request) {
   ))).filter(Boolean);
   const bakeryIds = [...new Set(pickups.map((pickup) => pickup.bakeryId))];
   const bakeryRows = (await Promise.all(bakeryIds.map(async (id) =>
-    (await db.select({ id: bakeries.id, name: bakeries.name, address: bakeries.address }).from(bakeries).where(eq(bakeries.id, id)).limit(1))[0],
+    (await db.select({ id: bakeries.id, name: bakeries.name, address: bakeries.address, dropoffInstructions: bakeries.dropoffInstructions }).from(bakeries).where(eq(bakeries.id, id)).limit(1))[0],
   ))).filter(Boolean);
   const pantryRows = (await Promise.all(pantryIds.map(async (id) =>
-    (await db.select({ id: pantries.id, name: pantries.name, address: pantries.address }).from(pantries).where(eq(pantries.id, id)).limit(1))[0],
+    (await db.select({ id: pantries.id, name: pantries.name, address: pantries.address, dropoffInstructions: pantries.dropoffInstructions }).from(pantries).where(eq(pantries.id, id)).limit(1))[0],
   ))).filter(Boolean);
+  const [bakeryPhotos, pantryPhotos] = await Promise.all([
+    bakeryIds.length ? db.select().from(bakeryAccessPhotos) : Promise.resolve([]),
+    pantryIds.length ? db.select().from(pantryAccessPhotos) : Promise.resolve([]),
+  ]);
 
   return Response.json({
     requests,
@@ -66,8 +72,24 @@ export async function GET(request: Request) {
       return {
         ...offer,
         pickup,
-        bakery: bakeryRows.find((item) => item.id === pickup?.bakeryId) ?? null,
-        pantry: pantryRows.find((item) => item.id === offer.pantryId) ?? null,
+        bakery: (() => {
+          const bakery = bakeryRows.find((item) => item.id === pickup?.bakeryId);
+          return bakery ? {
+            ...bakery,
+            address: offer.status === "accepted" ? bakery.address : "",
+            dropoffInstructions: offer.status === "accepted" ? bakery.dropoffInstructions : "",
+            photos: offer.status === "accepted" ? bakeryPhotos.filter((photo) => photo.bakeryId === bakery.id).map((photo) => ({ id: photo.id, imageUrl: photo.imageUrl, caption: photo.caption })) : [],
+          } : null;
+        })(),
+        pantry: (() => {
+          const pantry = pantryRows.find((item) => item.id === offer.pantryId);
+          return pantry ? {
+            ...pantry,
+            address: offer.status === "accepted" ? pantry.address : "",
+            dropoffInstructions: offer.status === "accepted" ? pantry.dropoffInstructions : "",
+            photos: offer.status === "accepted" ? pantryPhotos.filter((photo) => photo.pantryId === pantry.id).map((photo) => ({ id: photo.id, imageUrl: photo.imageUrl, caption: photo.caption })) : [],
+          } : null;
+        })(),
       };
     }),
     notifications,
@@ -116,6 +138,7 @@ export async function PATCH(request: Request) {
     const action = String(body.action ?? "");
     if (action === "accept-offer") return acceptOffer(driver, Number(body.offerId));
     if (action === "decline-offer") return declineOffer(driver.id, Number(body.offerId));
+    if (action === "route-progress") return progressRoute(driver, Number(body.offerId), String(body.stage ?? ""));
     const id = Number(body.id);
     const status = String(body.status ?? "");
     if (!Number.isInteger(id) || !["active", "paused", "cancelled"].includes(status)) throw new Error("Choose a valid ride-request action.");
@@ -128,6 +151,84 @@ export async function PATCH(request: Request) {
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not update this ride request." }, { status: 400 });
   }
+}
+
+async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId: number, nextStage: string) {
+  const db = getDb();
+  const [offer] = await db.select().from(routeOffers).where(and(
+    eq(routeOffers.id, offerId),
+    eq(routeOffers.driverId, driver.id),
+    eq(routeOffers.status, "accepted"),
+  )).limit(1);
+  if (!offer) return Response.json({ error: "Active route not found." }, { status: 404 });
+  const transitions: Record<string, string[]> = {
+    reserved: ["arrived_at_bakery"],
+    en_route_to_bakery: ["arrived_at_bakery"],
+    arrived_at_bakery: ["picked_up"],
+    picked_up: ["arrived_at_pantry"],
+    en_route_to_pantry: ["arrived_at_pantry"],
+    arrived_at_pantry: ["completed"],
+  };
+  if (!transitions[offer.deliveryStage]?.includes(nextStage)) {
+    return Response.json({ error: "That route update is not available at this stage." }, { status: 409 });
+  }
+  const now = new Date();
+  const timestamps = {
+    ...(nextStage === "arrived_at_bakery" ? { arrivedAtBakeryAt: now } : {}),
+    ...(nextStage === "picked_up" ? { pickedUpAt: now } : {}),
+    ...(nextStage === "arrived_at_pantry" ? { arrivedAtPantryAt: now } : {}),
+    ...(nextStage === "completed" ? { completedAt: now } : {}),
+  };
+  const [updated] = await db.update(routeOffers).set({
+    deliveryStage: nextStage as "arrived_at_bakery" | "picked_up" | "arrived_at_pantry" | "completed",
+    ...timestamps,
+  }).where(and(
+    eq(routeOffers.id, offer.id),
+    eq(routeOffers.deliveryStage, offer.deliveryStage),
+  )).returning();
+  if (!updated) return Response.json({ error: "The route changed on another device. Refresh and try again." }, { status: 409 });
+
+  const [pickup] = await db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.id, offer.pickupOccurrenceId)).limit(1);
+  const [[bakery], [pantry]] = await Promise.all([
+    db.select().from(bakeries).where(eq(bakeries.id, pickup.bakeryId)).limit(1),
+    db.select().from(pantries).where(eq(pantries.id, offer.pantryId)).limit(1),
+  ]);
+  if (bakery && pantry) {
+    if (nextStage === "arrived_at_bakery") {
+      await db.insert(inAppNotifications).values({
+        recipientType: "bakery", recipientId: bakery.id, eventType: "driver_arrived_at_bakery",
+        title: "Driver has arrived", body: `${driver.displayName} has arrived at ${bakery.name} for the pickup.`,
+        actionRequired: true, actionKey: `confirm-handoff:${offer.id}`,
+      });
+    } else if (nextStage === "picked_up") {
+      await db.insert(inAppNotifications).values([
+        {
+          recipientType: "bakery", recipientId: bakery.id, eventType: "driver_picked_up",
+          title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}.`,
+        },
+        {
+          recipientType: "pantry", recipientId: pantry.id, eventType: "delivery_en_route",
+          title: "Your delivery is on the way",
+          body: `${driver.displayName} picked up food from ${bakery.name}. Current estimated arrival: ${offer.estimatedPantryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`,
+        },
+      ]);
+    } else if (nextStage === "arrived_at_pantry") {
+      await db.insert(inAppNotifications).values({
+        recipientType: "pantry", recipientId: pantry.id, eventType: "driver_arrived_at_pantry",
+        title: "Driver has arrived", body: `${driver.displayName} has arrived with food from ${bakery.name}.`,
+        actionRequired: true, actionKey: `confirm-delivery:${offer.id}`,
+      });
+    } else if (nextStage === "completed") {
+      const [route] = await db.select().from(rescueRoutes).where(and(
+        eq(rescueRoutes.bakeryName, bakery.name),
+        eq(rescueRoutes.pantryName, pantry.name),
+        eq(rescueRoutes.driverName, driver.displayName),
+        eq(rescueRoutes.status, "reserved"),
+      )).limit(1);
+      if (route) await db.update(rescueRoutes).set({ status: "completed" }).where(eq(rescueRoutes.id, route.id));
+    }
+  }
+  return Response.json({ offer: updated });
 }
 
 async function acceptOffer(driver: typeof driverAccounts.$inferSelect, offerId: number) {

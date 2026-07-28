@@ -156,6 +156,11 @@ if (!databaseUrl) {
     )
   `;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS route_offer_request_pickup_unique ON route_offers (driver_request_id, pickup_occurrence_id)`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS delivery_stage text NOT NULL DEFAULT 'reserved'`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS arrived_at_bakery_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS picked_up_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS arrived_at_pantry_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS completed_at timestamptz`;
   await sql`
     CREATE TABLE IF NOT EXISTS in_app_notifications (
       id serial PRIMARY KEY,

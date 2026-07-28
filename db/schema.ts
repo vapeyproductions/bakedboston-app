@@ -233,6 +233,14 @@ export const routeOffers = pgTable("route_offers", {
   offeredAt: timestamp("offered_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   respondedAt: timestamp("responded_at", { withTimezone: true }),
+  deliveryStage: text("delivery_stage", { enum: [
+    "reserved", "en_route_to_bakery", "arrived_at_bakery", "picked_up",
+    "en_route_to_pantry", "arrived_at_pantry", "completed",
+  ] }).notNull().default("reserved"),
+  arrivedAtBakeryAt: timestamp("arrived_at_bakery_at", { withTimezone: true }),
+  pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
+  arrivedAtPantryAt: timestamp("arrived_at_pantry_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("route_offer_request_pickup_unique").on(table.driverRequestId, table.pickupOccurrenceId),

@@ -25,7 +25,13 @@ type Session = { role: Role; accountId: number; displayName: string; email: stri
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed"; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
 type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
-type DriverRouteOffer = { id: number; status: "queued" | "offered" | "accepted" | "declined" | "expired" | "withdrawn"; expiresAt: string | null; estimatedBakeryArrival: string; estimatedPantryArrival: string; bakery: { name: string; address: string } | null; pantry: { name: string; address: string } | null };
+type DriverDestination = { name: string; address: string; dropoffInstructions: string; photos: Array<{ id: number; imageUrl: string; caption: string }> };
+type DriverRouteOffer = {
+  id: number; status: "queued" | "offered" | "accepted" | "declined" | "expired" | "withdrawn";
+  deliveryStage: "reserved" | "en_route_to_bakery" | "arrived_at_bakery" | "picked_up" | "en_route_to_pantry" | "arrived_at_pantry" | "completed";
+  expiresAt: string | null; estimatedBakeryArrival: string; estimatedPantryArrival: string;
+  bakery: DriverDestination | null; pantry: DriverDestination | null;
+};
 type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; acknowledgedAt: string | null; createdAt: string };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
@@ -416,6 +422,15 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       Alert.alert("Could not update offer", reason instanceof Error ? reason.message : "Please try again.");
     }
   }
+  async function progressRoute(offer: DriverRouteOffer, stage: DriverRouteOffer["deliveryStage"]) {
+    try {
+      await updateDriverMatching({ action: "route-progress", offerId: offer.id, stage });
+      const data = await loadDriverMatching();
+      setRideRequests(data.requests); setRouteOffers(data.offers); setDriverNotifications(data.notifications);
+    } catch (reason) {
+      Alert.alert("Could not update route", reason instanceof Error ? reason.message : "Please try again.");
+    }
+  }
   const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
   const verificationLabel = verificationStatus === "verified" ? "Identity verified" : verificationStatus === "pending" ? "Verification pending" : verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
   const tabs: Array<{ id: DriverSection; label: string; icon: string }> = [
@@ -451,9 +466,9 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {session.demo && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} key={offer.id} />)}</>}
+      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} key={offer.id} />)}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
-      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
+      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
     </ScrollView>
   </SafeAreaView>;
@@ -477,16 +492,48 @@ function DriverRideRequestList({ requests }: { requests: DriverRideRequest[] }) 
   </View>)}</View>;
 }
 
-function LiveRouteOffer({ offer, onRespond }: { offer: DriverRouteOffer; onRespond: (offer: DriverRouteOffer, action: "accept-offer" | "decline-offer") => void }) {
+function LiveRouteOffer({ offer, onRespond, onProgress }: {
+  offer: DriverRouteOffer;
+  onRespond: (offer: DriverRouteOffer, action: "accept-offer" | "decline-offer") => void;
+  onProgress: (offer: DriverRouteOffer, stage: DriverRouteOffer["deliveryStage"]) => void;
+}) {
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const bakeryFocused = ["reserved", "en_route_to_bakery", "arrived_at_bakery"].includes(offer.deliveryStage);
+  const destination = bakeryFocused ? offer.bakery : offer.pantry;
+  const laterDestination = bakeryFocused ? offer.pantry : offer.bakery;
+  const arrived = offer.deliveryStage === "arrived_at_bakery" || offer.deliveryStage === "arrived_at_pantry";
+  const showDetails = arrived || detailsExpanded;
+  const nextAction = offer.deliveryStage === "arrived_at_bakery"
+    ? { label: "Food picked up", stage: "picked_up" as const }
+    : offer.deliveryStage === "picked_up" || offer.deliveryStage === "en_route_to_pantry"
+      ? { label: "I have arrived at the pantry", stage: "arrived_at_pantry" as const }
+      : offer.deliveryStage === "arrived_at_pantry"
+        ? { label: "Delivery completed", stage: "completed" as const }
+        : { label: "I have arrived at the bakery", stage: "arrived_at_bakery" as const };
   return <View style={[styles.driverRouteCard, styles.liveOfferCard]}>
     <View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{offer.status === "offered" ? "Held for you · 5 minutes" : "Reserved"}</Text><Text style={styles.driverRouteDrive}>{offer.status}</Text></View>
     <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
     <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {formatMobileTime(offer.estimatedBakeryArrival)}</Text><Text style={styles.driverRouteFact}>Arrival {formatMobileTime(offer.estimatedPantryArrival)}</Text></View>
     {offer.status === "offered" && <View style={styles.offerActions}><Pressable onPress={() => onRespond(offer, "decline-offer")}><Text style={styles.offerDeclineText}>Not this one</Text></Pressable><Pressable style={styles.driverReserveButton} onPress={() => onRespond(offer, "accept-offer")}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable></View>}
-    {offer.status === "accepted" && <View style={styles.routeDirectionActions}>
-      <Pressable style={styles.primaryDirectionButton} onPress={() => offer.bakery?.address && chooseNavigationApp(offer.bakery.name, offer.bakery.address)}><Text style={styles.portalStatusButtonText}>Directions to bakery</Text></Pressable>
-      <Pressable style={styles.secondaryDirectionButton} onPress={() => offer.pantry?.address && chooseNavigationApp(offer.pantry.name, offer.pantry.address)}><Text style={styles.secondaryDirectionText}>Directions to pantry · after pickup</Text></Pressable>
+    {offer.status === "accepted" && offer.deliveryStage === "completed" && <View style={styles.completedRouteSummary}><Text style={styles.authEyebrow}>DELIVERY COMPLETED</Text><Text style={styles.connectedTitle}>{offer.bakery?.name} → {offer.pantry?.name}</Text></View>}
+    {offer.status === "accepted" && offer.deliveryStage !== "completed" && destination && <View style={styles.activeDestination}>
+      <Text style={styles.authEyebrow}>{bakeryFocused ? arrived ? "YOU HAVE ARRIVED AT THE BAKERY" : "FIRST DESTINATION · PICKUP" : arrived ? "YOU HAVE ARRIVED AT THE PANTRY" : "NEXT DESTINATION · DELIVERY"}</Text>
+      <Text style={styles.activeDestinationName}>{destination.name}</Text>
+      <Text style={styles.activeDestinationAddress}>{destination.address}</Text>
+      <Pressable style={styles.primaryDirectionButton} onPress={() => chooseNavigationApp(destination.name, destination.address)}><Text style={styles.portalStatusButtonText}>Open directions</Text></Pressable>
+      {!showDetails && <Pressable style={styles.arrivalDetailsToggle} onPress={() => setDetailsExpanded(true)}><Text style={styles.secondaryDirectionText}>View arrival instructions and photos</Text></Pressable>}
+      {showDetails && <DestinationArrivalDetails destination={destination} expanded={arrived} onClose={arrived ? undefined : () => setDetailsExpanded(false)} />}
+      <Pressable style={styles.routeProgressButton} onPress={() => onProgress(offer, nextAction.stage)}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
+      {laterDestination && <View style={styles.routeSecondaryDestination}><Text style={styles.previewLabel}>{bakeryFocused ? "AFTER PICKUP" : "PICKED UP FROM"}</Text><Text style={styles.connectedTitle}>{laterDestination.name}</Text><Text style={styles.connectedBody}>{laterDestination.address}</Text></View>}
     </View>}
+  </View>;
+}
+
+function DestinationArrivalDetails({ destination, expanded, onClose }: { destination: DriverDestination; expanded: boolean; onClose?: () => void }) {
+  return <View style={[styles.arrivalDetails, expanded && styles.arrivalDetailsExpanded]}>
+    <View style={styles.arrivalDetailsHeading}><Text style={styles.connectedTitle}>Arrival instructions</Text>{onClose && <Pressable onPress={onClose}><Text style={styles.arrivalDetailsClose}>×</Text></Pressable>}</View>
+    <Text style={[styles.connectedBody, expanded && styles.arrivalInstructionsExpanded]}>{destination.dropoffInstructions || "No additional arrival instructions were provided."}</Text>
+    {destination.photos.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.arrivalPhotoRow}>{destination.photos.map((photo) => <View style={[styles.arrivalPhotoCard, expanded && styles.arrivalPhotoCardExpanded]} key={photo.id}><Image source={{ uri: photo.imageUrl }} style={[styles.arrivalPhoto, expanded && styles.arrivalPhotoExpanded]} /><Text style={styles.arrivalPhotoCaption}>{photo.caption || "Access photo"}</Text></View>)}</ScrollView> : <Text style={styles.arrivalNoPhotos}>No access photos were provided.</Text>}
   </View>;
 }
 
@@ -1374,6 +1421,25 @@ const styles = StyleSheet.create({
   primaryDirectionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.forest },
   secondaryDirectionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, backgroundColor: colors.paper },
   secondaryDirectionText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
+  activeDestination: { marginTop: 17, paddingTop: 17, borderTopWidth: 1, borderTopColor: colors.border },
+  activeDestinationName: { marginTop: 5, color: colors.forest, fontSize: 22, lineHeight: 27, fontWeight: "900" },
+  activeDestinationAddress: { marginTop: 5, marginBottom: 13, color: colors.forestSoft, fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  arrivalDetailsToggle: { minHeight: 42, marginTop: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.paper },
+  arrivalDetails: { marginTop: 11, padding: 13, borderRadius: 10, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.border },
+  arrivalDetailsExpanded: { padding: 17, borderColor: colors.yellow, backgroundColor: "#FFF8E6" },
+  arrivalDetailsHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  arrivalDetailsClose: { color: colors.forest, fontSize: 22, fontWeight: "700" },
+  arrivalInstructionsExpanded: { marginTop: 8, color: colors.forest, fontSize: 12, lineHeight: 18 },
+  arrivalPhotoRow: { gap: 10, paddingTop: 12, paddingRight: 10 },
+  arrivalPhotoCard: { width: 150 },
+  arrivalPhotoCardExpanded: { width: 225 },
+  arrivalPhoto: { width: 150, height: 100, borderRadius: 8, backgroundColor: colors.border },
+  arrivalPhotoExpanded: { width: 225, height: 155 },
+  arrivalPhotoCaption: { marginTop: 6, color: colors.forestSoft, fontSize: 8, lineHeight: 12 },
+  arrivalNoPhotos: { marginTop: 10, color: colors.sage, fontSize: 9, fontStyle: "italic" },
+  routeProgressButton: { minHeight: 48, marginTop: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.coral },
+  routeSecondaryDestination: { marginTop: 14, padding: 13, borderRadius: 9, backgroundColor: colors.mint },
+  completedRouteSummary: { marginTop: 15, padding: 14, borderRadius: 10, backgroundColor: "#E8F4EA", borderWidth: 1, borderColor: "#9FC7A8" },
   offerDeclineText: { color: colors.coral, fontSize: 9, fontWeight: "900" },
   driverNotificationCard: { marginTop: 12, padding: 17, borderRadius: 12, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
   nativeNotificationButton: { alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.forest },
