@@ -11,7 +11,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.bakedboston.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "BakedBoston uses your location while the app is open to calculate traffic-aware departure times for accepted deliveries."
+        "NSLocationWhenInUseUsageDescription": "BakedBoston uses your location while the app is open to calculate traffic-aware departure times for accepted deliveries.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -22,7 +23,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": true
+      "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -39,6 +44,12 @@
       ],
       "expo-location",
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "285e0275-ce08-402f-ae25-68a06ab86df3"
+      }
+    },
+    "owner": "princesseva"
   }
 }

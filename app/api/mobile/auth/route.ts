@@ -18,7 +18,24 @@ export async function POST(request: Request) {
     const db = getDb();
     let accountId: number;
     let displayName: string;
-    if (action === "register-driver") {
+    let prototype = false;
+    if (action === "prototype-driver") {
+      const prototypeEmail = "jordan.driver@example.com";
+      const [existing] = await db.select().from(driverAccounts).where(eq(driverAccounts.email, prototypeEmail)).limit(1);
+      const driver = existing ?? (await db.insert(driverAccounts).values({
+        email: prototypeEmail,
+        displayName: "Jordan Taylor",
+        phone: "(617) 555-0148",
+        homeAddress: "125 Example Street, Boston, MA",
+        homeZip: "02130",
+        dateOfBirth: "2000-04-18",
+        passwordHash: hashPartnerPassword(randomBytes(32).toString("hex")),
+        identityVerificationStatus: "verified",
+      }).returning())[0];
+      accountId = driver.id;
+      displayName = driver.displayName;
+      prototype = true;
+    } else if (action === "register-driver") {
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Enter a valid email address.");
       const existing = await db.select().from(driverAccounts).where(eq(driverAccounts.email, email)).limit(1);
       if (existing[0]) throw new Error("A driver account already uses this email.");
@@ -48,7 +65,14 @@ export async function POST(request: Request) {
     }
     const token = randomBytes(32).toString("base64url");
     await db.insert(mobileSessions).values({ tokenHash: tokenHash(token), role, accountId, expiresAt: new Date(Date.now() + expiresInMs) });
-    return Response.json({ token, session: { role, accountId, displayName, email, verificationStatus: role === "driver" ? "not_started" : undefined } });
+    return Response.json({ token, session: {
+      role,
+      accountId,
+      displayName,
+      email: prototype ? "jordan.driver@example.com" : email,
+      verificationStatus: role === "driver" ? (prototype ? "verified" : "not_started") : undefined,
+      prototype,
+    } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not authenticate." }, { status: 400 });
   }
@@ -62,7 +86,14 @@ export async function GET(request: Request) {
   if (session.role === "driver") {
     const [driver] = await db.select().from(driverAccounts).where(eq(driverAccounts.id, session.accountId)).limit(1);
     if (!driver?.active) return Response.json({ error: "Account unavailable." }, { status: 401 });
-    return Response.json({ session: { role: session.role, accountId: session.accountId, displayName: driver.displayName, email: driver.email, verificationStatus: driver.identityVerificationStatus } });
+    return Response.json({ session: {
+      role: session.role,
+      accountId: session.accountId,
+      displayName: driver.displayName,
+      email: driver.email,
+      verificationStatus: driver.identityVerificationStatus,
+      prototype: driver.email === "jordan.driver@example.com",
+    } });
   }
   const [partner] = await db.select().from(partnerAccounts).where(eq(partnerAccounts.id, session.accountId)).limit(1);
   if (!partner?.active) return Response.json({ error: "Account unavailable." }, { status: 401 });

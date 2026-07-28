@@ -25,7 +25,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-
 
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
-type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention"; demo?: boolean };
+type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention"; demo?: boolean; prototype?: boolean };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
 type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
@@ -112,7 +112,7 @@ export default function App() {
       if (!response.ok) await SecureStore.deleteItemAsync(TOKEN_KEY);
       else {
         const data = await response.json();
-        const restoredSession = data.session.role === "driver" ? demoDriverSession : data.session;
+        const restoredSession = data.session;
         setSession(restoredSession);
         setRole(restoredSession.role); setScreen("workspace");
       }
@@ -128,11 +128,17 @@ export default function App() {
     await SecureStore.deleteItemAsync(TOKEN_KEY); setSession(null); setRole(null); setScreen("welcome");
   }
 
-  const chooseRole = (nextRole: Role) => {
+  const chooseRole = async (nextRole: Role) => {
     setRole(nextRole);
     if (nextRole === "driver") {
-      setSession(demoDriverSession);
-      setScreen("workspace");
+      try {
+        const { response, data } = await postAuth({ action: "prototype-driver", role: "driver" });
+        if (!response.ok) throw new Error(data.error ?? "Could not open the prototype driver.");
+        await authenticated(data);
+      } catch (error) {
+        Alert.alert("Could not open driver mode", error instanceof Error ? error.message : "Please try again.");
+        setRole(null);
+      }
     } else {
       setScreen("partner-login");
     }
@@ -512,7 +518,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     </View>
     <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
-      {session.demo && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
+      {(session.demo || session.prototype) && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}

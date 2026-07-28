@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { driverAccounts, mobileSessions, pushDevices } from "../../../../db/schema";
+import { driverAccounts, inAppNotifications, mobileSessions, pushDevices } from "../../../../db/schema";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -32,5 +32,12 @@ export async function POST(request: Request) {
     : await db.insert(pushDevices).values({
       recipientType: "driver", recipientId: driver.id, expoPushToken, platform,
     }).returning();
+  if (!existing) await db.insert(inAppNotifications).values({
+    recipientType: "driver",
+    recipientId: driver.id,
+    eventType: "push_device_connected",
+    title: "BakedBoston notifications are connected",
+    body: "This test confirms that scheduled delivery reminders can reach this iPhone while the app is in the background.",
+  });
   return Response.json({ device });
 }
