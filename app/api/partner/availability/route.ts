@@ -34,9 +34,10 @@ export async function POST(request: Request) {
   const startsAt = validDate(body.startsAt, "Opening time");
   const endsAt = validDate(body.endsAt, "Closing time");
   const latestArrival = validDate(body.latestArrival, "Latest permitted arrival");
+  const serviceMode = validServiceMode(body.serviceMode, current.organizationType);
   validateWindow(startsAt, endsAt, latestArrival);
   if (endsAt.getTime() <= Date.now()) return Response.json({ error: "The one-time window must end in the future." }, { status: 400 });
-  const [record] = await db.insert(availabilityWindows).values({ organizationType: current.organizationType, organizationId: current.organizationId, startsAt, endsAt, latestArrival, paused: false }).returning();
+  const [record] = await db.insert(availabilityWindows).values({ organizationType: current.organizationType, organizationId: current.organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
   await audit(current, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
   return Response.json({ record }, { status: 201 });
 }
@@ -56,8 +57,9 @@ export async function PATCH(request: Request) {
   const startsAt = validDate(body.startsAt, "Opening time");
   const endsAt = validDate(body.endsAt, "Closing time");
   const latestArrival = validDate(body.latestArrival, "Latest permitted arrival");
+  const serviceMode = validServiceMode(body.serviceMode, current.organizationType);
   validateWindow(startsAt, endsAt, latestArrival);
-  const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival }).where(eq(availabilityWindows.id, id)).returning();
+  const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode }).where(eq(availabilityWindows.id, id)).returning();
   await audit(current, "updated one-time availability window", String(id));
   return Response.json({ record });
 }
@@ -83,4 +85,5 @@ export async function DELETE(request: Request) {
 }
 function validDate(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
 function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest permitted arrival must fall within the availability window."); }
+function validServiceMode(value: unknown, type: string) { if (type === "bakery") return "staffed" as const; if (value !== "staffed" && value !== "unattended") throw new Error("Choose whether the receiving window is staffed or unattended."); return value; }
 async function audit(current: NonNullable<Awaited<ReturnType<typeof account>>>, action: string, details: string) { await writeAudit({ actorType: "partner", actorId: current.id, actorName: current.accountEmail, action, entityType: current.organizationType, entityId: current.organizationId, entityName: current.accountEmail, details }); }

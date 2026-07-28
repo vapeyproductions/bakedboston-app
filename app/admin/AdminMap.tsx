@@ -10,7 +10,7 @@ type MapBakery = {
 };
 type MapPantry = {
   id: number; name: string; address: string; latitude: number | null; longitude: number | null;
-  recurringDays: string; openTime: string; closeTime: string; latestArrival: string;
+  recurringDays: string; openTime: string; closeTime: string; latestArrival: string; serviceModes: string;
   deliveriesSevenDays: number; active: boolean; contactName: string; contactEmail: string; contactPhone: string;
 };
 

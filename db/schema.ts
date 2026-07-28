@@ -52,6 +52,7 @@ export const pantries = pgTable("pantries", {
   openTime: text("open_time").notNull(),
   closeTime: text("close_time").notNull(),
   latestArrival: text("latest_arrival").notNull(),
+  serviceModes: text("service_modes").notNull().default("[]"),
   deliveriesSevenDays: integer("deliveries_seven_days").notNull().default(0),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -73,6 +74,7 @@ export const availabilityWindows = pgTable("availability_windows", {
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
   endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
   latestArrival: timestamp("latest_arrival", { withTimezone: true }).notNull(),
+  serviceMode: text("service_mode", { enum: ["staffed", "unattended"] }).notNull().default("staffed"),
   paused: boolean("paused").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

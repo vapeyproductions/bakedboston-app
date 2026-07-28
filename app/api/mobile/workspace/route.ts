@@ -151,8 +151,9 @@ export async function POST(request: Request) {
     const startsAt = validDateTime(body.startsAt, "Opening time");
     const endsAt = validDateTime(body.endsAt, "Closing time");
     const latestArrival = validDateTime(body.latestArrival, "Latest permitted arrival");
+    const serviceMode = validServiceMode(body.serviceMode, account.organizationType);
     validateWindow(startsAt, endsAt, latestArrival);
-    const [record] = await db.insert(availabilityWindows).values({ organizationType: account.organizationType, organizationId: account.organizationId, startsAt, endsAt, latestArrival, paused: false }).returning();
+    const [record] = await db.insert(availabilityWindows).values({ organizationType: account.organizationType, organizationId: account.organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
     await audit(account, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
     return Response.json({ record }, { status: 201 });
   } catch (error) {
@@ -269,6 +270,7 @@ export async function PATCH(request: Request) {
           day: validDay(window.day),
           ordinal: window.recurrence === "monthly" ? validOrdinal(window.ordinal) : null,
           open: validTime(window.open), close: validTime(window.close), latestArrival: validTime(window.latestArrival),
+          serviceMode: validServiceMode(window.serviceMode, "pantry"),
         }));
         for (const window of normalized) {
           if (window.open >= window.close) throw new Error(`${window.day}: closing time must be later than opening time.`);
@@ -279,6 +281,7 @@ export async function PATCH(request: Request) {
           openTime: JSON.stringify(normalized.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
           closeTime: JSON.stringify(normalized.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
           latestArrival: JSON.stringify(normalized.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
+          serviceModes: JSON.stringify(normalized.map(({ recurrence, day, ordinal, serviceMode }) => ({ recurrence, day, ordinal, mode: serviceMode }))),
         }).where(eq(pantries.id, account.organizationId));
       }
       await audit(account, `updated ${account.organizationType} schedule`, "Recurring availability updated in mobile portal");
@@ -290,8 +293,9 @@ export async function PATCH(request: Request) {
     const startsAt = validDateTime(body.startsAt, "Opening time");
     const endsAt = validDateTime(body.endsAt, "Closing time");
     const latestArrival = validDateTime(body.latestArrival, "Latest permitted arrival");
+    const serviceMode = validServiceMode(body.serviceMode, account.organizationType);
     validateWindow(startsAt, endsAt, latestArrival);
-    const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival }).where(eq(availabilityWindows.id, id)).returning();
+    const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode }).where(eq(availabilityWindows.id, id)).returning();
     await audit(account, "updated one-time availability window", String(id));
     return Response.json({ record });
   } catch (error) {
@@ -347,6 +351,7 @@ function validOrdinal(value: unknown) { const ordinal = Number(value); if (!Numb
 function validDateOnly(value: unknown) { const date = String(value ?? ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a valid date."); return date; }
 function validDateTime(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
 function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest arrival must fall inside the availability window."); }
+function validServiceMode(value: unknown, type: string) { if (type === "bakery") return "staffed" as const; if (value !== "staffed" && value !== "unattended") throw new Error("Choose whether the receiving window is staffed or unattended."); return value; }
 async function audit(account: typeof partnerAccounts.$inferSelect, action: string, details: string) { await writeAudit({ actorType: "partner", actorId: account.id, actorName: account.accountEmail, action, entityType: account.organizationType, entityId: account.organizationId, entityName: account.accountEmail, details }); }
 function clean(value: unknown) { return String(value ?? "").trim(); }
 function required(value: unknown, label: string) { const result = clean(value); if (!result) throw new Error(`${label} is required.`); return result; }

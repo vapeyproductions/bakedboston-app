@@ -49,12 +49,12 @@ type BrowseRoute = {
   distanceToBakeryMiles: number; routeMiles: number;
 };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
-type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
+type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type WorkspaceData = {
   account: { accountEmail: string; administratorName: string; contactEmail: string; contactPhone: string };
   organization: {
     id: number; name: string; address: string; businessPhone: string; notificationPhone: string; dropoffInstructions: string;
-    recurringDays: string; businessOpenTime?: string; businessCloseTime?: string; readyTime?: string; arrivalDeadline?: string; openTime?: string; closeTime?: string; latestArrival?: string;
+    recurringDays: string; businessOpenTime?: string; businessCloseTime?: string; readyTime?: string; arrivalDeadline?: string; openTime?: string; closeTime?: string; latestArrival?: string; serviceModes?: string;
   };
   contacts: MobileContact[];
   availabilityWindows: MobileWindow[];
@@ -1046,7 +1046,7 @@ function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceD
   </ScrollView>;
 }
 
-type NativeScheduleRow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; readyTime: string; pickupDeadline: string };
+type NativeScheduleRow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; serviceMode: "staffed" | "unattended"; readyTime: string; pickupDeadline: string };
 type ScheduleSelection = { type: "recurring"; index: number; date?: string } | { type: "one-time"; id: number } | null;
 
 function SchedulePage({ workspace, bakery, rightInset, onChanged }: { workspace: WorkspaceData; bakery: boolean; rightInset: number; onChanged: () => Promise<void> }) {
@@ -1096,13 +1096,15 @@ function RecurringNativeEditor({ row, bakery, date, busy, onChange, onClose, onS
   row: NativeScheduleRow; bakery: boolean; date?: string; busy: boolean; onChange: (patch: Partial<NativeScheduleRow>) => void; onClose: () => void; onSave: () => void; onDelete: () => void; onCancelDate?: () => void;
 }) {
   const { width, height } = useWindowDimensions(); const compact = width > height;
-  const heading = <View style={styles.editorHeading}><Text style={styles.portalPanelKicker}>EDIT WINDOW</Text><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
+  const adding = !date;
+  const heading = <View style={[styles.editorHeading, styles.recurringEditorHeading]}><View><Text style={styles.portalPanelKicker}>{adding ? "ADD RECURRING" : "EDIT WINDOW"}</Text><Text style={styles.editorTitle}>{adding ? "New window" : "Edit existing window"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
   const days = <View style={[styles.choiceRow, compact && styles.landscapeDayRow]}>{nativeDays.map((day) => <Pressable key={day} onPress={() => onChange({ day })} style={[styles.choicePill, compact && styles.landscapeDayPill, row.day === day && styles.choicePillSelected]}><Text style={[styles.choiceText, row.day === day && styles.choiceTextSelected]}>{day}</Text></Pressable>)}</View>;
   const recurrence = !bakery ? <View style={[styles.choiceRow, compact && styles.landscapeRecurrence]}><Pressable onPress={() => onChange({ recurrence: "weekly", ordinal: null })} style={[styles.choicePill, row.recurrence === "weekly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "weekly" && styles.choiceTextSelected]}>Every week</Text></Pressable><Pressable onPress={() => onChange({ recurrence: "monthly", ordinal: row.ordinal ?? 1 })} style={[styles.choicePill, row.recurrence === "monthly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "monthly" && styles.choiceTextSelected]}>Once a month</Text></Pressable></View> : null;
+  const serviceMode = !bakery ? <View style={compact ? styles.landscapeServiceMode : styles.portraitEditorSection}><Text style={styles.informationLabel}>Receiving method</Text><View style={[styles.choiceRow, styles.serviceModeChoices]}><Pressable onPress={() => onChange({ serviceMode: "staffed" })} style={[styles.choicePill, row.serviceMode === "staffed" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.serviceMode === "staffed" && styles.choiceTextSelected]}>Staffed</Text></Pressable><Pressable onPress={() => onChange({ serviceMode: "unattended" })} style={[styles.choicePill, row.serviceMode === "unattended" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.serviceMode === "unattended" && styles.choiceTextSelected]}>Unattended</Text></Pressable></View></View> : null;
   const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}>{!bakery && row.recurrence === "monthly" && <EditorField label="Occurrence" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}{bakery ? <><TimeEditorField label="Food ready" value={row.readyTime} onChange={(readyTime) => onChange({ readyTime })} /><TimeEditorField label="Pickup deadline" value={row.pickupDeadline} onChange={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><TimeEditorField label="Opens" value={row.open} onChange={(open) => onChange({ open })} /><TimeEditorField label="Closes" value={row.close} onChange={(close) => onChange({ close })} /><TimeEditorField label="Latest arrival" value={row.latestArrival} onChange={(latestArrival) => onChange({ latestArrival })} /></>}</View>;
-  const actions = <View style={[styles.editorActions, compact && styles.landscapeEditorActions]}><Pressable style={styles.editorDeleteButton} onPress={onDelete}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>{onCancelDate && <Pressable style={styles.editorCancelButton} onPress={onCancelDate}><Text style={styles.editorCancelButtonText}>Cancel hours on {date}</Text></Pressable>}<Pressable style={[styles.saveAction, compact && styles.landscapeSaveAction]} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save changes"}</Text></Pressable></View>;
-  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeRecurrenceBelowTitle}>{recurrence}</View>{days}<View style={styles.landscapeEditorBottom}>{fields}</View>{actions}</View>;
-  return <View style={styles.nativeEditor}>{heading}{recurrence}{days}{fields}{actions}</View>;
+  const actions = <View style={[styles.editorActions, compact ? styles.landscapeEditorActions : styles.portraitEditorActions]}><Pressable style={[styles.editorDeleteButton, !compact && styles.portraitEditorAction]} onPress={onDelete}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>{onCancelDate && <Pressable style={[styles.editorCancelButton, !compact && styles.portraitEditorAction]} onPress={onCancelDate}><Text style={styles.editorCancelButtonText}>Cancel hours on {date}</Text></Pressable>}<Pressable style={[styles.saveAction, compact ? styles.landscapeSaveAction : styles.portraitSaveAction]} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save changes"}</Text></Pressable></View>;
+  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeFrequencyRow}>{recurrence}</View>{days}<View style={styles.landscapeModeRow}>{serviceMode}</View><View style={styles.landscapeRecurringTimes}>{fields}</View>{actions}</View>;
+  return <View style={styles.nativeEditor}>{heading}<View style={styles.portraitEditorSection}>{recurrence}</View><View style={styles.portraitEditorSection}>{days}</View>{serviceMode}<View style={styles.portraitEditorSection}>{fields}</View>{actions}</View>;
 }
 
 function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: MobileWindow; bakery: boolean; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
@@ -1110,13 +1112,13 @@ function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: Mo
   const start = window ? new Date(window.startsAt) : new Date(Date.now() + 24 * 60 * 60 * 1000);
   const end = window ? new Date(window.endsAt) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
   const latest = window ? new Date(window.latestArrival) : new Date(end.getTime() - 15 * 60 * 1000);
-  const [draft, setDraft] = useState({ date: localDateString(start), starts: localTimeString(start), ends: localTimeString(end), latest: localTimeString(latest) });
+  const [draft, setDraft] = useState({ date: localDateString(start), starts: localTimeString(start), ends: localTimeString(end), latest: localTimeString(latest), serviceMode: window?.serviceMode ?? "staffed" as "staffed" | "unattended" });
   const [error, setError] = useState("");
   async function save() {
     const startsAt = new Date(`${draft.date}T${draft.starts}:00`).toISOString();
     const endsAt = new Date(`${draft.date}T${draft.ends}:00`).toISOString();
     const latestArrival = bakery ? endsAt : new Date(`${draft.date}T${draft.latest}:00`).toISOString();
-    const { response, data } = await workspaceRequest(window ? "PATCH" : "POST", { ...(window ? { id: window.id } : {}), startsAt, endsAt, latestArrival });
+    const { response, data } = await workspaceRequest(window ? "PATCH" : "POST", { ...(window ? { id: window.id } : {}), startsAt, endsAt, latestArrival, serviceMode: bakery ? "staffed" : draft.serviceMode });
     if (response.ok) await onSaved(window ? "One-time window updated." : "One-time window created."); else setError(data.error ?? "Could not save window.");
   }
   async function remove() {
@@ -1126,9 +1128,10 @@ function OneTimeNativeEditor({ window, bakery, onClose, onSaved }: { window?: Mo
   }
   const heading = <View style={styles.editorHeading}><View><Text style={styles.portalPanelKicker}>{window ? "EDIT" : "ADD"} ONE-TIME</Text><Text style={styles.editorTitle}>{window ? formatMobileDate(window.startsAt) : "New window"}</Text></View><Pressable onPress={onClose}><Text style={styles.editorClose}>×</Text></Pressable></View>;
   const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}><EditorField label="Date" value={draft.date} onChangeText={(date) => setDraft({ ...draft, date })} /><TimeEditorField label={bakery ? "Food ready" : "Opens"} value={draft.starts} onChange={(starts) => setDraft({ ...draft, starts })} /><TimeEditorField label={bakery ? "Pickup deadline" : "Closes"} value={draft.ends} onChange={(ends) => setDraft({ ...draft, ends })} />{!bakery && <TimeEditorField label="Latest arrival" value={draft.latest} onChange={(latestValue) => setDraft({ ...draft, latest: latestValue })} />}</View>;
-  const actions = <View style={[styles.editorActions, compact && styles.landscapeEditorActions]}>{window && <Pressable style={styles.editorDeleteButton} onPress={remove}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>}<Pressable style={[styles.saveAction, compact && styles.landscapeSaveAction]} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>;
-  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeEditorBottom}>{fields}</View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
-  return <View style={styles.nativeEditor}>{heading}{fields}{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
+  const serviceMode = !bakery ? <View style={compact ? styles.oneTimeServiceLandscape : styles.oneTimeServicePortrait}><Text style={styles.informationLabel}>Receiving method</Text><View style={[styles.choiceRow, styles.serviceModeChoices]}><Pressable onPress={() => setDraft({ ...draft, serviceMode: "staffed" })} style={[styles.choicePill, draft.serviceMode === "staffed" && styles.choicePillSelected]}><Text style={[styles.choiceText, draft.serviceMode === "staffed" && styles.choiceTextSelected]}>Staffed</Text></Pressable><Pressable onPress={() => setDraft({ ...draft, serviceMode: "unattended" })} style={[styles.choicePill, draft.serviceMode === "unattended" && styles.choicePillSelected]}><Text style={[styles.choiceText, draft.serviceMode === "unattended" && styles.choiceTextSelected]}>Unattended</Text></Pressable></View></View> : null;
+  const actions = <View style={[styles.editorActions, compact ? styles.landscapeEditorActions : styles.portraitEditorActions]}>{window && <Pressable style={[styles.editorDeleteButton, !compact && styles.portraitEditorAction]} onPress={remove}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>}<Pressable style={[styles.saveAction, compact ? styles.landscapeSaveAction : styles.portraitSaveAction]} onPress={save}><Text style={styles.saveActionText}>Save window</Text></Pressable></View>;
+  if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeEditorBottom}>{fields}</View><View style={styles.oneTimeLandscapeFooter}>{serviceMode}<View style={styles.oneTimeLandscapeActions}>{actions}</View></View>{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}</View>;
+  return <View style={styles.nativeEditor}>{heading}{fields}{serviceMode}{error ? <Text style={styles.calendarNotice}>{error}</Text> : null}{actions}</View>;
 }
 
 function FourWeekNativeCalendar({ bakery, rows, windows, exceptions, onRecurring, onOneTime, onRestore }: {
@@ -1142,7 +1145,7 @@ function FourWeekNativeCalendar({ bakery, rows, windows, exceptions, onRecurring
     const exception = exceptions.find((item) => item.exceptionDate === dateString);
     const recurring = exception ? [] : rows.map((row, index) => ({ row, index })).filter(({ row }) => row.day === day && (row.recurrence === "weekly" || row.ordinal === occurrence));
     const dated = windows.filter((window) => localDateString(new Date(window.startsAt)) === dateString);
-    return <View style={[styles.calendarCell, dateString === localDateString(today) && styles.calendarCellToday]} key={dateString}><Text style={styles.calendarDateNumber}>{date.getDate()}</Text>{exception ? <Pressable style={styles.cancelledCalendarEvent} onPress={() => onRestore(exception.id)}><Text style={styles.calendarEventText}>Cancelled</Text><Text style={styles.calendarEventTime}>Tap to restore</Text></Pressable> : null}{recurring.map(({ row, index }) => <Pressable style={styles.recurringCalendarEvent} key={`r-${index}`} onPress={() => onRecurring(index, dateString)}><Text style={styles.calendarEventText}>Recurring</Text><Text style={styles.calendarEventTime}>{displayClock(bakery ? row.readyTime : row.open)}–{displayClock(bakery ? row.pickupDeadline : row.close)}</Text>{!bakery && <Text style={styles.calendarEventTime}>Latest {displayClock(row.latestArrival)}</Text>}</Pressable>)}{dated.map((window) => <Pressable style={styles.oneTimeCalendarEvent} key={window.id} onPress={() => onOneTime(window.id)}><Text style={styles.calendarEventText}>{window.paused ? "Paused" : "One-time"}</Text><Text style={styles.calendarEventTime}>{formatMobileTime(window.startsAt)}–{formatMobileTime(window.endsAt)}</Text></Pressable>)}</View>;
+    return <View style={[styles.calendarCell, dateString === localDateString(today) && styles.calendarCellToday]} key={dateString}><Text style={styles.calendarDateNumber}>{date.getDate()}</Text>{exception ? <Pressable style={styles.cancelledCalendarEvent} onPress={() => onRestore(exception.id)}><Text style={styles.calendarEventText}>Cancelled</Text><Text style={styles.calendarEventTime}>Tap to restore</Text></Pressable> : null}{recurring.map(({ row, index }) => <Pressable style={styles.recurringCalendarEvent} key={`r-${index}`} onPress={() => onRecurring(index, dateString)}><Text style={styles.calendarEventText}>Recurring</Text><Text style={styles.calendarEventTime}>{displayClock(bakery ? row.readyTime : row.open)}–{displayClock(bakery ? row.pickupDeadline : row.close)}</Text>{!bakery && <><Text style={styles.calendarEventTime}>Latest {displayClock(row.latestArrival)}</Text><Text style={styles.calendarEventTime}>{row.serviceMode === "unattended" ? "Unattended" : "Staffed"}</Text></>}</Pressable>)}{dated.map((window) => <Pressable style={styles.oneTimeCalendarEvent} key={window.id} onPress={() => onOneTime(window.id)}><Text style={styles.calendarEventText}>{window.paused ? "Paused" : "One-time"}</Text><Text style={styles.calendarEventTime}>{formatMobileTime(window.startsAt)}–{formatMobileTime(window.endsAt)}</Text>{!bakery && <Text style={styles.calendarEventTime}>{window.serviceMode === "unattended" ? "Unattended" : "Staffed"}</Text>}</Pressable>)}</View>;
   })}</View></View>;
 }
 
@@ -1198,7 +1201,7 @@ function confirmRestore(date: string) {
 }
 
 const nativeDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-function emptyNativeScheduleRow(): NativeScheduleRow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", readyTime: "15:00", pickupDeadline: "18:00" }; }
+function emptyNativeScheduleRow(): NativeScheduleRow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", serviceMode: "staffed", readyTime: "15:00", pickupDeadline: "18:00" }; }
 function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeScheduleRow[] {
   try {
     if (bakery) {
@@ -1210,7 +1213,8 @@ function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeSc
     const opens = JSON.parse(workspace.organization.openTime ?? "[]") as Array<{ day: string; time: string; recurrence?: "weekly" | "monthly"; ordinal?: number | null }>;
     const closes = JSON.parse(workspace.organization.closeTime ?? "[]") as Array<{ time: string }>;
     const latest = JSON.parse(workspace.organization.latestArrival ?? "[]") as Array<{ time: string }>;
-    const rows = opens.map((open, index) => ({ ...emptyNativeScheduleRow(), recurrence: open.recurrence ?? "weekly", day: open.day, ordinal: open.ordinal ?? null, open: open.time, close: closes[index]?.time ?? "17:00", latestArrival: latest[index]?.time ?? "16:30" }));
+    const modes = JSON.parse(workspace.organization.serviceModes ?? "[]") as Array<{ mode: "staffed" | "unattended" }>;
+    const rows = opens.map((open, index) => ({ ...emptyNativeScheduleRow(), recurrence: open.recurrence ?? "weekly", day: open.day, ordinal: open.ordinal ?? null, open: open.time, close: closes[index]?.time ?? "17:00", latestArrival: latest[index]?.time ?? "16:30", serviceMode: modes[index]?.mode ?? "staffed" }));
     return rows.length ? rows : [emptyNativeScheduleRow()];
   } catch { return [emptyNativeScheduleRow()]; }
 }
@@ -1309,7 +1313,7 @@ function ProfilePage({ workspace, bakery, rightInset, onChanged }: { workspace: 
       <Text style={styles.subsectionTitle}>{bakery ? "Bakery" : "Pantry"} access photos <Text style={styles.optionalLabel}>Optional</Text></Text>
       <Text style={styles.profileHelp}>Add photos that help drivers recognize the correct {bakery ? "pickup" : "drop-off"} location.</Text>
       {workspace.photos.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accessPhotoList}>{workspace.photos.map((item) => <View style={styles.accessPhotoCard} key={item.id}><Image source={{ uri: item.imageUrl }} style={styles.accessPhotoImage} /><Text style={styles.accessPhotoCaption} numberOfLines={2}>{item.caption || "Access photo"}</Text><Pressable onPress={() => deletePhoto(item.id)}><Text style={styles.contactDelete}>Delete</Text></Pressable></View>)}</ScrollView>}
-      <View style={styles.photoUploadPanel}>{photo && <Image source={{ uri: photo.uri }} style={styles.photoPreview} />}<View style={styles.photoUploadControls}><View style={styles.photoSourceButtons}><Pressable style={styles.calendarAddButton} onPress={() => choosePhoto("camera")}><Text style={styles.calendarAddButtonText}>Take photo</Text></Pressable><Pressable style={styles.calendarAddButton} onPress={() => choosePhoto("library")}><Text style={styles.calendarAddButtonText}>Choose photo</Text></Pressable></View><EditorField label="Caption" value={caption} onChangeText={setCaption} /><Pressable style={[styles.addContactButton, !photo && styles.disabledButton]} disabled={!photo} onPress={uploadPhoto}><Text style={styles.saveActionText}>Upload photo</Text></Pressable></View></View>
+      <View style={[styles.photoUploadPanel, !landscape && styles.photoUploadPanelPortrait]}>{photo && <Image source={{ uri: photo.uri }} style={[styles.photoPreview, !landscape && styles.photoPreviewPortrait]} />}<View style={styles.photoUploadControls}><View style={[styles.photoSourceButtons, !landscape && styles.photoSourceButtonsPortrait]}><Pressable style={styles.photoSourceButton} onPress={() => choosePhoto("camera")}><Text style={styles.calendarAddButtonText}>Take photo</Text></Pressable><Pressable style={styles.photoSourceButton} onPress={() => choosePhoto("library")}><Text style={styles.calendarAddButtonText}>Choose photo</Text></Pressable></View><EditorField label="Caption" value={caption} onChangeText={setCaption} /><Pressable style={[styles.addContactButton, !photo && styles.disabledButton]} disabled={!photo} onPress={uploadPhoto}><Text style={styles.saveActionText}>Upload photo</Text></Pressable></View></View>
       <Text style={styles.subsectionTitle}>Organizational contacts</Text>
       {workspace.contacts.map((contact) => <View style={styles.contactRow} key={contact.id}><View style={styles.contactCopy}><Text style={styles.routeTitle}>{contact.isPrimary ? "★ " : ""}{contact.name}</Text><Text style={styles.routeDetail}>{contact.email} · {contact.phone}</Text></View>{contact.isPrimary ? <Text style={styles.primaryPill}>PRIMARY</Text> : <Pressable onPress={() => makePrimary(contact.id)}><Text style={styles.contactAction}>Make primary</Text></Pressable>}<Pressable disabled={workspace.contacts.length <= 1} onPress={() => deleteContact(contact.id)}><Text style={[styles.contactDelete, workspace.contacts.length <= 1 && styles.contactDisabled]}>Delete</Text></Pressable></View>)}
       <View style={styles.contactDraft}><EditorField label="Contact name" value={contactDraft.name} onChangeText={(name) => setContactDraft({ ...contactDraft, name })} /><EditorField label="Contact email" value={contactDraft.email} onChangeText={(email) => setContactDraft({ ...contactDraft, email })} /><EditorField label="Contact phone" value={contactDraft.phone} onChangeText={(phone) => setContactDraft({ ...contactDraft, phone })} /><Pressable style={styles.addContactButton} disabled={!contactDraft.name || !contactDraft.email || !contactDraft.phone} onPress={addContact}><Text style={styles.saveActionText}>+ Add contact</Text></Pressable></View>
@@ -1497,9 +1501,13 @@ const styles = StyleSheet.create({
   accessPhotoImage: { width: "100%", height: 92, borderRadius: 7, backgroundColor: colors.mint },
   accessPhotoCaption: { minHeight: 28, color: colors.forestSoft, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 7 },
   photoUploadPanel: { flexDirection: "row", gap: 14, marginTop: 12, padding: 13, borderRadius: 10, backgroundColor: "#F5F1E5", borderWidth: 1, borderColor: colors.border },
+  photoUploadPanelPortrait: { flexDirection: "column", gap: 10 },
   photoPreview: { width: 120, height: 100, borderRadius: 8, backgroundColor: colors.mint },
+  photoPreviewPortrait: { width: "100%", height: 180 },
   photoUploadControls: { flex: 1, gap: 5 },
-  photoSourceButtons: { flexDirection: "row", gap: 9 },
+  photoSourceButtons: { flexDirection: "row", gap: 9, width: "100%" },
+  photoSourceButtonsPortrait: { gap: 8 },
+  photoSourceButton: { flex: 1, minWidth: 0, minHeight: 44, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   calendarActions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 15, alignItems: "stretch" },
   calendarAddButton: { minHeight: 44, minWidth: 155, flexGrow: 1, paddingHorizontal: 15, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   calendarAddButtonPrimary: { backgroundColor: colors.forest },
@@ -1520,27 +1528,43 @@ const styles = StyleSheet.create({
   landscapeScheduleControls: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   landscapeRecurrenceOnly: { marginLeft: "auto" },
   landscapeRecurrenceBelowTitle: { alignSelf: "flex-start", marginTop: -4 },
-  landscapeDayRow: { width: "100%", flexWrap: "nowrap", marginTop: 8, marginBottom: 0, gap: 7 },
+  landscapeSelectionRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 8 },
+  landscapeFrequencyRow: { width: "100%", flexDirection: "row", alignItems: "center", marginBottom: 7 },
+  landscapeDetailsRow: { width: "100%", flexDirection: "row", alignItems: "flex-end", gap: 14 },
+  landscapeModeRow: { width: "100%", marginTop: 2, marginBottom: 4 },
+  landscapeRecurringTimes: { width: "100%", marginTop: 1 },
+  landscapeServiceMode: { width: "100%", flexShrink: 0 },
+  landscapeDayRow: { width: "100%", flexWrap: "nowrap", marginTop: 0, marginBottom: 8, gap: 7 },
   landscapeDayPill: { flex: 1, minHeight: 36, paddingHorizontal: 8 },
-  landscapeRecurrence: { flexWrap: "nowrap", marginBottom: 0 },
-  landscapeTimeFields: { width: "100%", flex: 0, flexWrap: "nowrap", gap: 10 },
-  landscapeEditorActions: { width: "100%", flexDirection: "row", flexWrap: "nowrap", justifyContent: "flex-end", marginTop: 10, gap: 9 },
-  landscapeSaveAction: { minWidth: 130, marginLeft: 0 },
+  landscapeRecurrence: { flexWrap: "nowrap", marginBottom: 0, flexShrink: 0 },
+  landscapeTimeFields: { flex: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, flexWrap: "nowrap", gap: 10 },
+  landscapeEditorActions: { width: "100%", flexDirection: "row", flexWrap: "nowrap", justifyContent: "space-between", marginTop: 10, gap: 9 },
+  landscapeSaveAction: { flex: 1, minWidth: 0, marginLeft: 0 },
   editorHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 9 },
+  recurringEditorHeading: { marginBottom: 2 },
   editorHeadingCompact: { width: 92, marginBottom: 0, flexShrink: 0 },
   editorTitle: { color: colors.forest, fontSize: 17, fontWeight: "900", marginTop: 4 },
   editorClose: { color: colors.forest, fontSize: 27, lineHeight: 28 },
   editorChoices: {},
   editorChoicesCompact: { width: 200, flexShrink: 0 },
   choiceRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+  serviceModeChoices: { marginTop: 5, marginBottom: 0 },
+  oneTimeServicePortrait: { marginTop: 13, marginBottom: 8 },
+  oneTimeServiceLandscape: { width: 220, flexShrink: 0 },
+  oneTimeLandscapeFooter: { width: "100%", flexDirection: "row", alignItems: "flex-end", gap: 14, marginTop: 9 },
+  oneTimeLandscapeActions: { flex: 1, minWidth: 0 },
   choicePill: { minHeight: 31, paddingHorizontal: 10, borderRadius: 16, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   choicePillSelected: { backgroundColor: colors.forest, borderColor: colors.forest },
   choiceText: { color: colors.forestSoft, fontSize: 8, fontWeight: "900" },
   choiceTextSelected: { color: colors.white },
   editorFieldsRow: { flexDirection: "row", flexWrap: "wrap", gap: 9, flex: 1 },
-  editorField: { flexGrow: 1, flexBasis: 86, marginTop: 5 },
+  editorField: { flexGrow: 1, flexShrink: 1, flexBasis: 86, minWidth: 0, marginTop: 5 },
   editorInput: { minHeight: 39, marginTop: 4, paddingHorizontal: 10, color: colors.forest, fontSize: 11, fontWeight: "700", backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, borderRadius: 8 },
   editorActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12, marginTop: 11 },
+  portraitEditorSection: { marginTop: 6, marginBottom: 6 },
+  portraitEditorActions: { width: "100%", alignItems: "stretch", gap: 9 },
+  portraitEditorAction: { flexGrow: 1, flexBasis: "46%", minWidth: 0 },
+  portraitSaveAction: { width: "100%", marginLeft: 0 },
   editorActionsCompact: { width: 92, flexDirection: "column", alignItems: "stretch", marginTop: 0, gap: 7 },
   deleteAction: { color: "#A34436", fontSize: 8, fontWeight: "900" },
   cancelDateAction: { color: "#A26A16", fontSize: 8, fontWeight: "900" },

@@ -56,6 +56,7 @@ export async function PATCH(request: Request) {
         open: validTime(window.open, "Opening time"),
         close: validTime(window.close, "Closing time"),
         latestArrival: validTime(window.latestArrival, "Latest permitted arrival"),
+        serviceMode: validServiceMode(window.serviceMode),
       }));
       for (const window of normalized) {
         if (window.open >= window.close) throw new Error(`${window.day}: closing time must be later than opening time.`);
@@ -66,6 +67,7 @@ export async function PATCH(request: Request) {
         openTime: JSON.stringify(normalized.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
         closeTime: JSON.stringify(normalized.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
         latestArrival: JSON.stringify(normalized.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
+        serviceModes: JSON.stringify(normalized.map(({ recurrence, day, ordinal, serviceMode }) => ({ recurrence, day, ordinal, mode: serviceMode }))),
       }).where(eq(pantries.id, account.organizationId));
     }
     await writeAudit({ actorType: "partner", actorId: account.id, actorName: account.accountEmail, action: `updated ${account.organizationType} schedule`, entityType: account.organizationType, entityId: account.organizationId, entityName: account.accountEmail, details: "Recurring availability updated in partner portal" });
@@ -89,4 +91,8 @@ function validOrdinal(value: unknown) {
   const ordinal = Number(value);
   if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 5) throw new Error("Choose a monthly occurrence.");
   return ordinal;
+}
+function validServiceMode(value: unknown) {
+  if (value !== "staffed" && value !== "unattended") throw new Error("Choose whether the receiving window is staffed or unattended.");
+  return value;
 }

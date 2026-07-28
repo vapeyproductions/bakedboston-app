@@ -169,6 +169,13 @@
       "when": 1785224801586,
       "tag": "0023_giant_living_tribunal",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785251437769,
+      "tag": "0024_lonely_magus",
+      "breakpoints": true
     }
   ]
 }

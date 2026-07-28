@@ -126,6 +126,7 @@ export async function POST(request: Request) {
         openTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
         closeTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
         latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
+        serviceModes: JSON.stringify(schedule.map(({ recurrence, day, ordinal, serviceMode }) => ({ recurrence, day, ordinal, mode: serviceMode }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).returning();
       await db.insert(organizationContacts).values({ organizationType: "pantry", organizationId: record.id, ...contact, isPrimary: true });
@@ -225,6 +226,7 @@ export async function PATCH(request: Request) {
         openTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, open }) => ({ recurrence, day, ordinal, time: open }))),
         closeTime: JSON.stringify(schedule.map(({ recurrence, day, ordinal, close }) => ({ recurrence, day, ordinal, time: close }))),
         latestArrival: JSON.stringify(schedule.map(({ recurrence, day, ordinal, latestArrival }) => ({ recurrence, day, ordinal, time: latestArrival }))),
+        serviceModes: JSON.stringify(schedule.map(({ recurrence, day, ordinal, serviceMode }) => ({ recurrence, day, ordinal, mode: serviceMode }))),
         deliveriesSevenDays: optionalNumber(body.deliveriesSevenDays) ?? 0,
       }).where(eq(pantries.id, id)).returning();
       if (!record) return Response.json({ error: "Pantry not found." }, { status: 404 });
@@ -339,6 +341,7 @@ type ReceivingWindow = {
   open: string;
   close: string;
   latestArrival: string;
+  serviceMode: "staffed" | "unattended";
 };
 
 function parsePantrySchedule(body: Record<string, string | number | boolean>): ReceivingWindow[] {
@@ -361,8 +364,9 @@ function parsePantrySchedule(body: Record<string, string | number | boolean>): R
       const open = normalizeTime(body[`windowOpen_${index}`], `Window ${index + 1} opening time`);
       const close = normalizeTime(body[`windowClose_${index}`], `Window ${index + 1} closing time`);
       const latestArrival = normalizeTime(body[`windowLatest_${index}`], `Window ${index + 1} latest arrival`);
+      const serviceMode = validServiceMode(body[`windowServiceMode_${index}`], `Window ${index + 1}`);
       validateWindow(open, close, latestArrival, `Window ${index + 1}`);
-      schedule.push({ recurrence, day, ordinal, open, close, latestArrival });
+      schedule.push({ recurrence, day, ordinal, open, close, latestArrival, serviceMode });
     }
     return schedule;
   }
@@ -374,7 +378,7 @@ function parsePantrySchedule(body: Record<string, string | number | boolean>): R
     const close = normalizeTime(body[`closeTime_${day}`], `${day} closing time`);
     const latestArrival = normalizeTime(body[`latestArrival_${day}`], `${day} latest arrival`);
     validateWindow(open, close, latestArrival, day);
-    return { recurrence: "weekly" as const, day, ordinal: null, open, close, latestArrival };
+    return { recurrence: "weekly" as const, day, ordinal: null, open, close, latestArrival, serviceMode: "staffed" as const };
   });
 }
 
@@ -383,6 +387,10 @@ function validateWindow(open: string, close: string, latestArrival: string, labe
   if (latestArrival < open || latestArrival > close) {
     throw new Error(`${label}: latest arrival must fall between opening and closing.`);
   }
+}
+function validServiceMode(value: unknown, label: string) {
+  if (value !== "staffed" && value !== "unattended") throw new Error(`${label}: choose staffed or unattended receiving.`);
+  return value;
 }
 
 function normalizeTime(value: unknown, label: string) {

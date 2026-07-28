@@ -16,7 +16,7 @@ type Bakery = {
 };
 type Pantry = {
   id: number; name: string; address: string; dropoffInstructions: string; recurringDays: string; openTime: string;
-  closeTime: string; latestArrival: string; deliveriesSevenDays: number; active: boolean;
+  closeTime: string; latestArrival: string; serviceModes: string; deliveriesSevenDays: number; active: boolean;
   latitude: number | null; longitude: number | null; contactName: string; contactEmail: string;
   formattedAddress: string; googlePlaceId: string; addressValidationStatus: "unvalidated" | "validated" | "needs_review";
   contactPhone: string; businessPhone: string; notificationPhone: string;
@@ -53,6 +53,7 @@ type ReceivingWindow = DayHours & {
   recurrence: "weekly" | "monthly";
   day: string;
   ordinal: number | null;
+  serviceMode: "staffed" | "unattended";
 };
 type BakeryDayHours = { readyTime: string; pickupDeadline: string };
 type BakerySchedule = Partial<Record<string, BakeryDayHours>>;
@@ -60,7 +61,7 @@ type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
   scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled";
 };
-type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
+type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };
 type DriverAccount = { id: number; email: string; displayName: string; active: boolean };
 type ScheduleException = { id: number; organizationType: PartnerKind; organizationId: number; exceptionDate: string };
@@ -75,11 +76,12 @@ const timeOptions = Array.from({ length: 48 }, (_, index) => {
   return { value, label: formatTime(value) };
 });
 
-function parseSchedule(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestArrival" | "recurringDays">): ReceivingWindow[] {
+function parseSchedule(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestArrival" | "serviceModes" | "recurringDays">): ReceivingWindow[] {
   try {
     const open = JSON.parse(pantry.openTime) as Record<string, string> | Array<{ recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; time: string }>;
     const close = JSON.parse(pantry.closeTime) as Record<string, string> | Array<{ time: string }>;
     const latest = JSON.parse(pantry.latestArrival) as Record<string, string> | Array<{ time: string }>;
+    const modes = JSON.parse(pantry.serviceModes || "[]") as Array<{ mode: "staffed" | "unattended" }>;
     if (Array.isArray(open) && Array.isArray(close) && Array.isArray(latest)) {
       return open.map((window, index) => ({
         recurrence: window.recurrence,
@@ -88,6 +90,7 @@ function parseSchedule(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestAr
         open: window.time,
         close: close[index]?.time ?? "",
         latestArrival: latest[index]?.time ?? "",
+        serviceMode: modes[index]?.mode ?? "staffed",
       }));
     }
     const legacyOpen = open as Record<string, string>;
@@ -95,11 +98,13 @@ function parseSchedule(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestAr
       recurrence: "weekly" as const, day, ordinal: null,
       open: legacyOpen[day], close: (close as Record<string, string>)[day],
       latestArrival: (latest as Record<string, string>)[day],
+      serviceMode: "staffed",
     }));
   } catch {
     return pantry.recurringDays.split(",").map((day) => ({
       recurrence: "weekly" as const, day: day.trim(), ordinal: null,
       open: pantry.openTime, close: pantry.closeTime, latestArrival: pantry.latestArrival,
+      serviceMode: "staffed",
     }));
   }
 }
@@ -154,7 +159,7 @@ function bakeryMatchesAvailability(bakery: Pick<Bakery, "readyTime" | "arrivalDe
   });
 }
 
-function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestArrival" | "recurringDays">, day: string, time: string) {
+function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime" | "latestArrival" | "serviceModes" | "recurringDays">, day: string, time: string) {
   return parseSchedule(pantry).some((window) =>
     (!day || window.day === day) && (!time || (window.open <= time && time <= window.close)));
 }
@@ -740,11 +745,11 @@ function AdminReceivingCalendar({ pantry, availability, scheduleExceptions, orga
   const [selectedRecurring, setSelectedRecurring] = useState<number | null>(null);
   const [selectedRecurringDate, setSelectedRecurringDate] = useState<string | null>(null);
   const selected = selectedId === "new" ? null : availability.find((window) => window.id === selectedId);
-  const [draft, setDraft] = useState({ startsAt: "", endsAt: "", latestArrival: "", paused: false });
-  function selectWindow(window: AvailabilityWindow) { setSelectedRecurring(null); setSelectedId(window.id); setDraft({ startsAt: adminLocalInput(new Date(window.startsAt)), endsAt: adminLocalInput(new Date(window.endsAt)), latestArrival: adminLocalInput(new Date(window.latestArrival)), paused: window.paused }); }
+  const [draft, setDraft] = useState({ startsAt: "", endsAt: "", latestArrival: "", serviceMode: "staffed" as "staffed" | "unattended", paused: false });
+  function selectWindow(window: AvailabilityWindow) { setSelectedRecurring(null); setSelectedId(window.id); setDraft({ startsAt: adminLocalInput(new Date(window.startsAt)), endsAt: adminLocalInput(new Date(window.endsAt)), latestArrival: adminLocalInput(new Date(window.latestArrival)), serviceMode: window.serviceMode ?? "staffed", paused: window.paused }); }
   function selectRecurring(index: number, date?: string) { setSelectedId(null); setSelectedRecurring(index); setSelectedRecurringDate(date ?? null); }
-  function addRecurring() { setSelectedId(null); setWindows((current) => [...current, { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30" }]); setSelectedRecurring(windows.length); }
-  function addWindow() { const start = new Date(Date.now() + 24 * 60 * 60 * 1000); start.setHours(9, 0, 0, 0); setDraft({ startsAt: adminLocalInput(start), endsAt: adminLocalInput(new Date(start.getTime() + 2 * 60 * 60 * 1000)), latestArrival: adminLocalInput(new Date(start.getTime() + 105 * 60 * 1000)), paused: false }); setSelectedRecurring(null); setSelectedId("new"); }
+  function addRecurring() { setSelectedId(null); setWindows((current) => [...current, { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", serviceMode: "staffed" }]); setSelectedRecurring(windows.length); }
+  function addWindow() { const start = new Date(Date.now() + 24 * 60 * 60 * 1000); start.setHours(9, 0, 0, 0); setDraft({ startsAt: adminLocalInput(start), endsAt: adminLocalInput(new Date(start.getTime() + 2 * 60 * 60 * 1000)), latestArrival: adminLocalInput(new Date(start.getTime() + 105 * 60 * 1000)), serviceMode: "staffed", paused: false }); setSelectedRecurring(null); setSelectedId("new"); }
   function updateRecurring(index: number, patch: Partial<ReceivingWindow>) { setWindows((current) => current.map((window, rowIndex) => rowIndex === index ? { ...window, ...patch } : window)); }
   async function saveRecurring() {
     const response = await fetch("/api/admin/schedule", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ organizationType: "pantry", organizationId, windows }) });
@@ -770,7 +775,7 @@ function AdminReceivingCalendar({ pantry, availability, scheduleExceptions, orga
     else setNotice(data?.error ?? "Could not delete the recurring window.");
   }
   async function saveWindow() {
-    const response = await fetch("/api/admin/availability", { method: selectedId === "new" ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(selectedId === "new" ? { organizationType: "pantry", organizationId } : { id: selectedId }), startsAt: new Date(draft.startsAt).toISOString(), endsAt: new Date(draft.endsAt).toISOString(), latestArrival: new Date(draft.latestArrival).toISOString(), paused: draft.paused }) });
+    const response = await fetch("/api/admin/availability", { method: selectedId === "new" ? "POST" : "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(selectedId === "new" ? { organizationType: "pantry", organizationId } : { id: selectedId }), startsAt: new Date(draft.startsAt).toISOString(), endsAt: new Date(draft.endsAt).toISOString(), latestArrival: new Date(draft.latestArrival).toISOString(), serviceMode: draft.serviceMode, paused: draft.paused }) });
     const data = await response.json().catch(() => null);
     if (response.ok) { setSelectedId(null); await onChanged(); setNotice(selected ? "One-time availability updated." : "One-time availability added."); }
     else setNotice(data?.error ?? "Could not save this availability window.");
@@ -785,14 +790,14 @@ function AdminReceivingCalendar({ pantry, availability, scheduleExceptions, orga
   const dates = Array.from({ length: 28 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date; });
   const recurring = selectedRecurring === null ? null : windows[selectedRecurring];
   return <><div className="adminCalendarToolbar"><button onClick={addRecurring}>+ Add recurring window</button><button className="solidBtn" onClick={addWindow}>+ Add one-time availability window</button></div>
-  {recurring && <section className="adminOneTimeEditor adminRecurringEditor"><div><span>EDIT RECURRING WINDOW</span><h3>{recurring.day} receiving window</h3></div><label>Repeats<select value={recurring.recurrence} onChange={(event) => updateRecurring(selectedRecurring!, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>{recurring.recurrence === "monthly" && <label>Occurrence<select value={recurring.ordinal ?? 1} onChange={(event) => updateRecurring(selectedRecurring!, { ordinal: Number(event.target.value) })}>{[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}<label>Day<select value={recurring.day} onChange={(event) => updateRecurring(selectedRecurring!, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label><label>Opens<select value={recurring.open} onChange={(event) => updateRecurring(selectedRecurring!, { open: event.target.value })}>{timeOptions.map((time) => <option value={time.value} key={time.value}>{time.label}</option>)}</select></label><label>Closes<select value={recurring.close} onChange={(event) => updateRecurring(selectedRecurring!, { close: event.target.value })}>{timeOptions.map((time) => <option value={time.value} key={time.value}>{time.label}</option>)}</select></label><label>Latest permitted arrival<select value={recurring.latestArrival} onChange={(event) => updateRecurring(selectedRecurring!, { latestArrival: event.target.value })}>{timeOptions.map((time) => <option value={time.value} key={time.value}>{time.label}</option>)}</select></label><div className="adminOneTimeActions"><button className="deleteAction" disabled={windows.length <= 1} onClick={deleteRecurring}>Delete recurring window</button>{selectedRecurringDate && <button onClick={cancelOccurrence}>Cancel scheduled hours on {new Date(`${selectedRecurringDate}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}</button>}<button onClick={() => { setWindows(parseSchedule(pantry)); setSelectedRecurring(null); }}>Cancel</button><button className="solidBtn" onClick={saveRecurring}>Save recurring schedule</button></div></section>}
-  {selectedId !== null && <section className="adminOneTimeEditor"><div><span>{selectedId === "new" ? "NEW WINDOW" : "EDIT WINDOW"}</span><h3>One-time availability</h3></div><label>Opens<input type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((current) => ({ ...current, startsAt: event.target.value }))} /></label><label>Closes<input type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft((current) => ({ ...current, endsAt: event.target.value }))} /></label><label>Latest permitted arrival<input type="datetime-local" value={draft.latestArrival} onChange={(event) => setDraft((current) => ({ ...current, latestArrival: event.target.value }))} /></label><label className="adminPauseCheck"><input type="checkbox" checked={draft.paused} onChange={(event) => setDraft((current) => ({ ...current, paused: event.target.checked }))} /> Paused</label><div className="adminOneTimeActions">{selectedId !== "new" && <button className="deleteAction" onClick={deleteWindow}>Delete window</button>}<button onClick={() => setSelectedId(null)}>Cancel</button><button className="solidBtn" onClick={saveWindow}>Save window</button></div></section>}
+  {recurring && <section className="adminOneTimeEditor adminRecurringEditor"><div><span>EDIT RECURRING WINDOW</span><h3>{recurring.day} receiving window</h3></div><label>Repeats<select value={recurring.recurrence} onChange={(event) => updateRecurring(selectedRecurring!, { recurrence: event.target.value as "weekly" | "monthly", ordinal: event.target.value === "monthly" ? 1 : null })}><option value="weekly">Every week</option><option value="monthly">Once a month</option></select></label>{recurring.recurrence === "monthly" && <label>Occurrence<select value={recurring.ordinal ?? 1} onChange={(event) => updateRecurring(selectedRecurring!, { ordinal: Number(event.target.value) })}>{[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value}{value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th"}</option>)}</select></label>}<label>Day<select value={recurring.day} onChange={(event) => updateRecurring(selectedRecurring!, { day: event.target.value })}>{days.map((day) => <option key={day}>{day}</option>)}</select></label><label>Opens<select value={recurring.open} onChange={(event) => updateRecurring(selectedRecurring!, { open: event.target.value })}>{timeOptions.map((time) => <option value={time.value} key={time.value}>{time.label}</option>)}</select></label><label>Closes<select value={recurring.close} onChange={(event) => updateRecurring(selectedRecurring!, { close: event.target.value })}>{timeOptions.map((time) => <option value={time.value} key={time.value}>{time.label}</option>)}</select></label><label>Latest permitted arrival<select value={recurring.latestArrival} onChange={(event) => updateRecurring(selectedRecurring!, { latestArrival: event.target.value })}>{timeOptions.map((time) => <option value={time.value} key={time.value}>{time.label}</option>)}</select></label><label>Receiving method<select required value={recurring.serviceMode} onChange={(event) => updateRecurring(selectedRecurring!, { serviceMode: event.target.value as "staffed" | "unattended" })}><option value="staffed">Staffed</option><option value="unattended">Unattended</option></select></label><div className="adminOneTimeActions"><button className="deleteAction" disabled={windows.length <= 1} onClick={deleteRecurring}>Delete recurring window</button>{selectedRecurringDate && <button onClick={cancelOccurrence}>Cancel scheduled hours on {new Date(`${selectedRecurringDate}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" })}</button>}<button onClick={() => { setWindows(parseSchedule(pantry)); setSelectedRecurring(null); }}>Cancel</button><button className="solidBtn" onClick={saveRecurring}>Save recurring schedule</button></div></section>}
+  {selectedId !== null && <section className="adminOneTimeEditor"><div><span>{selectedId === "new" ? "NEW WINDOW" : "EDIT WINDOW"}</span><h3>One-time availability</h3></div><label>Opens<input type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((current) => ({ ...current, startsAt: event.target.value }))} /></label><label>Closes<input type="datetime-local" value={draft.endsAt} onChange={(event) => setDraft((current) => ({ ...current, endsAt: event.target.value }))} /></label><label>Latest permitted arrival<input type="datetime-local" value={draft.latestArrival} onChange={(event) => setDraft((current) => ({ ...current, latestArrival: event.target.value }))} /></label><label>Receiving method<select required value={draft.serviceMode} onChange={(event) => setDraft((current) => ({ ...current, serviceMode: event.target.value as "staffed" | "unattended" }))}><option value="staffed">Staffed</option><option value="unattended">Unattended</option></select></label><label className="adminPauseCheck"><input type="checkbox" checked={draft.paused} onChange={(event) => setDraft((current) => ({ ...current, paused: event.target.checked }))} /> Paused</label><div className="adminOneTimeActions">{selectedId !== "new" && <button className="deleteAction" onClick={deleteWindow}>Delete window</button>}<button onClick={() => setSelectedId(null)}>Cancel</button><button className="solidBtn" onClick={saveWindow}>Save window</button></div></section>}
   <section className="monthlyReceivingCalendar"><div className="calendarMonthLabel"><strong>{today.toLocaleDateString([], { month: "long", year: "numeric" })}</strong><span>Next four weeks</span></div><header>{days.map((day) => <strong key={day}>{day}</strong>)}</header><div className="calendarMonthGrid">{dates.map((date) => {
     const day = days[(date.getDay() + 6) % 7]; const occurrence = Math.ceil(date.getDate() / 7);
     const exception = scheduleExceptions.find((item) => item.exceptionDate === adminDateKey(date));
     const recurringForDate = exception ? [] : windows.map((window, index) => ({ window, index })).filter(({ window }) => window.day === day && (window.recurrence === "weekly" || window.ordinal === occurrence));
     const oneTime = availability.filter((window) => sameDate(new Date(window.startsAt), date));
-    return <div className={`calendarDate ${sameDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{exception && <button className="adminCalendarEvent cancelledEvent" onClick={() => restoreOccurrence(exception)}><b>Scheduled hours cancelled</b><small>Click to restore</small></button>}{recurringForDate.map(({ window, index }) => <button className="adminCalendarEvent recurringEvent" key={`r-${index}`} onClick={() => selectRecurring(index, adminDateKey(date))}><b>Recurring</b><small>{formatTime(window.open)}–{formatTime(window.close)}</small><small>Latest {formatTime(window.latestArrival)}</small></button>)}{oneTime.map((window) => <button className={`adminCalendarEvent oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id} onClick={() => selectWindow(window)}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small></button>)}</div>;
+    return <div className={`calendarDate ${sameDate(date, today) ? "today" : ""}`} key={date.toISOString()}><span>{date.getDate()}</span>{exception && <button className="adminCalendarEvent cancelledEvent" onClick={() => restoreOccurrence(exception)}><b>Scheduled hours cancelled</b><small>Click to restore</small></button>}{recurringForDate.map(({ window, index }) => <button className="adminCalendarEvent recurringEvent" key={`r-${index}`} onClick={() => selectRecurring(index, adminDateKey(date))}><b>Recurring</b><small>{formatTime(window.open)}–{formatTime(window.close)}</small><small>Latest {formatTime(window.latestArrival)}</small><small>{window.serviceMode === "unattended" ? "Unattended" : "Staffed"}</small></button>)}{oneTime.map((window) => <button className={`adminCalendarEvent oneTimeEvent ${window.paused ? "paused" : ""}`} key={window.id} onClick={() => selectWindow(window)}><b>{window.paused ? "One-time · Paused" : "One-time"}</b><small>{new Date(window.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–{new Date(window.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>Latest {new Date(window.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small><small>{window.serviceMode === "unattended" ? "Unattended" : "Staffed"}</small></button>)}</div>;
   })}</div></section></>;
 }
 
@@ -856,13 +861,13 @@ function RecordModal({ kind, record, contacts, photos, saving, onClose, onSave, 
     latestArrival: formatTime(window.latestArrival),
   }));
   const [pantryWindows, setPantryWindows] = useState<ReceivingWindow[]>(displayWindows.length ? displayWindows : [{
-    recurrence: "weekly", day: "Mon", ordinal: null, open: "", close: "", latestArrival: "",
+    recurrence: "weekly", day: "Mon", ordinal: null, open: "", close: "", latestArrival: "", serviceMode: "staffed",
   }]);
   const updateWindow = (index: number, patch: Partial<ReceivingWindow>) => {
     setPantryWindows((current) => current.map((window, windowIndex) => windowIndex === index ? { ...window, ...patch } : window));
   };
   const addWindow = () => setPantryWindows((current) => [...current, {
-    recurrence: "weekly", day: "Mon", ordinal: null, open: "", close: "", latestArrival: "",
+    recurrence: "weekly", day: "Mon", ordinal: null, open: "", close: "", latestArrival: "", serviceMode: "staffed",
   }]);
   const removeWindow = (index: number) => setPantryWindows((current) => current.filter((_, windowIndex) => windowIndex !== index));
 
@@ -904,6 +909,7 @@ function RecordModal({ kind, record, contacts, photos, saving, onClose, onSave, 
               <label>Opens<input name={`windowOpen_${index}`} type="text" inputMode="text" value={window.open} onChange={(event) => updateWindow(index, { open: event.target.value })} placeholder="9:00 AM" required /></label>
               <label>Closes<input name={`windowClose_${index}`} type="text" inputMode="text" value={window.close} onChange={(event) => updateWindow(index, { close: event.target.value })} placeholder="5:00 PM" required /></label>
               <label>Latest arrival<input name={`windowLatest_${index}`} type="text" inputMode="text" value={window.latestArrival} onChange={(event) => updateWindow(index, { latestArrival: event.target.value })} placeholder="4:30 PM" required /></label>
+              <label>Receiving method<select name={`windowServiceMode_${index}`} required value={window.serviceMode} onChange={(event) => updateWindow(index, { serviceMode: event.target.value as "staffed" | "unattended" })}><option value="staffed">Staffed — someone will receive deliveries</option><option value="unattended">Unattended — driver may leave food</option></select></label>
             </div>)}
             <button className="addWindowButton" type="button" onClick={addWindow}>+ Add another receiving window</button>
           </fieldset><label className="wide">Deliveries during recent receiving opportunities<input name="deliveriesSevenDays" type="number" min="0" defaultValue={(record as Pantry | undefined)?.deliveriesSevenDays ?? 0} /></label></>}

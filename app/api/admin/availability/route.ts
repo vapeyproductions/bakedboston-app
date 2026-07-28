@@ -14,8 +14,9 @@ export async function POST(request: Request) {
     const startsAt = validDate(body.startsAt, "Opening time");
     const endsAt = validDate(body.endsAt, "Closing time");
     const latestArrival = validDate(body.latestArrival, "Latest permitted arrival");
+    const serviceMode = validServiceMode(body.serviceMode, organizationType);
     validateWindow(startsAt, endsAt, latestArrival);
-    const [record] = await getDb().insert(availabilityWindows).values({ organizationType, organizationId, startsAt, endsAt, latestArrival, paused: false }).returning();
+    const [record] = await getDb().insert(availabilityWindows).values({ organizationType, organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
     await writeAudit({ actorType: "admin", actorId: admin.id, actorName: admin.displayName, action: "created one-time availability window", entityType: organizationType, entityId: organizationId, entityName: "", details: `${startsAt.toISOString()}–${endsAt.toISOString()}` });
     return Response.json({ record }, { status: 201 });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not create window." }, { status: 400 }); }
@@ -33,8 +34,9 @@ export async function PATCH(request: Request) {
     const startsAt = validDate(body.startsAt, "Opening time");
     const endsAt = validDate(body.endsAt, "Closing time");
     const latestArrival = validDate(body.latestArrival, "Latest permitted arrival");
+    const serviceMode = validServiceMode(body.serviceMode, existing.organizationType);
     validateWindow(startsAt, endsAt, latestArrival);
-    const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, paused: Boolean(body.paused) }).where(eq(availabilityWindows.id, id)).returning();
+    const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode, paused: Boolean(body.paused) }).where(eq(availabilityWindows.id, id)).returning();
     await writeAudit({ actorType: "admin", actorId: admin.id, actorName: admin.displayName, action: "updated one-time availability window", entityType: existing.organizationType, entityId: existing.organizationId, entityName: "", details: String(id) });
     return Response.json({ record });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Could not update window." }, { status: 400 }); }
@@ -56,3 +58,4 @@ function validType(value: unknown) { if (value !== "bakery" && value !== "pantry
 function validId(value: unknown) { const id = Number(value); if (!Number.isInteger(id) || id < 1) throw new Error("Valid record required."); return id; }
 function validDate(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
 function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest permitted arrival must fall within the window."); }
+function validServiceMode(value: unknown, type: string) { if (type === "bakery") return "staffed" as const; if (value !== "staffed" && value !== "unattended") throw new Error("Choose whether the receiving window is staffed or unattended."); return value; }
