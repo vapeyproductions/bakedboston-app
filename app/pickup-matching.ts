@@ -71,6 +71,11 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
       continue;
     }
     const offered = index === 0;
+    // This preliminary window is replaced by traffic-aware travel time once the
+    // driver shares a live starting location.
+    const departureWindowEndsAt = new Date(candidate.bakeryArrival.getTime() - 10 * 60_000);
+    const earliestProposedDeparture = new Date(departureWindowEndsAt.getTime() - 30 * 60_000);
+    const departureWindowStartsAt = new Date(Math.max(candidate.request.earliestStart.getTime(), earliestProposedDeparture.getTime()));
     const [offer] = await db.insert(routeOffers).values({
       pickupOccurrenceId: pickup.id,
       driverRequestId: candidate.request.id,
@@ -80,6 +85,8 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
       score: candidate.score,
       estimatedBakeryArrival: candidate.bakeryArrival,
       estimatedPantryArrival: candidate.pantryArrival,
+      departureWindowStartsAt,
+      departureWindowEndsAt: departureWindowEndsAt < departureWindowStartsAt ? departureWindowStartsAt : departureWindowEndsAt,
       status: offered ? "offered" : "queued",
       offeredAt: offered ? new Date() : null,
       expiresAt: offered ? new Date(Date.now() + 5 * 60_000) : null,

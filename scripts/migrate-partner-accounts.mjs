@@ -161,6 +161,12 @@ if (!databaseUrl) {
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS picked_up_at timestamptz`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS arrived_at_pantry_at timestamptz`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS completed_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS departure_window_starts_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS departure_window_ends_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS departure_opening_reminder_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS departure_opened_notification_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS departure_closing_reminder_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS departure_ended_notification_sent_at timestamptz`;
   await sql`
     CREATE TABLE IF NOT EXISTS in_app_notifications (
       id serial PRIMARY KEY,

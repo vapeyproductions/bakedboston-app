@@ -15,6 +15,7 @@ import {
   routeOffers,
 } from "../../../../../db/schema";
 import { matchConfirmedPickup } from "../../../../pickup-matching";
+import { processDepartureNotifications } from "../../../../departure-notifications";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
   const driver = await currentDriver(request);
   if (!driver) return Response.json({ error: "Session expired." }, { status: 401 });
   await expireAndAdvanceOffers();
+  await processDepartureNotifications(driver.id);
   const db = getDb();
   const [requests, offers, notifications] = await Promise.all([
     db.select().from(driverRideRequests).where(eq(driverRideRequests.driverId, driver.id)).orderBy(desc(driverRideRequests.createdAt)),
