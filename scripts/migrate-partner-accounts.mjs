@@ -358,9 +358,29 @@ if (!databaseUrl) {
       details text NOT NULL,
       status text DEFAULT 'submitted' NOT NULL,
       admin_notes text DEFAULT '' NOT NULL,
+      resolution_summary text DEFAULT '' NOT NULL,
+      unread_reply_count integer DEFAULT 0 NOT NULL,
+      resolved_at timestamp with time zone,
       created_at timestamp with time zone DEFAULT now() NOT NULL,
       updated_at timestamp with time zone DEFAULT now() NOT NULL
     )
   `;
+  await sql`ALTER TABLE support_reports ADD COLUMN IF NOT EXISTS resolution_summary text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE support_reports ADD COLUMN IF NOT EXISTS unread_reply_count integer DEFAULT 0 NOT NULL`;
+  await sql`ALTER TABLE support_reports ADD COLUMN IF NOT EXISTS resolved_at timestamp with time zone`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS support_report_messages (
+      id serial PRIMARY KEY,
+      report_id integer NOT NULL,
+      direction text NOT NULL,
+      sender_email text DEFAULT '' NOT NULL,
+      recipient_emails text DEFAULT '[]' NOT NULL,
+      subject text NOT NULL,
+      body text NOT NULL,
+      external_email_id text DEFAULT '' NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS support_report_messages_external_email_unique ON support_report_messages (external_email_id)`;
   console.log("Partner-account database migration complete.");
 }

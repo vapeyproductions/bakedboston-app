@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { partnerAccounts, supportReports } from "../../../../db/schema";
+import { bakeries, pantries, partnerAccounts, supportReports } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { writeAudit } from "../../../audit";
 
@@ -13,10 +13,13 @@ export async function POST(request: Request) {
   const details = String(body.details ?? "").trim();
   if (!details) return Response.json({ error: "Please describe what happened." }, { status: 400 });
   const urgency = ["routine", "urgent", "safety"].includes(String(body.urgency)) ? String(body.urgency) as "routine" | "urgent" | "safety" : "routine";
+  const [organization] = account.organizationType === "bakery"
+    ? await getDb().select({ name: bakeries.name }).from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1)
+    : await getDb().select({ name: pantries.name }).from(pantries).where(eq(pantries.id, account.organizationId)).limit(1);
   const [report] = await getDb().insert(supportReports).values({
     reporterType: account.organizationType,
     reporterId: account.organizationId,
-    reporterName: account.administratorName || account.accountEmail,
+    reporterName: organization?.name || account.administratorName || account.accountEmail,
     routeOfferId: Number(body.routeOfferId) || null,
     category: String(body.category || "other"),
     urgency,

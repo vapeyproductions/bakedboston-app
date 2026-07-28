@@ -952,8 +952,8 @@ function ReportProblemMobile({ routeOfferId, demo = false }: { routeOfferId?: nu
     if (!details.trim()) { Alert.alert("Add details", "Please describe what happened."); return; }
     if (demo) { setMessage("Prototype report recorded for this session."); setDetails(""); return; }
     try {
-      await submitMobileReport({ category, urgency, details, routeOfferId });
-      setMessage("Your report was sent to the BakedBoston administrator team."); setDetails("");
+      const result = await submitMobileReport({ category, urgency, details, routeOfferId });
+      setMessage(`Your report was sent to the BakedBoston administrator team. Report ID: BBR-${String(result.report.id).padStart(6, "0")}.`); setDetails("");
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : "Could not send this report."); }
   }
   return <View style={styles.reportProblemCard}>

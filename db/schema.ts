@@ -183,9 +183,26 @@ export const supportReports = pgTable("support_reports", {
   details: text("details").notNull(),
   status: text("status", { enum: ["submitted", "reviewing", "resolved", "closed"] }).notNull().default("submitted"),
   adminNotes: text("admin_notes").notNull().default(""),
+  resolutionSummary: text("resolution_summary").notNull().default(""),
+  unreadReplyCount: integer("unread_reply_count").notNull().default(0),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const supportReportMessages = pgTable("support_report_messages", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").notNull(),
+  direction: text("direction", { enum: ["outbound", "inbound"] }).notNull(),
+  senderEmail: text("sender_email").notNull().default(""),
+  recipientEmails: text("recipient_emails").notNull().default("[]"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  externalEmailId: text("external_email_id").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("support_report_messages_external_email_unique").on(table.externalEmailId),
+]);
 
 export const driverAccounts = pgTable("driver_accounts", {
   id: serial("id").primaryKey(),

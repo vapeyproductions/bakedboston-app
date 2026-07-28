@@ -243,7 +243,7 @@ function ReportProblemWeb() {
     event.preventDefault();
     const response = await fetch("/api/partner/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category, urgency, details }) });
     const data = await response.json().catch(() => null);
-    setMessage(response.ok ? "Your report was sent to the BakedBoston administrator team." : data?.error ?? "Could not send this report.");
+    setMessage(response.ok ? `Your report was sent to the BakedBoston administrator team. Report ID: BBR-${String(data.report.id).padStart(6, "0")}.` : data?.error ?? "Could not send this report.");
     if (response.ok) setDetails("");
   }
   return <form className="reportProblemPanel" onSubmit={submit}>

@@ -59,15 +59,17 @@ type BakeryDayHours = { readyTime: string; pickupDeadline: string };
 type BakerySchedule = Partial<Record<string, BakeryDayHours>>;
 type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
-  scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled";
+  scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string;
 };
+type ActivityLevel = "high activity" | "regular activity" | "occasional activity" | "no recent activity";
 type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };
 type DriverAccount = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; identityVerificationStatus: string; active: boolean; createdAt: string };
 type ScheduleException = { id: number; organizationType: PartnerKind; organizationId: number; exceptionDate: string };
 type PickupOccurrence = { id: number; bakeryId: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: string; confirmedAt: string | null };
 type InAppNotification = { id: number; recipientType: "driver" | "bakery" | "pantry" | "admin"; recipientId: number; title: string; body: string; actionRequired: boolean; createdAt: string };
-type SupportReport = { id: number; reporterType: "driver" | "bakery" | "pantry" | "system"; reporterId: number | null; reporterName: string; routeOfferId: number | null; category: string; urgency: "routine" | "urgent" | "safety"; details: string; status: "submitted" | "reviewing" | "resolved" | "closed"; adminNotes: string; createdAt: string };
+type SupportReport = { id: number; reporterType: "driver" | "bakery" | "pantry" | "system"; reporterId: number | null; reporterName: string; routeOfferId: number | null; category: string; urgency: "routine" | "urgent" | "safety"; details: string; status: "submitted" | "reviewing" | "resolved" | "closed"; adminNotes: string; resolutionSummary: string; unreadReplyCount: number; createdAt: string };
+type SupportReportMessage = { id: number; reportId: number; direction: "outbound" | "inbound"; senderEmail: string; recipientEmails: string; subject: string; body: string; createdAt: string };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => {
@@ -185,6 +187,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [supportReports, setSupportReports] = useState<SupportReport[]>([]);
+  const [supportReportMessages, setSupportReportMessages] = useState<SupportReportMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
@@ -214,6 +217,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setPickupOccurrences(data.pickupOccurrences ?? []);
       setNotifications(data.notifications ?? []);
       setSupportReports(data.supportReports ?? []);
+      setSupportReportMessages(data.supportReportMessages ?? []);
     }
     setLoading(false);
   };
@@ -308,13 +312,13 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         {loading ? <div className="adminEmpty">Loading your network…</div> : (
           <>
             {tab === "overview" && <Overview bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} drivers={drivers} routes={routes} completed={completed} activeRoutes={activeRoutes} averagePriority={averagePriority} />}
-            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onView={(record) => setWorkspaceRecord({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
-            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
-            {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
+            {tab === "bakeries" && <PartnerTable type="bakery" records={bakeries} accounts={partnerAccounts} routes={routes} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "bakery" })} onEdit={(record) => setModal({ kind: "bakery", record })} onView={(record) => setWorkspaceRecord({ kind: "bakery", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} routes={routes} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
+            {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} contacts={organizationContacts} routes={routes} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "drivers" && <DriversWorkspace drivers={drivers} onChanged={refresh} setNotice={setNotice} />}
-            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
+            {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} routes={routes} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
-            {tab === "reports & support" && <ReportsWorkspace reports={supportReports} onChanged={refresh} />}
+            {tab === "reports & support" && <ReportsWorkspace reports={supportReports} messages={supportReportMessages} onChanged={refresh} />}
             {tab === "change log" && <ChangeLog entries={auditEntries} />}
             {tab === "settings" && <AdminSettings currentUser={user} administrators={administrators} invitations={adminInvitations} onChanged={refresh} setNotice={setNotice} />}
           </>
@@ -327,9 +331,13 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   );
 }
 
-function ReportsWorkspace({ reports, onChanged }: { reports: SupportReport[]; onChanged: () => Promise<void> }) {
+function ReportsWorkspace({ reports, messages, onChanged }: { reports: SupportReport[]; messages: SupportReportMessage[]; onChanged: () => Promise<void> }) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  const [composeReport, setComposeReport] = useState<SupportReport | null>(null);
+  const [resolveReport, setResolveReport] = useState<SupportReport | null>(null);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [resolutionDraft, setResolutionDraft] = useState("");
   const urgencyOrder = { safety: 0, urgent: 1, routine: 2 };
   const ordered = [...reports].sort((left, right) =>
     urgencyOrder[left.urgency] - urgencyOrder[right.urgency]
@@ -337,10 +345,10 @@ function ReportsWorkspace({ reports, onChanged }: { reports: SupportReport[]; on
   const newReports = ordered.filter((report) => report.status === "submitted");
   const reviewing = ordered.filter((report) => report.status === "reviewing");
   const resolved = ordered.filter((report) => report.status === "resolved" || report.status === "closed");
-  async function update(report: SupportReport, status: SupportReport["status"]) {
+  async function update(report: SupportReport, status: SupportReport["status"], resolutionSummary = "") {
     setBusyId(report.id);
     setMessage("");
-    const response = await fetch("/api/admin/reports", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: report.id, status, adminNotes: report.adminNotes }) });
+    const response = await fetch("/api/admin/reports", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: report.id, status, adminNotes: report.adminNotes, resolutionSummary }) });
     const data = await response.json().catch(() => null);
     if (response.ok) {
       await onChanged();
@@ -349,24 +357,61 @@ function ReportsWorkspace({ reports, onChanged }: { reports: SupportReport[]; on
       setMessage(data?.error ?? "Could not update this report. Please try again.");
     }
     setBusyId(null);
+    return response.ok;
+  }
+  async function beginReview(report: SupportReport) {
+    if (await update(report, "reviewing")) {
+      setComposeReport({ ...report, status: "reviewing" });
+      setEmailDraft("");
+    }
+  }
+  async function openThread(report: SupportReport) {
+    setComposeReport(report);
+    setEmailDraft("");
+    if (report.unreadReplyCount) {
+      await fetch("/api/admin/reports", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: report.id, markRead: true }) });
+      await onChanged();
+    }
+  }
+  async function sendEmail() {
+    if (!composeReport || !emailDraft.trim()) return;
+    setBusyId(composeReport.id);
+    const response = await fetch("/api/admin/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: composeReport.id, message: emailDraft }) });
+    const data = await response.json().catch(() => null);
+    setMessage(response.ok ? `Email sent with report ID ${formatReportId(composeReport.id)}.` : data?.error ?? "Could not send this email.");
+    if (response.ok) { setEmailDraft(""); await onChanged(); }
+    setBusyId(null);
+  }
+  async function resolve() {
+    if (!resolveReport || !resolutionDraft.trim()) return;
+    if (await update(resolveReport, "resolved", resolutionDraft)) {
+      setResolveReport(null);
+      setResolutionDraft("");
+    }
   }
   return <section className="reportsWorkspace">
     <div className="reportsToolbar"><p>Reports are ordered by urgency, then by the time they were submitted. Safety concerns appear first, followed by urgent and routine reports.</p></div>
     {message && <div className="reportUpdateNotice">{message}</div>}
-    <ReportQueue title="New reports" empty="No new reports." reports={newReports} busyId={busyId} actions={(report) => <><button disabled={busyId === report.id} onClick={() => update(report, "reviewing")}>Mark under review</button><button disabled={busyId === report.id} onClick={() => update(report, "resolved")}>Mark resolved</button></>} />
-    <ReportQueue title="Under review" empty="No reports are currently under review." reports={reviewing} busyId={busyId} actions={(report) => <><button disabled={busyId === report.id} onClick={() => update(report, "resolved")}>Mark resolved</button><button disabled={busyId === report.id} onClick={() => update(report, "submitted")}>Return to new</button></>} />
-    <ReportQueue title="Resolved reports" empty="No reports have been resolved yet." reports={resolved} busyId={busyId} actions={(report) => <button disabled={busyId === report.id} onClick={() => update(report, "reviewing")}>Reopen under review</button>} />
+    <ReportQueue title="New reports" empty="No new reports." reports={newReports} busyId={busyId} actions={(report) => <><button disabled={busyId === report.id} onClick={() => beginReview(report)}>Mark under review</button><button disabled={busyId === report.id} onClick={() => { setResolveReport(report); setResolutionDraft(""); }}>Resolve with summary</button></>} />
+    <ReportQueue title="Under review" empty="No reports are currently under review." reports={reviewing} busyId={busyId} actions={(report) => <><button className="threadAction" onClick={() => openThread(report)}>Email / view thread{report.unreadReplyCount > 0 && <b>{report.unreadReplyCount} new</b>}</button><button disabled={busyId === report.id} onClick={() => { setResolveReport(report); setResolutionDraft(""); }}>Resolve with summary</button><button disabled={busyId === report.id} onClick={() => update(report, "submitted")}>Return to new</button></>} />
+    <ReportQueue title="Resolved reports" empty="No reports have been resolved yet." reports={resolved} busyId={busyId} actions={(report) => <><button onClick={() => openThread(report)}>View email thread</button><button disabled={busyId === report.id} onClick={() => update(report, "reviewing")}>Reopen under review</button></>} />
+    {composeReport && <div className="reportModalBackdrop"><section className="reportEmailModal"><button className="reportModalClose" onClick={() => setComposeReport(null)}>×</button><span>{formatReportId(composeReport.id)}</span><h2>Email about this report</h2><p>Subject: <strong>[{formatReportId(composeReport.id)}] BakedBoston report follow-up</strong></p><div className="reportThread">{messages.filter((item) => item.reportId === composeReport.id).map((item) => <article className={item.direction} key={item.id}><small>{item.direction === "inbound" ? `Reply from ${item.senderEmail}` : "Sent by BakedBoston"} · {new Date(item.createdAt).toLocaleString()}</small><p>{item.body}</p></article>)}{!messages.some((item) => item.reportId === composeReport.id) && <p>No emails have been sent for this report yet.</p>}</div><label>Message<textarea value={emailDraft} onChange={(event) => setEmailDraft(event.target.value)} placeholder="Ask a question or explain the next step…" /></label><button className="solidBtn" disabled={!emailDraft.trim() || busyId === composeReport.id} onClick={sendEmail}>{busyId === composeReport.id ? "Sending…" : "Send from help@baked-boston.com"}</button></section></div>}
+    {resolveReport && <div className="reportModalBackdrop"><section className="reportEmailModal"><button className="reportModalClose" onClick={() => setResolveReport(null)}>×</button><span>{formatReportId(resolveReport.id)}</span><h2>Resolve this report</h2><p>A resolution summary is required and will be emailed to the account email and primary contact.</p><label>Resolution summary<textarea value={resolutionDraft} onChange={(event) => setResolutionDraft(event.target.value)} placeholder="Explain what was reviewed, what was decided, and any action taken…" /></label><button className="solidBtn" disabled={!resolutionDraft.trim() || busyId === resolveReport.id} onClick={resolve}>{busyId === resolveReport.id ? "Sending…" : "Send summary & resolve"}</button></section></div>}
   </section>;
 }
 
 function ReportQueue({ title, empty, reports, busyId, actions }: { title: string; empty: string; reports: SupportReport[]; busyId: number | null; actions: (report: SupportReport) => React.ReactNode }) {
   return <section className="reportQueue"><header><h2>{title}</h2><span>{reports.length}</span></header>
     {!reports.length ? <p className="reportQueueEmpty">{empty}</p> : <div className="reportAdminList">{reports.map((report) => <article className={`adminReport ${report.urgency}`} key={report.id}>
-      <header><div><span>{report.urgency.toUpperCase()} · {report.reporterType.toUpperCase()}</span><h3>{report.category.replaceAll("_", " ")}</h3></div><strong>{busyId === report.id ? "Updating…" : report.status}</strong></header>
+      <header><div><span>{formatReportId(report.id)} · {report.urgency.toUpperCase()} · {report.reporterType.toUpperCase()}</span><h3>{report.reporterName || "Unknown reporter"} · {report.category.replaceAll("_", " ")}</h3></div><strong>{busyId === report.id ? "Updating…" : report.status}</strong></header>
       <p>{report.details}</p><small>{report.reporterName || "Unknown reporter"} · {new Date(report.createdAt).toLocaleString()}{report.routeOfferId ? ` · Route #${report.routeOfferId}` : ""}</small>
       <div>{actions(report)}</div>
     </article>)}</div>}
   </section>;
+}
+
+function formatReportId(id: number) {
+  return `BBR-${String(id).padStart(6, "0")}`;
 }
 
 function Overview({ bakeries, pantries, accounts, drivers, routes, completed, activeRoutes, averagePriority }: {
@@ -401,9 +446,24 @@ function Progress({ label, value, target, color }: { label: string; value: numbe
   return <div className="progress"><div><strong>{label}</strong><span>{value}/{target}</span></div><div className="bar"><i style={{ width: `${target ? Math.min(value / target, 1) * 100 : 0}%`, background: color }} /></div></div>;
 }
 
-function PartnerTable({ type, records, accounts, invitations, onChanged, setNotice, onAdd, onEdit, onView, onDelete, deletingId }: {
+function organizationActivity(kind: PartnerKind, name: string, routes: Route[]): ActivityLevel {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const count = routes.filter((route) => route.status === "completed" && new Date(route.createdAt).getTime() >= cutoff && (kind === "bakery" ? route.bakeryName === name : route.pantryName === name)).length;
+  return count >= 10 ? "high activity" : count >= 3 ? "regular activity" : count >= 1 ? "occasional activity" : "no recent activity";
+}
+
+function exportCsv(filename: string, headers: string[], rows: Array<Array<string | number>>) {
+  const escape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename; anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function PartnerTable({ type, records, accounts, routes, invitations, onChanged, setNotice, onAdd, onEdit, onView, onDelete, deletingId }: {
   type: PartnerKind; records: Partner[]; onAdd: () => void; onEdit: (record: Partner) => void;
-  accounts: PartnerAccount[]; invitations: PartnerInvitation[]; onChanged: () => Promise<void>;
+  accounts: PartnerAccount[]; routes: Route[]; invitations: PartnerInvitation[]; onChanged: () => Promise<void>;
   setNotice: (message: string) => void; onView: (record: Partner) => void; onDelete: (kind: PartnerKind, record: Partner) => void; deletingId: number | null;
 }) {
   const [filterDay, setFilterDay] = useState("");
@@ -411,6 +471,7 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
   const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] = useState<"az" | "za" | "priority-high" | "priority-low">("az");
   const [registration, setRegistration] = useState<"" | "registered" | "unregistered">("");
+  const [activity, setActivity] = useState<"" | ActivityLevel>("");
   const visibleRecords = useMemo(() => records
     .filter((record) => `${record.name} ${record.address}`.toLowerCase().includes(search.trim().toLowerCase()))
     .filter((record) => type === "bakery"
@@ -421,6 +482,7 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
       const isRegistered = accounts.some((account) => account.organizationType === type && account.organizationId === record.id);
       return registration === "registered" ? isRegistered : !isRegistered;
     })
+    .filter((record) => !activity || organizationActivity(type, record.name, routes) === activity)
     .sort((left, right) => {
       if (type === "pantry" && (sortOrder === "priority-high" || sortOrder === "priority-low")) {
         const leftScore = 1 / (1 + (left as Pantry).deliveriesSevenDays);
@@ -429,7 +491,7 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
         return scoreDifference || left.name.localeCompare(right.name);
       }
       return sortOrder === "za" ? right.name.localeCompare(left.name) : left.name.localeCompare(right.name);
-    }), [records, accounts, type, filterDay, filterTime, registration, sortOrder, search]);
+    }), [records, accounts, routes, type, filterDay, filterTime, registration, activity, sortOrder, search]);
 
   if (!records.length) return <div className="adminEmpty"><span>{type === "bakery" ? "B" : "P"}</span><h2>No {type === "bakery" ? "bakeries" : "pantries"} yet</h2><p>Add the first organization you plan to onboard.</p><button className="solidBtn" onClick={onAdd}>+ Add {type}</button></div>;
   return <><div className="filterBar">
@@ -438,16 +500,17 @@ function PartnerTable({ type, records, accounts, invitations, onChanged, setNoti
     <label>Open at<select value={filterTime} onChange={(event) => setFilterTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
     <label>Sort by<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}><option value="az">Alphabetical: A to Z</option><option value="za">Alphabetical: Z to A</option>{type === "pantry" && <><option value="priority-high">Priority: highest to lowest</option><option value="priority-low">Priority: lowest to highest</option></>}</select></label>
     <label>Registration<select value={registration} onChange={(event) => setRegistration(event.target.value as typeof registration)}><option value="">All profiles</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option></select></label>
+    <label>Activity<select value={activity} onChange={(event) => setActivity(event.target.value as typeof activity)}><option value="">All activity levels</option><option value="high activity">High activity</option><option value="regular activity">Regular activity</option><option value="occasional activity">Occasional activity</option><option value="no recent activity">No recent activity</option></select></label>
     <span>{visibleRecords.length} of {records.length} shown</span>
   </div>
-  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match this day and time.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Account access</th><th>Organization phones</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Actions</th></tr></thead><tbody>
+  {!visibleRecords.length ? <div className="filterEmpty">No {type === "bakery" ? "bakeries" : "pantries"} match these filters.</div> : <div className="tablePanel"><table><thead><tr><th>Organization</th><th>Activity</th><th>Account access</th><th>Organization phones</th><th>Hours</th>{type === "pantry" && <th>Priority</th>}<th>Actions</th></tr></thead><tbody>
     {visibleRecords.map((record) => {
       const pantry = type === "pantry" ? record as Pantry : null;
       const schedule = pantry ? parseSchedule(pantry) : null;
       const bakerySchedule = type === "bakery" ? parseBakerySchedule(record as Bakery) : null;
       const organizationAccounts = accounts.filter((account) => account.organizationType === type && account.organizationId === record.id);
       const pendingInvitation = invitations.find((invite) => invite.organizationType === type && invite.organizationId === record.id && !invite.acceptedAt);
-      return <tr key={record.id}><td><button className="organizationNameLink" onClick={() => onView(record)}>{record.name}</button><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>Organization profile login</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
+      return <tr key={record.id}><td><button className="organizationNameLink" onClick={() => onView(record)}>{record.name}</button><small>{record.address}</small><span className={organizationAccounts.length ? "registeredPill" : "unregisteredPill"}>{organizationAccounts.length ? "Registered" : "Unregistered"}</span></td><td><span className="activityPill">{organizationActivity(type, record.name, routes)}</span><small>Completed deliveries · last 30 days</small></td><td><div className="accountSummary">{organizationAccounts.length ? organizationAccounts.map((account) => <div key={account.id}><strong>{account.accountEmail}</strong><small>Organization profile login</small></div>) : <ConnectAccount organizationType={type} organizationId={record.id} pendingEmail={pendingInvitation?.accountEmail} onChanged={onChanged} setNotice={setNotice} />}</div></td><td><strong>{record.businessPhone || "—"}</strong><small>Notifications: {record.notificationPhone || "—"}</small></td><td>{pantry && schedule
         ? <div className="hoursSummary">{schedule.map((window, index) => <small key={`${window.recurrence}-${window.day}-${window.ordinal}-${index}`}><b>{describeWindow(window)}</b> {formatTime(window.open)}–{formatTime(window.close)} · latest {formatTime(window.latestArrival)}</small>)}</div>
         : <div className="hoursSummary">{days.filter((day) => bakerySchedule?.[day]).map((day) => <small key={day}><b>{day}</b> ready {formatTime(bakerySchedule![day]!.readyTime)} · deadline {formatTime(bakerySchedule![day]!.pickupDeadline)}</small>)}</div>}</td>{pantry && <td><b className="score">{(1 / (1 + pantry.deliveriesSevenDays)).toFixed(2)}</b><small>{pantry.deliveriesSevenDays} deliveries / 7 days</small></td>}<td><div className="rowActions"><button onClick={() => onEdit(record)}>Edit</button><button className="deleteAction" disabled={deletingId === record.id} onClick={() => onDelete(type, record)}>{deletingId === record.id ? "Deleting…" : "Delete"}</button></div></td></tr>;
     })}
@@ -517,12 +580,14 @@ function ContactManager({ organizationType, organizationId, contacts, onChanged,
   </fieldset>;
 }
 
-function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, setNotice, onView }: {
-  accounts: PartnerAccount[]; bakeries: Bakery[]; pantries: Pantry[];
+function PartnerAccountsWorkspace({ accounts, bakeries, pantries, contacts, routes, onChanged, setNotice, onView }: {
+  accounts: PartnerAccount[]; bakeries: Bakery[]; pantries: Pantry[]; contacts: OrganizationContact[]; routes: Route[];
   onChanged: () => Promise<void>; setNotice: (message: string) => void; onView: (kind: PartnerKind, record: Partner) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
+  const [activity, setActivity] = useState<"" | ActivityLevel>("");
+  const [exportType, setExportType] = useState("bakery-primary");
   async function addAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAdding(true);
@@ -571,7 +636,23 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
     (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId)?.name ?? "Unknown organization";
   const organizationRecord = (account: PartnerAccount) =>
     (account.organizationType === "bakery" ? bakeries : pantries).find((record) => record.id === account.organizationId);
-  const visibleAccounts = accounts.filter((account) => `${account.accountEmail} ${organizationName(account)}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const visibleAccounts = accounts
+    .filter((account) => `${account.accountEmail} ${organizationName(account)}`.toLowerCase().includes(search.trim().toLowerCase()))
+    .filter((account) => !activity || organizationActivity(account.organizationType, organizationName(account), routes) === activity);
+
+  function exportContacts() {
+    const [kind, group] = exportType.split("-") as [PartnerKind, "primary" | "all" | "accounts"];
+    const organizations = kind === "bakery" ? bakeries : pantries;
+    if (group === "accounts") {
+      exportCsv(`${kind}-account-emails.csv`, ["Organization", "Account email", "Status", "Activity"], accounts.filter((account) => account.organizationType === kind).map((account) => [organizationName(account), account.accountEmail, account.active ? "Active" : "Disabled", organizationActivity(kind, organizationName(account), routes)]));
+      return;
+    }
+    const rows = contacts.filter((contact) => contact.organizationType === kind && (group === "all" || contact.isPrimary)).map((contact) => {
+      const organization = organizations.find((record) => record.id === contact.organizationId);
+      return [organization?.name ?? "", contact.name, contact.email, contact.phone, contact.isPrimary ? "Primary" : "Additional", organizationActivity(kind, organization?.name ?? "", routes)];
+    });
+    exportCsv(`${kind}-${group}-contacts.csv`, ["Organization", "Contact name", "Contact email", "Contact phone", "Contact role", "Activity"], rows);
+  }
 
   return <div className="accountsWorkspace">
     <form className="newAccountPanel" onSubmit={addAccount}>
@@ -583,9 +664,9 @@ function PartnerAccountsWorkspace({ accounts, bakeries, pantries, onChanged, set
       </div>
       <button className="solidBtn" disabled={adding}>{adding ? "Sending…" : "Send account invitation"}</button>
     </form>
-    <div className="accountListPanel"><label className="accountSearch">Search accounts<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Organization name or account email" /></label><div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span>Organization profile login</span></td><td><span className={account.active ? "activePill" : "inactivePill"}>{account.active ? "Active" : "Disabled"}</span></td><td><div className="rowActions"><button onClick={() => setAccountActive(account, !account.active)}>{account.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" onClick={() => removeAccount(account)}>Delete profile & account</button></div></td></tr>)}
-      {!visibleAccounts.length && <tr><td colSpan={5}>{accounts.length ? "No accounts match this search." : "No partner accounts have been created yet."}</td></tr>}
+    <div className="accountListPanel"><div className="accountExportBar"><label>Export contact data<select value={exportType} onChange={(event) => setExportType(event.target.value)}><option value="bakery-primary">Bakery primary contacts</option><option value="bakery-all">All bakery contacts</option><option value="bakery-accounts">Bakery account emails</option><option value="pantry-primary">Pantry primary contacts</option><option value="pantry-all">All pantry contacts</option><option value="pantry-accounts">Pantry account emails</option></select></label><button onClick={exportContacts}>Download CSV</button></div><div className="accountListFilters"><label className="accountSearch">Search accounts<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Organization name or account email" /></label><label>Activity<select value={activity} onChange={(event) => setActivity(event.target.value as typeof activity)}><option value="">All activity levels</option><option value="high activity">High activity</option><option value="regular activity">Regular activity</option><option value="occasional activity">Occasional activity</option><option value="no recent activity">No recent activity</option></select></label></div><div className="tablePanel accountTable"><table><thead><tr><th>Account email</th><th>Organization</th><th>Activity</th><th>Access</th><th>Status</th><th>Action</th></tr></thead><tbody>
+      {visibleAccounts.map((account) => <tr key={account.id}><td><strong>{account.accountEmail}</strong></td><td><button className="organizationNameLink" disabled={!organizationRecord(account)} onClick={() => { const record = organizationRecord(account); if (record) onView(account.organizationType, record); }}>{organizationName(account)}</button><small>{account.organizationType}</small></td><td><span className="activityPill">{organizationActivity(account.organizationType, organizationName(account), routes)}</span></td><td><span>Organization profile login</span></td><td><span className={account.active ? "activePill" : "inactivePill"}>{account.active ? "Active" : "Disabled"}</span></td><td><div className="rowActions"><button onClick={() => setAccountActive(account, !account.active)}>{account.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" onClick={() => removeAccount(account)}>Delete profile & account</button></div></td></tr>)}
+      {!visibleAccounts.length && <tr><td colSpan={6}>{accounts.length ? "No accounts match these filters." : "No partner accounts have been created yet."}</td></tr>}
     </tbody></table></div></div>
   </div>;
 }
@@ -617,7 +698,7 @@ function DriversWorkspace({ drivers, onChanged, setNotice }: { drivers: DriverAc
     } else setNotice(data?.error ?? "Could not change driver access.");
   }
   return <section className="driversWorkspace">
-    <div className="panelTitle"><div><span>DRIVER ACCOUNTS</span><h2>Registered drivers</h2></div></div>
+    <div className="panelTitle"><div><span>DRIVER ACCOUNTS</span><h2>Registered drivers</h2></div><button className="outlineBtn" onClick={() => exportCsv("bakedboston-drivers.csv", ["Driver name", "Account email", "Phone", "Home ZIP", "Verification status", "Account status", "Joined"], drivers.map((driver) => [driver.displayName, driver.email, driver.phone, driver.homeZip, driver.identityVerificationStatus, driver.active ? "Active" : "Disabled", new Date(driver.createdAt).toLocaleDateString()]))}>Download driver CSV</button></div>
     <label className="accountSearch">Search drivers<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Name, email, phone, or ZIP code" /></label>
     <div className="tablePanel"><table><thead><tr><th>Driver</th><th>Contact</th><th>Home ZIP</th><th>Verification</th><th>Joined</th><th>Action</th></tr></thead><tbody>
       {visible.map((driver) => <tr key={driver.id}><td><strong>{driver.displayName || "Unnamed driver"}</strong><small>{driver.active ? "Active account" : "Temporarily disabled"}</small></td><td><span>{driver.email}</span><small>{driver.phone || "No phone number"}</small></td><td>{driver.homeZip || "—"}</td><td><span className="activePill">{driver.identityVerificationStatus.replaceAll("_", " ")}</span></td><td>{new Date(driver.createdAt).toLocaleDateString()}</td><td><div className="rowActions"><button onClick={() => setActive(driver, !driver.active)}>{driver.active ? "Temporarily disable" : "Restore account"}</button><button className="deleteAction" disabled={deletingId === driver.id} onClick={() => remove(driver)}>{deletingId === driver.id ? "Deleting…" : "Delete profile & account"}</button></div></td></tr>)}
@@ -626,20 +707,21 @@ function DriversWorkspace({ drivers, onChanged, setNotice }: { drivers: DriverAc
   </section>;
 }
 
-function MapWorkspace({ bakeries, pantries, accounts, onView }: { bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[]; onView: (kind: PartnerKind, record: Partner) => void }) {
+function MapWorkspace({ bakeries, pantries, accounts, routes, onView }: { bakeries: Bakery[]; pantries: Pantry[]; accounts: PartnerAccount[]; routes: Route[]; onView: (kind: PartnerKind, record: Partner) => void }) {
   const [day, setDay] = useState("");
   const [time, setTime] = useState("");
   const [showBakeries, setShowBakeries] = useState(true);
   const [showPantries, setShowPantries] = useState(true);
   const [showRadius, setShowRadius] = useState(false);
   const [registration, setRegistration] = useState<"" | "registered" | "unregistered">("");
+  const [activity, setActivity] = useState<"" | ActivityLevel>("");
   const registrationMatch = (type: PartnerKind, id: number) => {
     if (!registration) return true;
     const registered = accounts.some((account) => account.organizationType === type && account.organizationId === id);
     return registration === "registered" ? registered : !registered;
   };
-  const filteredBakeries = bakeries.filter((bakery) => registrationMatch("bakery", bakery.id));
-  const filteredPantries = pantries.filter((pantry) => registrationMatch("pantry", pantry.id));
+  const filteredBakeries = bakeries.filter((bakery) => registrationMatch("bakery", bakery.id) && (!activity || organizationActivity("bakery", bakery.name, routes) === activity));
+  const filteredPantries = pantries.filter((pantry) => registrationMatch("pantry", pantry.id) && (!activity || organizationActivity("pantry", pantry.name, routes) === activity));
   const mappedBakeries = filteredBakeries.filter((bakery) => bakery.latitude != null && bakery.longitude != null);
   const mappedPantries = filteredPantries.filter((pantry) => pantry.latitude != null && pantry.longitude != null);
 
@@ -676,6 +758,7 @@ function MapWorkspace({ bakeries, pantries, accounts, onView }: { bakeries: Bake
       <label>Open day<select value={day} onChange={(event) => setDay(event.target.value)}><option value="">Any day</option>{days.map((filterDay) => <option key={filterDay} value={filterDay}>{filterDay}</option>)}</select></label>
     <label>Open at<select value={time} onChange={(event) => setTime(event.target.value)}><option value="">Any time</option>{timeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
     <label>Registration<select value={registration} onChange={(event) => setRegistration(event.target.value as typeof registration)}><option value="">All profiles</option><option value="registered">Registered</option><option value="unregistered">Unregistered</option></select></label>
+    <label>Activity<select value={activity} onChange={(event) => setActivity(event.target.value as typeof activity)}><option value="">All activity levels</option><option value="high activity">High activity</option><option value="regular activity">Regular activity</option><option value="occasional activity">Occasional activity</option><option value="no recent activity">No recent activity</option></select></label>
       <label className="mapCheck"><input type="checkbox" checked={showBakeries} onChange={(event) => setShowBakeries(event.target.checked)} /> Bakeries</label>
       <label className="mapCheck"><input type="checkbox" checked={showPantries} onChange={(event) => setShowPantries(event.target.checked)} /> Pantries</label>
       <label className="mapCheck radiusCheck"><input type="checkbox" checked={showRadius} disabled={!distanceAnalysis.averageNearest} onChange={(event) => setShowRadius(event.target.checked)} /> Target radius</label>
@@ -814,7 +897,7 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
     <header><div><span>{kind.toUpperCase()} WORKSPACE</span><h2>{record.name}</h2></div><button onClick={onClose}>×</button></header>
     <nav>{(["overview", "deliveries", "schedule", "profile"] as const).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{item}</button>)}</nav>
     <main>
-      {section === "overview" && <>{kind === "bakery" && <article className={`adminPickupCommitment ${todayPickup?.status === "confirmed" || todayPickup?.status === "reserved" ? "confirmed" : ""}`}><small>TODAY’S PICKUP COMMITMENT</small><h3>{todayPickup ? todayPickup.status.replaceAll("_", " ") : "No dated pickup created"}</h3><p>{todayPickup ? `${new Date(todayPickup.pickupWindowStartsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(todayPickup.pickupDeadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "The daily occurrence appears when the bakery opens its web or mobile workspace."}</p></article>}<article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>Notifications</small><strong>{notifications.length}</strong></article></div></>}
+      {section === "overview" && <>{kind === "bakery" && <article className={`adminPickupCommitment ${todayPickup?.status === "confirmed" || todayPickup?.status === "reserved" ? "confirmed" : ""}`}><small>TODAY’S PICKUP COMMITMENT</small><h3>{todayPickup ? todayPickup.status.replaceAll("_", " ") : "No dated pickup created"}</h3><p>{todayPickup ? `${new Date(todayPickup.pickupWindowStartsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(todayPickup.pickupDeadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "The daily occurrence appears when the bakery opens its web or mobile workspace."}</p></article>}<article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Activity classification</small><strong className="activityMetric">{organizationActivity(kind, record.name, routes)}</strong></article><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>Notifications</small><strong>{notifications.length}</strong></article></div></>}
       {section === "deliveries" && <RoutesTable routes={routes} />}
       {section === "schedule" && <div className="adminScheduleView"><div className="panelTitle"><div><span>RECURRING SCHEDULE</span><h2>Saved availability</h2></div></div>{kind === "pantry" ? <AdminReceivingCalendar pantry={record as Pantry} availability={availability} scheduleExceptions={scheduleExceptions} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} /> : <AdminBakeryCalendar bakery={record as Bakery} availability={availability} scheduleExceptions={scheduleExceptions} organizationId={record.id} onChanged={onChanged} setNotice={setNotice} />}</div>}
       {section === "profile" && <div className="adminProfileSummary">

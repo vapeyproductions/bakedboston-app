@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, pushDevices, rescueRoutes, routeOffers, scheduleExceptions, supportReports } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, pushDevices, rescueRoutes, routeOffers, scheduleExceptions, supportReportMessages, supportReports } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 import { sendAccountStatusEmail } from "../../account-email";
@@ -13,7 +13,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows, reportRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows, reportRows, reportMessageRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -62,7 +62,19 @@ export async function GET() {
     db.select().from(routeOffers).orderBy(desc(routeOffers.createdAt)),
     db.select().from(inAppNotifications).orderBy(desc(inAppNotifications.createdAt)).limit(500),
     db.select().from(supportReports).orderBy(desc(supportReports.createdAt)).limit(500),
+    db.select().from(supportReportMessages).orderBy(supportReportMessages.createdAt),
   ]);
+
+  const namedReportRows = reportRows.map((report) => ({
+    ...report,
+    reporterName: report.reporterType === "bakery"
+      ? bakeryRows.find((bakery) => bakery.id === report.reporterId)?.name ?? report.reporterName
+      : report.reporterType === "pantry"
+        ? pantryRows.find((pantry) => pantry.id === report.reporterId)?.name ?? report.reporterName
+        : report.reporterType === "driver"
+          ? driverRows.find((driver) => driver.id === report.reporterId)?.displayName ?? report.reporterName
+          : report.reporterName,
+  }));
 
   return Response.json({
     bakeries: bakeryRows, pantries: pantryRows, routes: routeRows,
@@ -76,7 +88,8 @@ export async function GET() {
     driverRideRequests: rideRequestRows,
     routeOffers: routeOfferRows,
     notifications: notificationRows,
-    supportReports: reportRows,
+    supportReports: namedReportRows,
+    supportReportMessages: reportMessageRows,
   });
 }
 

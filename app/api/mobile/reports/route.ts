@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { driverAccounts, mobileSessions, partnerAccounts, supportReports } from "../../../../db/schema";
+import { bakeries, driverAccounts, mobileSessions, pantries, partnerAccounts, supportReports } from "../../../../db/schema";
 
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -22,7 +22,10 @@ export async function POST(request: Request) {
     const [partner] = await getDb().select().from(partnerAccounts).where(eq(partnerAccounts.id, session.accountId)).limit(1);
     if (!partner) return Response.json({ error: "Account unavailable." }, { status: 403 });
     reporterId = partner.organizationId;
-    reporterName = partner.administratorName || partner.accountEmail;
+    const [organization] = partner.organizationType === "bakery"
+      ? await getDb().select({ name: bakeries.name }).from(bakeries).where(eq(bakeries.id, partner.organizationId)).limit(1)
+      : await getDb().select({ name: pantries.name }).from(pantries).where(eq(pantries.id, partner.organizationId)).limit(1);
+    reporterName = organization?.name || partner.administratorName || partner.accountEmail;
   }
   const [report] = await getDb().insert(supportReports).values({
     reporterType: session.role,
