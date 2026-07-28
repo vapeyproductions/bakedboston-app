@@ -182,6 +182,9 @@ export const driverAccounts = pgTable("driver_accounts", {
   identityVerificationStatus: text("identity_verification_status", { enum: ["not_started", "pending", "verified", "needs_attention"] }).notNull().default("not_started"),
   identityVerificationReference: text("identity_verification_reference").notNull().default(""),
   active: boolean("active").notNull().default(true),
+  lastLatitude: doublePrecision("last_latitude"),
+  lastLongitude: doublePrecision("last_longitude"),
+  lastLocationAt: timestamp("last_location_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("driver_accounts_email_unique").on(table.email),
@@ -267,8 +270,22 @@ export const inAppNotifications = pgTable("in_app_notifications", {
   actionKey: text("action_key").notNull().default(""),
   readAt: timestamp("read_at", { withTimezone: true }),
   acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  pushSentAt: timestamp("push_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const pushDevices = pgTable("push_devices", {
+  id: serial("id").primaryKey(),
+  recipientType: text("recipient_type", { enum: ["driver", "bakery", "pantry"] }).notNull(),
+  recipientId: integer("recipient_id").notNull(),
+  expoPushToken: text("expo_push_token").notNull(),
+  platform: text("platform").notNull().default("unknown"),
+  active: boolean("active").notNull().default(true),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("push_devices_token_unique").on(table.expoPushToken),
+]);
 
 export const mobileSessions = pgTable("mobile_sessions", {
   id: serial("id").primaryKey(),

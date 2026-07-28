@@ -171,6 +171,21 @@ if (!databaseUrl) {
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS driver_confirmation_deadline_at timestamptz`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS driver_confirmation_requested_at timestamptz`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS driver_confirmed_at timestamptz`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_latitude double precision`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_longitude double precision`;
+  await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_location_at timestamptz`;
+  await sql`ALTER TABLE in_app_notifications ADD COLUMN IF NOT EXISTS push_sent_at timestamptz`;
+  await sql`CREATE TABLE IF NOT EXISTS push_devices (
+    id serial PRIMARY KEY,
+    recipient_type text NOT NULL,
+    recipient_id integer NOT NULL,
+    expo_push_token text NOT NULL,
+    platform text NOT NULL DEFAULT 'unknown',
+    active boolean NOT NULL DEFAULT true,
+    last_seen_at timestamptz NOT NULL DEFAULT now(),
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS push_devices_token_unique ON push_devices (expo_push_token)`;
   await sql`
     CREATE TABLE IF NOT EXISTS in_app_notifications (
       id serial PRIMARY KEY,

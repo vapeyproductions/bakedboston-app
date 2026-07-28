@@ -3,6 +3,9 @@ import * as SecureStore from "expo-secure-store";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
+import * as Device from "expo-device";
+import Constants from "expo-constants";
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -59,6 +62,9 @@ type PickupOccurrence = { id: number; serviceDate: string; pickupWindowStartsAt:
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
 const TOKEN_KEY = "bakedboston.mobileToken";
 const demoDriverSession: Session = { role: "driver", accountId: 0, displayName: "Jordan Taylor", email: "jordan.driver@example.com", verificationStatus: "verified", demo: true };
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
+});
 
 async function postAuth(payload: Record<string, unknown>) {
   const controller = new AbortController();
@@ -377,6 +383,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     let timer: ReturnType<typeof setInterval> | undefined;
     if (!session.demo) {
+      void registerForDriverPushNotifications().catch(() => undefined);
       loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
       const refreshMatching = async () => {
         const coordinates = await currentDriverCoordinates();
@@ -673,6 +680,21 @@ async function currentDriverCoordinates() {
   }
   const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   return { latitude: location.coords.latitude, longitude: location.coords.longitude };
+}
+async function registerForDriverPushNotifications() {
+  if (!Device.isDevice) return;
+  const existing = await Notifications.getPermissionsAsync();
+  const permission = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
+  if (permission.status !== "granted") return;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) return;
+  const expoPushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  await fetch(`${API_URL}/api/mobile/push-device`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expoPushToken, platform: Platform.OS }),
+  });
 }
 async function createDriverRideRequest(request: DriverRideRequest) {
   return driverMatchingRequest("POST", {

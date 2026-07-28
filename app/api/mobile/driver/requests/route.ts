@@ -46,6 +46,11 @@ export async function GET(request: Request) {
     && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
     ? { latitude, longitude }
     : null;
+  if (driverLocation) await getDb().update(driverAccounts).set({
+    lastLatitude: driverLocation.latitude,
+    lastLongitude: driverLocation.longitude,
+    lastLocationAt: new Date(),
+  }).where(eq(driverAccounts.id, driver.id));
   await expireAndAdvanceOffers();
   await processDriverConfirmations(driver);
   await processDepartureNotifications(driver.id, driverLocation);
@@ -181,7 +186,7 @@ async function confirmRoute(driverId: number, offerId: number) {
   return Response.json({ offer: confirmed });
 }
 
-async function processDriverConfirmations(driver: typeof driverAccounts.$inferSelect) {
+export async function processDriverConfirmations(driver: typeof driverAccounts.$inferSelect) {
   const db = getDb();
   const now = new Date();
   const offers = await db.select().from(routeOffers).where(and(
