@@ -7,7 +7,16 @@ import { processDriverConfirmations } from "../../mobile/driver/requests/route";
 export async function GET(request: Request) {
   const authorization = request.headers.get("authorization");
   if (!process.env.CRON_SECRET || authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    return Response.json({ error: "Unauthorized." }, { status: 401 });
+    return Response.json({
+      error: "Unauthorized.",
+      diagnostics: {
+        secretConfigured: Boolean(process.env.CRON_SECRET),
+        configuredLength: process.env.CRON_SECRET?.length ?? 0,
+        authorizationReceived: Boolean(authorization),
+        authorizationLength: authorization?.length ?? 0,
+        bearerPrefixPresent: authorization?.startsWith("Bearer ") ?? false,
+      },
+    }, { status: 401 });
   }
   const db = getDb();
   const drivers = await db.select().from(driverAccounts).where(eq(driverAccounts.active, true));
