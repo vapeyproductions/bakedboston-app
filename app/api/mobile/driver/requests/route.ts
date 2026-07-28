@@ -162,7 +162,7 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
   )).limit(1);
   if (!offer) return Response.json({ error: "Active route not found." }, { status: 404 });
   const transitions: Record<string, string[]> = {
-    reserved: ["arrived_at_bakery"],
+    reserved: ["en_route_to_bakery"],
     en_route_to_bakery: ["arrived_at_bakery"],
     arrived_at_bakery: ["picked_up"],
     picked_up: ["arrived_at_pantry"],
@@ -180,7 +180,7 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
     ...(nextStage === "completed" ? { completedAt: now } : {}),
   };
   const [updated] = await db.update(routeOffers).set({
-    deliveryStage: nextStage as "arrived_at_bakery" | "picked_up" | "arrived_at_pantry" | "completed",
+    deliveryStage: nextStage as "en_route_to_bakery" | "arrived_at_bakery" | "picked_up" | "arrived_at_pantry" | "completed",
     ...timestamps,
   }).where(and(
     eq(routeOffers.id, offer.id),
@@ -194,7 +194,18 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
     db.select().from(pantries).where(eq(pantries.id, offer.pantryId)).limit(1),
   ]);
   if (bakery && pantry) {
-    if (nextStage === "arrived_at_bakery") {
+    if (nextStage === "en_route_to_bakery") {
+      await db.insert(inAppNotifications).values([
+        {
+          recipientType: "bakery", recipientId: bakery.id, eventType: "driver_began_delivery",
+          title: "Driver is on the way", body: `${driver.displayName} has begun the delivery and is traveling to ${bakery.name}. The food is planned for ${pantry.name}.`,
+        },
+        {
+          recipientType: "pantry", recipientId: pantry.id, eventType: "driver_began_delivery",
+          title: "Delivery has begun", body: `${driver.displayName} is traveling to ${bakery.name} to collect the food planned for ${pantry.name}.`,
+        },
+      ]);
+    } else if (nextStage === "arrived_at_bakery") {
       await db.insert(inAppNotifications).values({
         recipientType: "bakery", recipientId: bakery.id, eventType: "driver_arrived_at_bakery",
         title: "Driver has arrived", body: `${driver.displayName} has arrived at ${bakery.name} for the pickup.`,

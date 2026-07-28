@@ -30,6 +30,7 @@ type DriverRouteOffer = {
   id: number; status: "queued" | "offered" | "accepted" | "declined" | "expired" | "withdrawn";
   deliveryStage: "reserved" | "en_route_to_bakery" | "arrived_at_bakery" | "picked_up" | "en_route_to_pantry" | "arrived_at_pantry" | "completed";
   expiresAt: string | null; estimatedBakeryArrival: string; estimatedPantryArrival: string;
+  pickup: PickupOccurrence | null;
   bakery: DriverDestination | null; pantry: DriverDestination | null;
 };
 type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; acknowledgedAt: string | null; createdAt: string };
@@ -503,13 +504,34 @@ function LiveRouteOffer({ offer, onRespond, onProgress }: {
   const laterDestination = bakeryFocused ? offer.pantry : offer.bakery;
   const arrived = offer.deliveryStage === "arrived_at_bakery" || offer.deliveryStage === "arrived_at_pantry";
   const showDetails = arrived || detailsExpanded;
-  const nextAction = offer.deliveryStage === "arrived_at_bakery"
+  const nextAction = offer.deliveryStage === "reserved"
+    ? { label: "Begin delivery", stage: "en_route_to_bakery" as const }
+    : offer.deliveryStage === "arrived_at_bakery"
     ? { label: "Food picked up", stage: "picked_up" as const }
     : offer.deliveryStage === "picked_up" || offer.deliveryStage === "en_route_to_pantry"
       ? { label: "I have arrived at the pantry", stage: "arrived_at_pantry" as const }
       : offer.deliveryStage === "arrived_at_pantry"
         ? { label: "Delivery completed", stage: "completed" as const }
         : { label: "I have arrived at the bakery", stage: "arrived_at_bakery" as const };
+  function continueRoute() {
+    if (nextAction.stage !== "en_route_to_bakery") {
+      onProgress(offer, nextAction.stage);
+      return;
+    }
+    const pickupStartsAt = offer.pickup?.pickupWindowStartsAt ? new Date(offer.pickup.pickupWindowStartsAt) : null;
+    if (pickupStartsAt && pickupStartsAt.getTime() > Date.now()) {
+      Alert.alert(
+        "Begin before the pickup window?",
+        `${offer.bakery?.name ?? "The bakery"} is scheduled to begin pickups at ${formatMobileTime(pickupStartsAt.toISOString())}. You can leave now, but you may need to wait when you arrive.`,
+        [
+          { text: "Wait", style: "cancel" },
+          { text: "Begin delivery", onPress: () => onProgress(offer, "en_route_to_bakery") },
+        ],
+      );
+      return;
+    }
+    onProgress(offer, "en_route_to_bakery");
+  }
   return <View style={[styles.driverRouteCard, styles.liveOfferCard]}>
     <View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{offer.status === "offered" ? "Held for you · 5 minutes" : "Reserved"}</Text><Text style={styles.driverRouteDrive}>{offer.status}</Text></View>
     <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
@@ -523,7 +545,7 @@ function LiveRouteOffer({ offer, onRespond, onProgress }: {
       <Pressable style={styles.primaryDirectionButton} onPress={() => chooseNavigationApp(destination.name, destination.address)}><Text style={styles.portalStatusButtonText}>Open directions</Text></Pressable>
       {!showDetails && <Pressable style={styles.arrivalDetailsToggle} onPress={() => setDetailsExpanded(true)}><Text style={styles.secondaryDirectionText}>View arrival instructions and photos</Text></Pressable>}
       {showDetails && <DestinationArrivalDetails destination={destination} expanded={arrived} onClose={arrived ? undefined : () => setDetailsExpanded(false)} />}
-      <Pressable style={styles.routeProgressButton} onPress={() => onProgress(offer, nextAction.stage)}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
+      <Pressable style={styles.routeProgressButton} onPress={continueRoute}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
       {laterDestination && <View style={styles.routeSecondaryDestination}><Text style={styles.previewLabel}>{bakeryFocused ? "AFTER PICKUP" : "PICKED UP FROM"}</Text><Text style={styles.connectedTitle}>{laterDestination.name}</Text><Text style={styles.connectedBody}>{laterDestination.address}</Text></View>}
     </View>}
   </View>;
