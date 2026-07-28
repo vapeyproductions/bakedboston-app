@@ -22,6 +22,13 @@ import { trafficAwareDriveMinutes } from "../../../../google-routes";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
+function isAdult(dateOfBirth: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) return false;
+  const birth = new Date(`${dateOfBirth}T12:00:00Z`);
+  const today = new Date();
+  return birth <= new Date(Date.UTC(today.getUTCFullYear() - 18, today.getUTCMonth(), today.getUTCDate()));
+}
+
 async function currentDriver(request: Request) {
   const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1] ?? "";
   if (!token) return null;
@@ -161,6 +168,7 @@ export async function PATCH(request: Request) {
     const body = await request.json() as Record<string, unknown>;
     const action = String(body.action ?? "");
     if (action === "accept-offer") {
+      if (!isAdult(driver.dateOfBirth)) return Response.json({ error: "Drivers must be at least 18 years old." }, { status: 403 });
       if (driver.identityVerificationStatus !== "verified") return Response.json({ error: "Your driver profile must be approved before you can reserve a route." }, { status: 403 });
       return acceptOffer(driver, Number(body.offerId));
     }
@@ -169,6 +177,7 @@ export async function PATCH(request: Request) {
     if (action === "cancel-route") return cancelRoute(driver, Number(body.offerId));
     if (action === "confirm-route") return confirmRoute(driver.id, Number(body.offerId));
     if (action === "reserve-browse-route") {
+      if (!isAdult(driver.dateOfBirth)) return Response.json({ error: "Drivers must be at least 18 years old." }, { status: 403 });
       if (driver.identityVerificationStatus !== "verified") return Response.json({ error: "Your driver profile must be approved before you can reserve a route." }, { status: 403 });
       return reserveBrowseRoute(driver, Number(body.pickupId), Number(body.pantryId));
     }

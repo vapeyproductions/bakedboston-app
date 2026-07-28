@@ -12,6 +12,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -24,10 +25,11 @@ import {
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Role = "driver" | "bakery" | "pantry";
-type Screen = "welcome" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
+type Screen = "welcome" | "learn" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
 type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention" };
 type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
+type IdentityVerificationResponse = { status: DriverProfile["verificationStatus"]; method: "stripe"; url?: string | null; message?: string };
 type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
 type DriverDestination = { name: string; address: string; dropoffInstructions: string; photos: Array<{ id: number; imageUrl: string; caption: string }> };
 type DriverRouteOffer = {
@@ -102,7 +104,7 @@ const colors = {
 };
 
 const roleCopy: Record<Role, { icon: string; title: string; description: string }> = {
-  driver: { icon: "↗", title: "I’m a driver", description: "Discover, reserve, and complete food rescue routes." },
+  driver: { icon: "↗", title: "I’m a driver", description: "Discover, reserve, and complete community delivery routes." },
   bakery: { icon: "🥖", title: "I represent a bakery", description: "Publish surplus pickups and coordinate handoffs." },
   pantry: { icon: "🥫", title: "I represent a pantry", description: "Manage receiving windows and incoming deliveries." },
 };
@@ -150,9 +152,17 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style={screen === "welcome" ? "light" : "dark"} />
+      <StatusBar style={screen === "welcome" || screen === "learn" ? "light" : "dark"} />
       {screen === "welcome" ? (
-        <WelcomeScreen onChoose={chooseRole} />
+        <WelcomeScreen onChoose={chooseRole} onLearn={() => setScreen("learn")} />
+      ) : screen === "learn" ? (
+        <LearnScreen
+          onBack={() => setScreen("welcome")}
+          onCreateDriver={() => {
+            setRole("driver");
+            setScreen("driver-register");
+          }}
+        />
       ) : screen === "workspace" && session ? (
         <PortalHome session={session} onSignOut={signOut} />
       ) : (
@@ -181,20 +191,22 @@ export default function App() {
   );
 }
 
-function WelcomeScreen({ onChoose }: { onChoose: (role: Role) => void }) {
+function WelcomeScreen({ onChoose, onLearn }: { onChoose: (role: Role) => void; onLearn: () => void }) {
   return (
     <SafeAreaView style={styles.welcomeSafe} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.welcomeScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.brandRow}>
           <View style={styles.brandMark}><Text style={styles.brandLetter}>B</Text></View>
           <Text style={styles.brandNameLight}>BakedBoston</Text>
-          <View style={styles.nativePill}><Text style={styles.nativePillText}>FOOD RESCUE</Text></View>
         </View>
 
         <View style={styles.hero}>
-          <Text style={styles.eyebrowLight}>ONE NETWORK · THREE ROLES</Text>
           <Text style={styles.heroTitle}>Good food should{"\n"}go somewhere good.</Text>
           <Text style={styles.heroBody}>Join Boston’s community-powered network connecting bakery surplus with neighborhood food pantries.</Text>
+          <Pressable accessibilityRole="button" onPress={onLearn} style={styles.learnButton}>
+            <Text style={styles.learnButtonText}>See how BakedBoston works</Text>
+            <Text style={styles.learnButtonArrow}>›</Text>
+          </Pressable>
         </View>
 
         <View style={styles.roleSheet}>
@@ -219,6 +231,143 @@ function WelcomeScreen({ onChoose }: { onChoose: (role: Role) => void }) {
           <Text style={styles.securityNote}>Partner accounts are connected to organizations approved by BakedBoston.</Text>
         </View>
       </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const learnSlides = [
+  {
+    icon: "🥖",
+    kicker: "THE OPPORTUNITY",
+    stat: "17%",
+    title: "Good bakery food gets left behind.",
+    body: "A 2025 bakery-industry article reported that about 17% of bakery products were discarded before reaching customers.",
+  },
+  {
+    icon: "🥫",
+    kicker: "THE NEED",
+    stat: "40%",
+    title: "Local pantries are under growing pressure.",
+    body: "Food insecurity reached a record 40% of Massachusetts households in 2025. Pantries remain a critical local safety net.",
+  },
+  {
+    icon: "↗",
+    kicker: "THE CONNECTION",
+    title: "A short drive closes the gap.",
+    body: "BakedBoston connects an available bakery pickup with a nearby pantry and a community driver.",
+  },
+] as const;
+
+function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateDriver: () => void }) {
+  const [step, setStep] = useState(0);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const isProcess = step === learnSlides.length;
+  const slide = isProcess ? null : learnSlides[step];
+
+  return (
+    <SafeAreaView style={styles.learnSafe} edges={["top", "bottom"]}>
+      <View style={styles.learnHeader}>
+        <Pressable accessibilityRole="button" onPress={onBack} style={styles.learnHeaderBack}>
+          <Text style={styles.learnHeaderBackText}>‹</Text>
+        </Pressable>
+        <View style={styles.learnBrand}>
+          <View style={styles.smallMark}><Text style={styles.smallMarkText}>B</Text></View>
+          <Text style={styles.learnBrandText}>BakedBoston</Text>
+        </View>
+        <View style={styles.learnHeaderSpacer} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.learnScroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.learnCard}>
+          {slide ? (
+            <>
+              <View style={styles.learnIconBubble}><Text style={styles.learnIcon}>{slide.icon}</Text></View>
+              <Text style={styles.learnKicker}>{slide.kicker}</Text>
+              {"stat" in slide && <Text style={styles.learnStat}>{slide.stat}</Text>}
+              <Text style={styles.learnTitle}>{slide.title}</Text>
+              <Text style={styles.learnBody}>{slide.body}</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.learnKicker}>HOW IT WORKS</Text>
+              <Text style={styles.learnTitle}>Choose a route. Make the delivery.</Text>
+              <View style={styles.learnProcess}>
+                {[
+                  ["1", "Choose", "Pick a nearby route now or search for one that fits a future trip."],
+                  ["2", "Pick up", "Drive to the bakery and collect the available food."],
+                  ["3", "Drop off", "Bring it to the pantry. That’s it."],
+                ].map(([number, title, body]) => (
+                  <View key={number} style={styles.learnProcessRow}>
+                    <View style={styles.learnNumber}><Text style={styles.learnNumberText}>{number}</Text></View>
+                    <View style={styles.learnProcessCopy}>
+                      <Text style={styles.learnProcessTitle}>{title}</Text>
+                      <Text style={styles.learnProcessBody}>{body}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+        </View>
+
+        <View style={styles.learnDots}>
+          {[0, 1, 2, 3].map((index) => (
+            <View key={index} style={[styles.learnDot, index === step && styles.learnDotActive]} />
+          ))}
+        </View>
+
+        {isProcess ? (
+          <>
+            <Pressable accessibilityRole="button" onPress={onCreateDriver} style={styles.learnPrimaryButton}>
+              <Text style={styles.learnPrimaryButtonText}>Create a driver account</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={onBack} style={styles.learnSecondaryButton}>
+              <Text style={styles.learnSecondaryButtonText}>Back</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => setSourcesOpen(true)}>
+              <Text style={styles.learnSourceLink}>About the data</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable accessibilityRole="button" onPress={() => setStep((current) => current + 1)} style={styles.learnPrimaryButton}>
+            <Text style={styles.learnPrimaryButtonText}>Next</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+
+      <Modal visible={sourcesOpen} transparent animationType="fade" onRequestClose={() => setSourcesOpen(false)}>
+        <View style={styles.sourceModalBackdrop}>
+          <View style={styles.sourceModalCard}>
+            <View style={styles.sourceModalHeader}>
+              <View>
+                <Text style={styles.learnKicker}>ABOUT THE DATA</Text>
+                <Text style={styles.sourceModalTitle}>Sources and context</Text>
+              </View>
+              <Pressable accessibilityLabel="Close data sources" accessibilityRole="button" onPress={() => setSourcesOpen(false)} style={styles.sourceModalClose}>
+                <Text style={styles.sourceModalCloseText}>×</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.sourceItem}>
+              <Text style={styles.sourceYear}>2025 · BAKERY WASTE</Text>
+              <Text style={styles.sourceStat}>17%</Text>
+              <Text style={styles.sourceBody}>A bakery-industry article cites a German study finding that about 17% of products baked in bakeries are discarded before reaching customers.</Text>
+              <Pressable accessibilityRole="link" onPress={() => Linking.openURL("https://magazinebbm.com/blog/food-waste-and-the-problem-of-bakery-product-loss-4003")}>
+                <Text style={styles.sourceArticleLink}>Read the BBM Magazine article ↗</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.sourceItem}>
+              <Text style={styles.sourceYear}>2025 · FOOD INSECURITY</Text>
+              <Text style={styles.sourceStat}>40%</Text>
+              <Text style={styles.sourceBody}>The Greater Boston Food Bank and Mass General Brigham reported that food insecurity reached a record 40% of Massachusetts households in 2025.</Text>
+              <Pressable accessibilityRole="link" onPress={() => Linking.openURL("https://www.massgeneralbrigham.org/en/about/newsroom/press-releases/2026-greater-boston-food-bank-annual-food-access-report")}>
+                <Text style={styles.sourceArticleLink}>Read the statewide report ↗</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -300,7 +449,7 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
     />
     <Pressable style={styles.consentRow} onPress={() => setAgreed((current) => !current)}>
       <View style={[styles.checkbox, agreed && styles.checkboxSelected]}>{agreed && <Text style={styles.checkmark}>✓</Text>}</View>
-      <Text style={styles.consentText}>I am at least 16 years old and agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
+      <Text style={styles.consentText}>I am at least 18 years old and agree to follow food-safety instructions and accurately confirm pickups and deliveries.</Text>
     </Pressable>
     <View style={styles.legalLinks}><Pressable onPress={() => Linking.openURL("https://www.baked-boston.com/terms")}><Text style={styles.linkText}>Terms of Use</Text></Pressable><Pressable onPress={() => Linking.openURL("https://www.baked-boston.com/privacy")}><Text style={styles.linkText}>Privacy Policy</Text></Pressable></View>
     <View style={styles.verificationPreview}><Text style={styles.verificationPreviewTitle}>Driver review required</Text><Text style={styles.verificationPreviewBody}>After you create your profile, BakedBoston will review your driver information before you can reserve a delivery. Your account will show as pending until that review is complete.</Text></View>
@@ -376,6 +525,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [driverNotifications, setDriverNotifications] = useState<DriverNotification[]>([]);
   const [browseRoutes, setBrowseRoutes] = useState<BrowseRoute[]>([]);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [verificationBusy, setVerificationBusy] = useState(false);
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -480,6 +630,48 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       Alert.alert("Could not confirm delivery", reason instanceof Error ? reason.message : "Please try again.");
     }
   }
+  async function beginIdentityVerification() {
+    setVerificationBusy(true);
+    try {
+      const result = await driverIdentityRequest("POST");
+      setProfile((current) => current ? { ...current, verificationStatus: result.status } : current);
+      if (result.url) {
+        Alert.alert(
+          "Verify securely with Stripe",
+          "Stripe will ask for a government-issued photo ID and a matching selfie. BakedBoston does not receive or store the document images.",
+          [
+            { text: "Not now", style: "cancel" },
+            { text: "Continue", onPress: () => Linking.openURL(result.url!).catch(() => Alert.alert("Could not open Stripe", "Please try again.")) },
+          ],
+        );
+      } else {
+        Alert.alert("Verification processing", "Stripe is processing your submission. Check again shortly.");
+      }
+    } catch (reason) {
+      Alert.alert("Could not start verification", reason instanceof Error ? reason.message : "Please try again.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
+  async function refreshIdentityVerification() {
+    setVerificationBusy(true);
+    try {
+      const result = await driverIdentityRequest("GET");
+      setProfile((current) => current ? { ...current, verificationStatus: result.status } : current);
+      Alert.alert(
+        result.status === "verified" ? "Identity verified" : result.status === "needs_attention" ? "Verification needs attention" : "Verification still processing",
+        result.status === "verified"
+          ? "You can now reserve BakedBoston delivery routes."
+          : result.status === "needs_attention"
+            ? "Stripe needs another attempt or BakedBoston needs to review the result."
+            : "Stripe has not finished processing the verification yet.",
+      );
+    } catch (reason) {
+      Alert.alert("Could not check verification", reason instanceof Error ? reason.message : "Please try again.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
   const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
   const verificationLabel = verificationStatus === "verified" ? "Identity verified" : verificationStatus === "pending" ? "Verification pending" : verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
   const tabs: Array<{ id: DriverSection; label: string; icon: string }> = [
@@ -515,7 +707,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
+      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verificationStatus={verificationStatus} verificationBusy={verificationBusy} onVerify={beginIdentityVerification} onRefreshVerification={refreshIdentityVerification} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission is used to recommend nearby routes. You can use a ZIP code instead.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>Ride request saved. We’ll notify you when a confirmed pickup matches.</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
       {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} onDelete={async () => { try { await deleteDriverAccount(); await SecureStore.deleteItemAsync(TOKEN_KEY); onSignOut(); } catch (reason) { Alert.alert("Account not deleted", reason instanceof Error ? reason.message : "Please try again."); } }} />}
@@ -524,8 +716,25 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   </SafeAreaView>;
 }
 
-function DriverHome({ displayName, verified, onSearch }: { displayName: string; verified: boolean; onSearch: () => void }) {
-  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{!verified && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>Driver review pending</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>BakedBoston is reviewing your driver information. You can explore available routes now; reserving a delivery becomes available when your profile is approved.</Text></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>Nearby routes available now or within the next two hours, ranked for efficient travel.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View></View>;
+function DriverHome({ displayName, verificationStatus, verificationBusy, onVerify, onRefreshVerification, onSearch }: {
+  displayName: string;
+  verificationStatus: DriverProfile["verificationStatus"];
+  verificationBusy: boolean;
+  onVerify: () => void;
+  onRefreshVerification: () => void;
+  onSearch: () => void;
+}) {
+  const title = verificationStatus === "not_started"
+    ? "Verify your identity"
+    : verificationStatus === "needs_attention"
+      ? "Verification needs attention"
+      : "Stripe verification pending";
+  const body = verificationStatus === "not_started"
+    ? "Complete a secure government ID and selfie check with Stripe before reserving your first route."
+    : verificationStatus === "needs_attention"
+      ? "Stripe could not complete the previous check. Start another attempt or contact BakedBoston for help."
+      : "Stripe is processing your identity check. You can explore routes while verification is underway.";
+  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{verificationStatus !== "verified" && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View style={styles.verificationHeadingCopy}><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>{title}</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>{body}</Text><Pressable disabled={verificationBusy} style={[styles.identityActionButton, verificationBusy && styles.disabledButton]} onPress={verificationStatus === "pending" ? onRefreshVerification : onVerify}><Text style={styles.driverReserveButtonText}>{verificationBusy ? "Please wait…" : verificationStatus === "pending" ? "Check verification status" : "Verify with Stripe"}</Text></Pressable><Text style={styles.identityPrivacyNote}>Identity documents are collected and processed by Stripe. BakedBoston does not store the document images.</Text></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>Nearby routes available now or within the next two hours, ranked for efficient travel.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View></View>;
 }
 
 function BrowseRouteCard({ route, onReserve }: { route: BrowseRoute; onReserve: () => void }) {
@@ -685,6 +894,16 @@ async function deleteDriverAccount() {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error ?? "Could not delete this account.");
+}
+async function driverIdentityRequest(method: "GET" | "POST") {
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  const response = await fetch(`${API_URL}/api/mobile/driver/identity`, {
+    method,
+    headers: { Authorization: `Bearer ${token ?? ""}` },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "Identity verification request failed.");
+  return data as IdentityVerificationResponse;
 }
 async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Record<string, unknown>, coordinates?: { latitude: number; longitude: number } | null) {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -1743,20 +1962,23 @@ const styles = StyleSheet.create({
   connectedBody: { color: colors.forestSoft, marginTop: 4 },
   driverVerificationCard: { marginTop: 14, padding: 20, borderRadius: 14, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
   driverVerificationHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  verificationHeadingCopy: { flex: 1 },
   verificationStatusDot: { width: 12, height: 12, marginTop: 5, borderRadius: 6, backgroundColor: colors.yellow },
   verificationStatusDotVerified: { backgroundColor: "#56C78A" },
+  identityActionButton: { minHeight: 44, marginTop: 15, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.forest },
+  identityPrivacyNote: { marginTop: 10, color: colors.sage, fontSize: 8, lineHeight: 12 },
   errorText: { color: "#A34436", fontWeight: "700", marginBottom: 10 },
   welcomeScroll: { flexGrow: 1, paddingTop: 14 },
   brandRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, gap: 10 },
   brandMark: { width: 38, height: 38, borderRadius: 19, borderBottomLeftRadius: 6, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
   brandLetter: { color: colors.white, fontSize: 19, fontWeight: "900" },
   brandNameLight: { color: colors.white, fontSize: 20, fontWeight: "800", letterSpacing: -0.6 },
-  nativePill: { marginLeft: "auto", borderWidth: 1, borderColor: colors.forestSoft, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
-  nativePillText: { color: "#A9C2B5", fontSize: 8, letterSpacing: 1.2, fontWeight: "800" },
   hero: { paddingHorizontal: 25, paddingTop: 54, paddingBottom: 45 },
-  eyebrowLight: { color: colors.yellow, fontSize: 10, letterSpacing: 1.8, fontWeight: "900", marginBottom: 14 },
   heroTitle: { color: colors.white, fontSize: 42, lineHeight: 46, letterSpacing: -1.4, fontWeight: "700" },
   heroBody: { color: "#B7CBC0", fontSize: 15, lineHeight: 23, marginTop: 18, maxWidth: 350 },
+  learnButton: { alignSelf: "flex-start", minHeight: 46, marginTop: 25, paddingHorizontal: 17, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 23, borderWidth: 1, borderColor: "#7EA08F", backgroundColor: "#FFFFFF0D" },
+  learnButtonText: { color: colors.white, fontSize: 11, fontWeight: "900" },
+  learnButtonArrow: { color: colors.yellow, fontSize: 24, lineHeight: 24 },
   roleSheet: { backgroundColor: colors.cream, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 20, paddingTop: 28, paddingBottom: 28, flexGrow: 1 },
   sheetEyebrow: { color: colors.coral, fontSize: 9, letterSpacing: 1.6, fontWeight: "900" },
   sheetTitle: { color: colors.forest, fontSize: 27, fontWeight: "700", marginTop: 6, marginBottom: 18, letterSpacing: -0.7 },
@@ -1771,6 +1993,47 @@ const styles = StyleSheet.create({
   roleDescription: { color: colors.sage, fontSize: 11, lineHeight: 16, marginTop: 4, paddingRight: 4 },
   chevron: { color: colors.forestSoft, fontSize: 28, fontWeight: "300" },
   securityNote: { color: colors.sage, textAlign: "center", fontSize: 9, lineHeight: 14, marginHorizontal: 20, marginTop: 8 },
+  learnSafe: { flex: 1, backgroundColor: colors.forest },
+  learnHeader: { minHeight: 64, paddingHorizontal: 18, flexDirection: "row", alignItems: "center" },
+  learnHeaderBack: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.forestSoft },
+  learnHeaderBackText: { color: colors.white, fontSize: 31, lineHeight: 32, marginTop: -3 },
+  learnBrand: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  learnBrandText: { color: colors.white, fontSize: 16, fontWeight: "900" },
+  learnHeaderSpacer: { width: 40 },
+  learnScroll: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 22, paddingTop: 20, paddingBottom: 28 },
+  learnCard: { width: "100%", maxWidth: 560, minHeight: 390, alignSelf: "center", justifyContent: "center", padding: 28, borderRadius: 26, backgroundColor: colors.cream },
+  learnIconBubble: { width: 68, height: 68, marginBottom: 22, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.mint },
+  learnIcon: { fontSize: 32 },
+  learnKicker: { color: colors.coral, fontSize: 9, letterSpacing: 1.7, fontWeight: "900", marginBottom: 10 },
+  learnStat: { color: colors.forest, fontSize: 64, lineHeight: 68, fontWeight: "900", letterSpacing: -2.5 },
+  learnTitle: { maxWidth: 430, color: colors.forest, fontSize: 30, lineHeight: 35, fontWeight: "900", letterSpacing: -0.8 },
+  learnBody: { maxWidth: 430, marginTop: 15, color: colors.sage, fontSize: 14, lineHeight: 21 },
+  learnProcess: { marginTop: 25, gap: 18 },
+  learnProcessRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
+  learnNumber: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.coral },
+  learnNumberText: { color: colors.white, fontSize: 13, fontWeight: "900" },
+  learnProcessCopy: { flex: 1, paddingTop: 1 },
+  learnProcessTitle: { color: colors.forest, fontSize: 15, fontWeight: "900" },
+  learnProcessBody: { marginTop: 3, color: colors.sage, fontSize: 11, lineHeight: 16 },
+  learnDots: { marginVertical: 20, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  learnDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.forestSoft },
+  learnDotActive: { width: 23, backgroundColor: colors.yellow },
+  learnPrimaryButton: { width: "100%", maxWidth: 560, minHeight: 52, alignSelf: "center", alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.coral },
+  learnPrimaryButtonText: { color: colors.white, fontSize: 12, fontWeight: "900" },
+  learnSecondaryButton: { width: "100%", maxWidth: 560, minHeight: 48, marginTop: 10, alignSelf: "center", alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderColor: colors.forestSoft },
+  learnSecondaryButtonText: { color: colors.white, fontSize: 11, fontWeight: "900" },
+  learnSourceLink: { marginTop: 17, color: "#A9C2B5", textAlign: "center", fontSize: 9, textDecorationLine: "underline" },
+  sourceModalBackdrop: { flex: 1, padding: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#0C241BCF" },
+  sourceModalCard: { width: "100%", maxWidth: 560, maxHeight: "90%", padding: 24, borderRadius: 24, backgroundColor: colors.cream },
+  sourceModalHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 16 },
+  sourceModalTitle: { color: colors.forest, fontSize: 25, lineHeight: 30, fontWeight: "900", letterSpacing: -0.6 },
+  sourceModalClose: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.border },
+  sourceModalCloseText: { color: colors.forest, fontSize: 28, lineHeight: 30 },
+  sourceItem: { marginTop: 19, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border },
+  sourceYear: { color: colors.coral, fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
+  sourceStat: { marginTop: 5, color: colors.forest, fontSize: 35, lineHeight: 40, fontWeight: "900" },
+  sourceBody: { marginTop: 5, color: colors.sage, fontSize: 11, lineHeight: 17 },
+  sourceArticleLink: { marginTop: 10, color: colors.forest, fontSize: 10, fontWeight: "900", textDecorationLine: "underline" },
   authSafe: { flex: 1, backgroundColor: colors.cream },
   authHeader: { height: 68, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: colors.border },
   backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },

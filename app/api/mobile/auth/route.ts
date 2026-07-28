@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       const homeZip = String(body.homeZip ?? "").trim();
       const dateOfBirth = String(body.dateOfBirth ?? "").trim();
       if (!display || !phone || !homeAddress || !/^\d{5}$/.test(homeZip)) throw new Error("Name, address, phone number, and five-digit ZIP code are required.");
-      if (!meetsDriverAgeRequirement(dateOfBirth)) throw new Error("Drivers must enter a valid date of birth and be at least 16 years old.");
+      if (!meetsDriverAgeRequirement(dateOfBirth)) throw new Error("Drivers must enter a valid date of birth and be at least 18 years old.");
       const [driver] = await db.insert(driverAccounts).values({
         email,
         displayName: display,
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
         homeZip,
         dateOfBirth,
         passwordHash: hashPartnerPassword(password),
-        identityVerificationStatus: "pending",
+        identityVerificationStatus: "not_started",
       }).returning();
       accountId = driver.id; displayName = driver.displayName;
       verificationStatus = driver.identityVerificationStatus;
@@ -100,7 +100,7 @@ function meetsDriverAgeRequirement(value: string) {
   const birth = new Date(`${value}T12:00:00Z`);
   if (Number.isNaN(birth.getTime()) || birth.toISOString().slice(0, 10) !== value) return false;
   const today = new Date();
-  const threshold = new Date(Date.UTC(today.getUTCFullYear() - 16, today.getUTCMonth(), today.getUTCDate()));
+  const threshold = new Date(Date.UTC(today.getUTCFullYear() - 18, today.getUTCMonth(), today.getUTCDate()));
   return birth <= threshold;
 }
 
