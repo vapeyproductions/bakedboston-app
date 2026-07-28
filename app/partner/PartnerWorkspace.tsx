@@ -28,7 +28,7 @@ type PickupOccurrence = {
   status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "cancelled";
   confirmedAt: string | null;
 };
-type PartnerNotification = { id: number; title: string; body: string; actionRequired: boolean; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
+type PartnerNotification = { id: number; title: string; body: string; actionRequired: boolean; actionKey: string; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
 
 export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [] }: {
   kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
@@ -205,7 +205,8 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
         </div>
         <div className="workspaceGrid singleActivity"><ActivityCard activity={activity.slice(0, 3)} onAll={() => setSection("activity")} /></div>
         {notifications.length > 0 && <PartnerNotificationList notifications={notifications.slice(0, 5)} onAcknowledge={async (notification) => {
-          const response = await fetch("/api/partner/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: notification.id, acknowledge: true }) });
+          const pickupReady = notification.actionKey.startsWith("pickup-ready:");
+          const response = await fetch("/api/partner/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pickupReady ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) } : { id: notification.id, acknowledge: true }) });
           if (response.ok) setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString(), acknowledgedAt: new Date().toISOString() } : item));
         }} />}
       </>}
@@ -239,7 +240,7 @@ function BakeryPickupConfirmation({ occurrence, busy, onRespond }: {
 }
 
 function PartnerNotificationList({ notifications, onAcknowledge }: { notifications: PartnerNotification[]; onAcknowledge: (notification: PartnerNotification) => void }) {
-  return <section className="partnerNotificationList"><div><span className="panelKicker">NOTIFICATIONS</span><h2>Operational updates</h2></div>{notifications.map((notification) => <article key={notification.id}><div><strong>{notification.title}</strong><p>{notification.body}</p></div>{notification.actionRequired && !notification.acknowledgedAt && <button onClick={() => onAcknowledge(notification)}>Acknowledge</button>}{notification.acknowledgedAt && <small>✓ Acknowledged</small>}</article>)}</section>;
+  return <section className="partnerNotificationList"><div><span className="panelKicker">NOTIFICATIONS</span><h2>Operational updates</h2></div>{notifications.map((notification) => <article key={notification.id}><div><strong>{notification.title}</strong><p>{notification.body}</p></div>{notification.actionRequired && !notification.acknowledgedAt && <button onClick={() => onAcknowledge(notification)}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : "Acknowledge"}</button>}{notification.acknowledgedAt && <small>✓ Acknowledged</small>}</article>)}</section>;
 }
 
 function formatOccurrenceWindow(occurrence: PickupOccurrence) {

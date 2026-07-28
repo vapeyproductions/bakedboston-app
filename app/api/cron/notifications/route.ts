@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { driverAccounts, inAppNotifications, pushDevices } from "../../../../db/schema";
 import { processDepartureNotifications } from "../../../departure-notifications";
 import { processDriverConfirmations } from "../../mobile/driver/requests/route";
+import { processPickupReadinessReminders } from "../../../pickup-readiness";
 
 export async function GET(request: Request) {
   const authorization = request.headers.get("authorization");
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
       ? { latitude: driver.lastLatitude, longitude: driver.lastLongitude }
       : null);
   }
+  await processPickupReadinessReminders();
 
   const pending = await db.select().from(inAppNotifications).where(isNull(inAppNotifications.pushSentAt));
   const devices = await db.select().from(pushDevices).where(eq(pushDevices.active, true));

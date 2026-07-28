@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bakeryPickupOccurrences, inAppNotifications, mobileSessions, partnerAccounts } from "../../../../db/schema";
+import { markPickupReady } from "../../../pickup-readiness";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -47,6 +48,11 @@ export async function PATCH(request: Request) {
   const current = await recipient(request);
   if (!current) return Response.json({ error: "Session expired." }, { status: 401 });
   const body = await request.json() as Record<string, unknown>;
+  if (body.action === "pickup-ready") {
+    if (current.type !== "bakery") return Response.json({ error: "Only bakery accounts can confirm pickup readiness." }, { status: 403 });
+    const offer = await markPickupReady(current.id, Number(body.offerId));
+    return offer ? Response.json({ offer }) : Response.json({ error: "Active pickup not found." }, { status: 404 });
+  }
   const id = Number(body.id);
   if (!Number.isInteger(id) || id < 1) return Response.json({ error: "A valid notification is required." }, { status: 400 });
   const [notification] = await getDb().update(inAppNotifications).set({

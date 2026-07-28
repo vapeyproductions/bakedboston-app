@@ -37,10 +37,11 @@ type DriverRouteOffer = {
   departureWindowStartsAt: string | null; departureWindowEndsAt: string | null;
   driverConfirmationDueAt: string | null; driverConfirmationDeadlineAt: string | null;
   driverConfirmationRequestedAt: string | null; driverConfirmedAt: string | null;
+  pickupReadyAt: string | null;
   pickup: PickupOccurrence | null;
   bakery: DriverDestination | null; pantry: DriverDestination | null;
 };
-type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; acknowledgedAt: string | null; createdAt: string };
+type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; actionKey: string; acknowledgedAt: string | null; createdAt: string };
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type WorkspaceData = {
@@ -592,6 +593,7 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
     <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
     <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {formatMobileTime(offer.estimatedBakeryArrival)}</Text><Text style={styles.driverRouteFact}>Arrival {formatMobileTime(offer.estimatedPantryArrival)}</Text></View>
     {offer.status === "accepted" && offer.departureWindowStartsAt && offer.departureWindowEndsAt && <Text style={styles.driverRouteReason}>Recommended departure: {formatMobileTime(offer.departureWindowStartsAt)}–{formatMobileTime(offer.departureWindowEndsAt)}</Text>}
+    {offer.status === "accepted" && bakeryFocused && offer.pickupReadyAt && <View style={styles.pickupReadyBanner}><Text style={styles.pickupReadyBannerText}>✓ Bakery confirmed: food is ready for pickup</Text></View>}
     {offer.status === "accepted" && offer.driverConfirmationRequestedAt && !offer.driverConfirmedAt && <View style={styles.driverNotificationCard}><Text style={styles.authEyebrow}>ACTION REQUIRED</Text><Text style={styles.connectedTitle}>Confirm this delivery</Text><Text style={styles.connectedBody}>Confirm by {offer.driverConfirmationDeadlineAt ? formatMobileTime(offer.driverConfirmationDeadlineAt) : "the displayed deadline"} to keep the reservation.</Text><Pressable style={styles.driverReserveButton} onPress={() => onConfirm(offer)}><Text style={styles.driverReserveButtonText}>Confirm delivery</Text></Pressable></View>}
     {offer.status === "offered" && <View style={styles.offerActions}><Pressable onPress={() => onRespond(offer, "decline-offer")}><Text style={styles.offerDeclineText}>Not this one</Text></Pressable><Pressable style={styles.driverReserveButton} onPress={() => onRespond(offer, "accept-offer")}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable></View>}
     {offer.status === "accepted" && offer.deliveryStage === "completed" && <View style={styles.completedRouteSummary}><Text style={styles.authEyebrow}>DELIVERY COMPLETED</Text><Text style={styles.connectedTitle}>{offer.bakery?.name} → {offer.pantry?.name}</Text></View>}
@@ -912,7 +914,10 @@ function NativePickupConfirmation({ occurrence, onChanged }: { occurrence?: Pick
 function PartnerMobileNotificationCard({ notification, onChanged }: { notification: DriverNotification; onChanged: () => Promise<void> }) {
   async function acknowledge() {
     try {
-      await mobileNotificationsRequest("PATCH", { id: notification.id, acknowledge: true });
+      const pickupReady = notification.actionKey.startsWith("pickup-ready:");
+      await mobileNotificationsRequest("PATCH", pickupReady
+        ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) }
+        : { id: notification.id, acknowledge: true });
       await onChanged();
     } catch (reason) {
       Alert.alert("Could not acknowledge notification", reason instanceof Error ? reason.message : "Please try again.");
@@ -922,7 +927,7 @@ function PartnerMobileNotificationCard({ notification, onChanged }: { notificati
     <Text style={styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
     <Text style={styles.connectedTitle}>{notification.title}</Text>
     <Text style={styles.connectedBody}>{notification.body}</Text>
-    {notification.actionRequired && !notification.acknowledgedAt && <Pressable style={styles.nativeNotificationButton} onPress={acknowledge}><Text style={styles.portalStatusButtonText}>Acknowledge</Text></Pressable>}
+    {notification.actionRequired && !notification.acknowledgedAt && <Pressable style={styles.nativeNotificationButton} onPress={acknowledge}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : "Acknowledge"}</Text></Pressable>}
     {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }
@@ -1533,6 +1538,8 @@ const styles = StyleSheet.create({
   driverRouteFacts: { marginTop: 13, flexDirection: "row", flexWrap: "wrap", gap: 7 },
   driverRouteFact: { color: colors.forestSoft, fontSize: 8, fontWeight: "800", paddingHorizontal: 9, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.mint },
   driverRouteReason: { color: colors.sage, fontSize: 9, lineHeight: 14, marginTop: 12 },
+  pickupReadyBanner: { marginTop: 12, paddingHorizontal: 11, paddingVertical: 9, borderRadius: 8, backgroundColor: "#E8F4EA", borderWidth: 1, borderColor: "#9FC7A8" },
+  pickupReadyBannerText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
   driverReserveButton: { minHeight: 41, marginTop: 14, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
   driverReserveButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   driverSearchCard: { marginTop: 18, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },

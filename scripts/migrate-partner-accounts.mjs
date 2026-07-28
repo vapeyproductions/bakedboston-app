@@ -171,6 +171,12 @@ if (!databaseUrl) {
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS driver_confirmation_deadline_at timestamptz`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS driver_confirmation_requested_at timestamptz`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS driver_confirmed_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS pickup_ready_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS ready_reminder_30_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS ready_reminder_25_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS ready_reminder_20_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS ready_reminder_15_sent_at timestamptz`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS bakery_handoff_confirmed_at timestamptz`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_latitude double precision`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_longitude double precision`;
   await sql`ALTER TABLE driver_accounts ADD COLUMN IF NOT EXISTS last_location_at timestamptz`;

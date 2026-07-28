@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { inAppNotifications, partnerAccounts } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
+import { markPickupReady } from "../../../pickup-readiness";
 
 async function currentRecipient() {
   const accountId = await getPartnerAccountId();
@@ -27,6 +28,11 @@ export async function PATCH(request: Request) {
   const recipient = await currentRecipient();
   if (!recipient) return Response.json({ error: "Sign in required." }, { status: 401 });
   const body = await request.json() as Record<string, unknown>;
+  if (body.action === "pickup-ready") {
+    if (recipient.type !== "bakery") return Response.json({ error: "Only bakery accounts can confirm pickup readiness." }, { status: 403 });
+    const offer = await markPickupReady(recipient.id, Number(body.offerId));
+    return offer ? Response.json({ offer }) : Response.json({ error: "Active pickup not found." }, { status: 404 });
+  }
   const id = Number(body.id);
   if (!Number.isInteger(id)) return Response.json({ error: "A valid notification is required." }, { status: 400 });
   const [notification] = await getDb().update(inAppNotifications).set({
