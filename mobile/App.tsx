@@ -696,11 +696,14 @@ async function registerForPushNotifications() {
   if (!projectId) return;
   const expoPushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
-  await fetch(`${API_URL}/api/mobile/push-device`, {
+  const response = await fetch(`${API_URL}/api/mobile/push-device`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token ?? ""}`, "Content-Type": "application/json" },
     body: JSON.stringify({ expoPushToken, platform: Platform.OS }),
   });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error ?? "This phone could not be registered for notifications.");
+  return data.device;
 }
 async function createDriverRideRequest(request: DriverRideRequest) {
   return driverMatchingRequest("POST", {
@@ -722,7 +725,9 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   const [workspaceError, setWorkspaceError] = useState("");
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => undefined);
-    void registerForPushNotifications().catch(() => undefined);
+    void registerForPushNotifications()
+      .then(() => Alert.alert("Notifications connected", `This iPhone is registered for ${bakery ? "bakery pickup" : "pantry delivery"} alerts.`))
+      .catch((error) => Alert.alert("Notifications not connected", error instanceof Error ? error.message : "Please try signing in again."));
   }, []);
   const refreshWorkspace = useCallback(async () => {
     setWorkspaceError("");
