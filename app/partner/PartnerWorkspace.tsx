@@ -157,7 +157,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       prototypeAction(status === "confirmed"
         ? data.matching?.matchedRequests
           ? `Pickup confirmed. ${data.matching.matchedRequests} saved driver request${data.matching.matchedRequests === 1 ? "" : "s"} matched.`
-          : "Pickup confirmed and available for driver matching."
+          : "Pickup confirmed. Drivers can now reserve a route that includes it."
         : status === "decision_deferred" ? "We’ll keep this pickup awaiting your decision." : "Today’s pickup was closed without changing your recurring schedule.");
     } else prototypeAction(data?.error ?? "Could not update today’s pickup.");
     setPickupBusy(false);

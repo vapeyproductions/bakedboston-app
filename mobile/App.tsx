@@ -898,7 +898,7 @@ function NativePickupConfirmation({ occurrence, onChanged }: { occurrence?: Pick
     setBusy(false);
     if (!response.ok) return Alert.alert("Could not update pickup", data.error ?? "Please try again.");
     await onChanged();
-    if (status === "confirmed") Alert.alert("Pickup confirmed", data.matching?.matchedRequests ? `${data.matching.matchedRequests} saved driver requests matched this pickup.` : "This pickup is now available for driver matching.");
+    if (status === "confirmed") Alert.alert("Pickup confirmed", data.matching?.matchedRequests ? `${data.matching.matchedRequests} saved driver requests matched this pickup.` : "Drivers can now reserve a route that includes this pickup.");
   }
   if (!occurrence) return null;
   const confirmed = ["confirmed", "reserved"].includes(occurrence.status);

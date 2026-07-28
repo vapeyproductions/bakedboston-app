@@ -89,10 +89,10 @@ export async function PATCH(request: Request) {
         recipientType: "bakery",
         recipientId: current.bakery.id,
         eventType: "pickup_confirmed",
-        title: "Pickup availability confirmed",
+        title: "Today’s pickup is confirmed",
         body: matching.matchedRequests
           ? `${matching.matchedRequests} saved driver request${matching.matchedRequests === 1 ? "" : "s"} matched this pickup.`
-          : "This pickup is now available for driver matching.",
+          : "You confirmed that food will be available during this pickup window. Drivers can now reserve a route that includes it.",
       });
     }
     await writeAudit({
