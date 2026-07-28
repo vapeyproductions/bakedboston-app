@@ -42,6 +42,12 @@ type DriverRouteOffer = {
   bakery: DriverDestination | null; pantry: DriverDestination | null;
 };
 type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; actionKey: string; acknowledgedAt: string | null; createdAt: string };
+type BrowseRoute = {
+  id: string; pickupId: number; pantryId: number; bakeryName: string; pantryName: string;
+  departureWindowStartsAt: string; departureWindowEndsAt: string;
+  estimatedBakeryArrival: string; estimatedPantryArrival: string;
+  distanceToBakeryMiles: number; routeMiles: number;
+};
 type MobileContact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type MobileWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; paused: boolean };
 type WorkspaceData = {
@@ -385,6 +391,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [rideRequests, setRideRequests] = useState<DriverRideRequest[]>([]);
   const [routeOffers, setRouteOffers] = useState<DriverRouteOffer[]>([]);
   const [driverNotifications, setDriverNotifications] = useState<DriverNotification[]>([]);
+  const [browseRoutes, setBrowseRoutes] = useState<BrowseRoute[]>([]);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   useEffect(() => {
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
@@ -398,6 +405,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
         setRideRequests(data.requests);
         setRouteOffers(data.offers);
         setDriverNotifications(data.notifications);
+        setBrowseRoutes(data.browseRoutes);
         });
       };
       const safeRefreshMatching = () => refreshMatching().catch(() => setError("Could not load saved ride requests."));
@@ -443,6 +451,16 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       Alert.alert(action === "accept-offer" ? "Route reserved" : "Offer declined", action === "accept-offer" ? "The bakery and pantry have been notified." : "Your saved request remains available for future matches.");
     } catch (reason) {
       Alert.alert("Could not update offer", reason instanceof Error ? reason.message : "Please try again.");
+    }
+  }
+  async function reserveBrowseRoute(route: BrowseRoute) {
+    try {
+      await updateDriverMatching({ action: "reserve-browse-route", pickupId: route.pickupId, pantryId: route.pantryId });
+      const data = await loadDriverMatching();
+      setRideRequests(data.requests); setRouteOffers(data.offers); setDriverNotifications(data.notifications); setBrowseRoutes(data.browseRoutes);
+      Alert.alert("Route reserved", "The bakery and pantry have been notified.");
+    } catch (reason) {
+      Alert.alert("Could not reserve route", reason instanceof Error ? reason.message : "Please try again.");
     }
   }
   async function progressRoute(offer: DriverRouteOffer, stage: DriverRouteOffer["deliveryStage"]) {
@@ -521,7 +539,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {(session.demo || session.prototype) && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
+      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} showPreview={Boolean(session.demo || session.prototype)} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
       {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
@@ -529,8 +547,19 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   </SafeAreaView>;
 }
 
-function DriverHome({ displayName, verified, onSearch }: { displayName: string; verified: boolean; onSearch: () => void }) {
-  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{!verified && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>Verify your identity</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>You can preview and search for routes now. Reservations will become available after secure identity verification.</Text><PrimaryButton label="Verify identity" dark onPress={() => Alert.alert("Identity verification", "The secure Stripe Identity connection will be enabled after BakedBoston’s Stripe account and development build are configured.")} /></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>The best available deliveries for your current time and area.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View><Text style={styles.previewLabel}>PROTOTYPE PREVIEW — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verified} key={route.id} />)}</View>;
+function DriverHome({ displayName, verified, onSearch, showPreview }: { displayName: string; verified: boolean; onSearch: () => void; showPreview: boolean }) {
+  return <View><Text style={styles.authEyebrow}>DRIVER HOME</Text><Text style={styles.driverPageTitle}>Hello, {displayName || "driver"}.</Text>{!verified && <View style={styles.driverVerificationCard}><View style={styles.driverVerificationHeading}><View><Text style={styles.authEyebrow}>BEFORE YOUR FIRST ROUTE</Text><Text style={styles.connectedTitle}>Verify your identity</Text></View><View style={styles.verificationStatusDot} /></View><Text style={styles.connectedBody}>You can preview and search for routes now. Reservations will become available after secure identity verification.</Text><PrimaryButton label="Verify identity" dark onPress={() => Alert.alert("Identity verification", "The secure Stripe Identity connection will be enabled after BakedBoston’s Stripe account and development build are configured.")} /></View>}<View style={styles.driverFeedHeading}><View><Text style={styles.connectedTitle}>Recommended routes</Text><Text style={styles.connectedBody}>Nearby routes available now or within the next two hours, ranked for efficient travel.</Text></View><Pressable style={styles.driverSearchShortcut} onPress={onSearch}><Text style={styles.driverSearchShortcutText}>Search</Text></Pressable></View>{showPreview && <><Text style={styles.previewLabel}>PROTOTYPE PREVIEW — NOT LIVE DELIVERIES</Text>{previewDriverRoutes.map((route) => <DriverRoutePreview route={route} verified={verified} key={route.id} />)}</>}</View>;
+}
+
+function BrowseRouteCard({ route, onReserve }: { route: BrowseRoute; onReserve: () => void }) {
+  const future = new Date(route.departureWindowStartsAt).getTime() > Date.now() + 5 * 60_000;
+  return <View style={styles.driverRouteCard}>
+    <View style={styles.driverRouteTop}><Text style={styles.driverRouteTiming}>{future ? "Later today" : "Available soon"}</Text><Text style={styles.driverRouteDrive}>{route.distanceToBakeryMiles.toFixed(1)} mi away</Text></View>
+    <Text style={styles.driverRouteName}>{route.bakeryName}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{route.pantryName}</Text>
+    <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Leave {formatMobileTime(route.departureWindowStartsAt)}–{formatMobileTime(route.departureWindowEndsAt)}</Text><Text style={styles.driverRouteFact}>{route.routeMiles.toFixed(1)} route mi</Text></View>
+    <Text style={styles.driverRouteReason}>Pickup around {formatMobileTime(route.estimatedBakeryArrival)} · Finish around {formatMobileTime(route.estimatedPantryArrival)}</Text>
+    <Pressable style={styles.driverReserveButton} onPress={onReserve}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable>
+  </View>;
 }
 
 function DriverRoutePreview({ route, verified }: { route: typeof previewDriverRoutes[number]; verified: boolean }) {
@@ -677,7 +706,7 @@ async function driverMatchingRequest(method: "GET" | "POST" | "PATCH", body?: Re
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error ?? "Driver matching request failed.");
-  return data as { request: DriverRideRequest; requests: DriverRideRequest[]; offers: DriverRouteOffer[]; notifications: DriverNotification[] };
+  return data as { request: DriverRideRequest; requests: DriverRideRequest[]; offers: DriverRouteOffer[]; notifications: DriverNotification[]; browseRoutes: BrowseRoute[] };
 }
 async function loadDriverMatching(coordinates?: { latitude: number; longitude: number } | null) { return driverMatchingRequest("GET", undefined, coordinates); }
 async function currentDriverCoordinates() {
@@ -928,7 +957,7 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
     {occurrence.status !== "reserved" && <View style={styles.nativePickupActions}>
       {!confirmed && <Pressable disabled={busy} style={styles.nativeConfirmPickup} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>{unavailable ? "Change to food available" : "Food will be available"}</Text></Pressable>}
       {confirmed && <Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Change to not enough food</Text></Pressable>}
-      {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.statusCardLink}>Decide later</Text></Pressable>}
+      {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.statusCardLink}>Don’t know yet</Text></Pressable>}
       {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Not enough food</Text></Pressable>}
     </View>}
   </View>;

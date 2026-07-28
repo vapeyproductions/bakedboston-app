@@ -1,0 +1,1 @@
+ALTER TABLE "bakery_pickup_occurrences" ADD COLUMN "commitment_reminder_due_at" timestamp with time zone;

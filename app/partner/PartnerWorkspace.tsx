@@ -236,7 +236,7 @@ function BakeryPickupConfirmation({ occurrence, busy, onRespond, showSummary }: 
     {occurrence.status !== "reserved" && <div className="pickupConfirmationActions">
       {!confirmed && <button disabled={busy} className="confirmPickup" onClick={() => onRespond("confirmed")}>{unavailable ? "Change to food available" : "Food will be available"}</button>}
       {confirmed && <button disabled={busy} onClick={() => onRespond("insufficient_food")}>Change to not enough food</button>}
-      {!confirmed && !unavailable && <button disabled={busy} onClick={() => onRespond("decision_deferred")}>Decide later</button>}
+      {!confirmed && !unavailable && <button disabled={busy} onClick={() => onRespond("decision_deferred")}>Don’t know yet</button>}
       {!unavailable && !confirmed && <button disabled={busy} onClick={() => onRespond("insufficient_food")}>Not enough food today</button>}
     </div>}
   </section>;

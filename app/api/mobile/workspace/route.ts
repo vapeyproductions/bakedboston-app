@@ -20,6 +20,7 @@ import {
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
 import { replaceOperationalNotification } from "../../../operational-notifications";
+import { firstCommitmentReminder } from "../../../bakery-commitments";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -122,8 +123,10 @@ export async function POST(request: Request) {
         eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
         eq(bakeryPickupOccurrences.pickupWindowStartsAt, pickupWindowStartsAt),
       )).limit(1);
+      const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
       const record = existing ?? (await db.insert(bakeryPickupOccurrences).values({
         bakeryId: account.organizationId, serviceDate, pickupWindowStartsAt, pickupDeadline,
+        commitmentReminderDueAt: bakery ? firstCommitmentReminder(bakery, serviceDate, pickupWindowStartsAt) : null,
       }).returning())[0];
       return Response.json({ record }, { status: existing ? 200 : 201 });
     }
@@ -176,6 +179,7 @@ export async function PATCH(request: Request) {
       const [record] = await db.update(bakeryPickupOccurrences).set({
         status: status as "confirmed" | "decision_deferred" | "insufficient_food",
         confirmedAt: status === "confirmed" ? new Date() : null,
+        commitmentReminderDueAt: status === "decision_deferred" ? new Date(Date.now() + 60 * 60_000) : null,
         updatedAt: new Date(),
       }).where(eq(bakeryPickupOccurrences.id, id)).returning();
       let matching = { matchedRequests: 0, offered: false };

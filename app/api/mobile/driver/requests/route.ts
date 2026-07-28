@@ -11,10 +11,11 @@ import {
   mobileSessions,
   pantries,
   pantryAccessPhotos,
+  partnerAccounts,
   rescueRoutes,
   routeOffers,
 } from "../../../../../db/schema";
-import { matchConfirmedPickup } from "../../../../pickup-matching";
+import { matchConfirmedPickup, pantryAcceptsAt } from "../../../../pickup-matching";
 import { processDepartureNotifications } from "../../../../departure-notifications";
 import { replaceOperationalNotification } from "../../../../operational-notifications";
 
@@ -64,6 +65,11 @@ export async function GET(request: Request) {
       eq(inAppNotifications.recipientId, driver.id),
     )).orderBy(desc(inAppNotifications.createdAt)),
   ]);
+  const browseRoutes = await buildBrowseRoutes(driverLocation ?? (
+    driver.lastLatitude !== null && driver.lastLongitude !== null
+      ? { latitude: driver.lastLatitude, longitude: driver.lastLongitude }
+      : null
+  ));
   const pickupIds = [...new Set(offers.map((offer) => offer.pickupOccurrenceId))];
   const pantryIds = [...new Set(offers.map((offer) => offer.pantryId))];
   const pickups = (await Promise.all(pickupIds.map(async (id) =>
@@ -109,6 +115,7 @@ export async function GET(request: Request) {
       };
     }),
     notifications,
+    browseRoutes,
   });
 }
 
@@ -157,6 +164,7 @@ export async function PATCH(request: Request) {
     if (action === "route-progress") return progressRoute(driver, Number(body.offerId), String(body.stage ?? ""));
     if (action === "cancel-route") return cancelRoute(driver, Number(body.offerId));
     if (action === "confirm-route") return confirmRoute(driver.id, Number(body.offerId));
+    if (action === "reserve-browse-route") return reserveBrowseRoute(driver, Number(body.pickupId), Number(body.pantryId));
     const id = Number(body.id);
     const status = String(body.status ?? "");
     if (!Number.isInteger(id) || !["active", "paused", "cancelled"].includes(status)) throw new Error("Choose a valid ride-request action.");
@@ -169,6 +177,106 @@ export async function PATCH(request: Request) {
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not update this ride request." }, { status: 400 });
   }
+}
+
+async function reserveBrowseRoute(driver: typeof driverAccounts.$inferSelect, pickupId: number, pantryId: number) {
+  const routes = await buildBrowseRoutes(driver.lastLatitude !== null && driver.lastLongitude !== null
+    ? { latitude: driver.lastLatitude, longitude: driver.lastLongitude }
+    : null);
+  const candidate = routes.find((route) => route.pickupId === pickupId && route.pantryId === pantryId);
+  if (!candidate) return Response.json({ error: "This route is no longer available." }, { status: 409 });
+  const db = getDb();
+  const [request] = await db.insert(driverRideRequests).values({
+    driverId: driver.id,
+    serviceDate: candidate.serviceDate,
+    earliestStart: new Date(candidate.departureWindowStartsAt),
+    latestFinish: new Date(new Date(candidate.estimatedPantryArrival).getTime() + 15 * 60_000),
+    startZip: "",
+    endZip: "",
+    maximumExtraMinutes: null,
+  }).returning();
+  const [offer] = await db.insert(routeOffers).values({
+    pickupOccurrenceId: candidate.pickupId,
+    driverRequestId: request.id,
+    driverId: driver.id,
+    pantryId: candidate.pantryId,
+    rank: 1,
+    score: candidate.score,
+    estimatedBakeryArrival: new Date(candidate.estimatedBakeryArrival),
+    estimatedPantryArrival: new Date(candidate.estimatedPantryArrival),
+    departureWindowStartsAt: new Date(candidate.departureWindowStartsAt),
+    departureWindowEndsAt: new Date(candidate.departureWindowEndsAt),
+    status: "offered",
+    offeredAt: new Date(),
+    expiresAt: new Date(Date.now() + 5 * 60_000),
+  }).returning();
+  return acceptOffer(driver, offer.id);
+}
+
+async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: number } | null) {
+  const db = getDb();
+  const now = new Date();
+  const horizon = new Date(now.getTime() + 2 * 60 * 60_000);
+  const [pickups, bakeryRows, pantryRows, accounts] = await Promise.all([
+    db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.status, "confirmed")),
+    db.select().from(bakeries).where(eq(bakeries.active, true)),
+    db.select().from(pantries).where(eq(pantries.active, true)),
+    db.select({ type: partnerAccounts.organizationType, id: partnerAccounts.organizationId }).from(partnerAccounts).where(eq(partnerAccounts.active, true)),
+  ]);
+  const registeredBakeries = new Set(accounts.filter((item) => item.type === "bakery").map((item) => item.id));
+  const registeredPantries = new Set(accounts.filter((item) => item.type === "pantry").map((item) => item.id));
+  const candidates = pickups.flatMap((pickup) => {
+    const bakery = bakeryRows.find((item) => item.id === pickup.bakeryId);
+    if (!bakery || !registeredBakeries.has(bakery.id) || bakery.addressValidationStatus !== "validated" || bakery.latitude === null || bakery.longitude === null) return [];
+    const driverMiles = driverLocation ? milesBetween(driverLocation.latitude, driverLocation.longitude, bakery.latitude, bakery.longitude) : 0;
+    const driverMinutes = driverLocation ? Math.max(5, Math.ceil(driverMiles / 25 * 60)) : 15;
+    const bakeryArrival = new Date(Math.max(pickup.pickupWindowStartsAt.getTime(), now.getTime() + driverMinutes * 60_000));
+    if (bakeryArrival > pickup.pickupDeadline) return [];
+    const departureStart = new Date(bakeryArrival.getTime() - driverMinutes * 60_000);
+    if (departureStart > horizon) return [];
+    const departureEnd = new Date(Math.min(
+      pickup.pickupDeadline.getTime() - driverMinutes * 60_000,
+      departureStart.getTime() + 30 * 60_000,
+    ));
+    return pantryRows.flatMap((pantry) => {
+      if (!registeredPantries.has(pantry.id) || pantry.addressValidationStatus !== "validated" || pantry.latitude === null || pantry.longitude === null) return [];
+      const routeMiles = milesBetween(bakery.latitude!, bakery.longitude!, pantry.latitude, pantry.longitude);
+      const routeMinutes = Math.max(5, Math.ceil(routeMiles / 25 * 60));
+      const pantryArrival = new Date(bakeryArrival.getTime() + (15 + routeMinutes) * 60_000);
+      if (!pantryAcceptsAt(pantry, pantryArrival)) return [];
+      const priority = 1 / (1 + pantry.deliveriesSevenDays);
+      const score = priority * 20 - driverMiles * 2.5 - routeMiles - Math.max(0, (departureStart.getTime() - now.getTime()) / 3_600_000);
+      return [{
+        id: `${pickup.id}:${pantry.id}`,
+        pickupId: pickup.id,
+        pantryId: pantry.id,
+        serviceDate: pickup.serviceDate,
+        bakeryName: bakery.name,
+        pantryName: pantry.name,
+        departureWindowStartsAt: departureStart.toISOString(),
+        departureWindowEndsAt: departureEnd.toISOString(),
+        estimatedBakeryArrival: bakeryArrival.toISOString(),
+        estimatedPantryArrival: pantryArrival.toISOString(),
+        distanceToBakeryMiles: Math.round(driverMiles * 10) / 10,
+        routeMiles: Math.round(routeMiles * 10) / 10,
+        score,
+      }];
+    });
+  });
+  const bestByPickup = new Map<number, typeof candidates[number]>();
+  for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
+    if (!bestByPickup.has(candidate.pickupId)) bestByPickup.set(candidate.pickupId, candidate);
+  }
+  return [...bestByPickup.values()].sort((a, b) => b.score - a.score).slice(0, 6);
+}
+
+function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const toRadians = (value: number) => value * Math.PI / 180;
+  const latitudeDelta = toRadians(lat2 - lat1);
+  const longitudeDelta = toRadians(lon2 - lon1);
+  const a = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 async function confirmRoute(driverId: number, offerId: number) {

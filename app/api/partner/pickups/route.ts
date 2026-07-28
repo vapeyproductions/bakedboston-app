@@ -5,6 +5,7 @@ import { getPartnerAccountId } from "../../../partner-auth";
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
 import { replaceOperationalNotification } from "../../../operational-notifications";
+import { firstCommitmentReminder } from "../../../bakery-commitments";
 
 async function currentBakery() {
   const accountId = await getPartnerAccountId();
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
       serviceDate,
       pickupWindowStartsAt,
       pickupDeadline,
+      commitmentReminderDueAt: firstCommitmentReminder(current.bakery, serviceDate, pickupWindowStartsAt),
     }).returning();
     return Response.json({ occurrence }, { status: 201 });
   } catch (error) {
@@ -79,6 +81,7 @@ export async function PATCH(request: Request) {
     const [occurrence] = await db.update(bakeryPickupOccurrences).set({
       status: status as "confirmed" | "decision_deferred" | "insufficient_food" | "cancelled",
       confirmedAt: status === "confirmed" ? new Date() : null,
+      commitmentReminderDueAt: status === "decision_deferred" ? new Date(Date.now() + 60 * 60_000) : null,
       confirmationNote: String(body.note ?? "").trim(),
       updatedAt: new Date(),
     }).where(eq(bakeryPickupOccurrences.id, id)).returning();
@@ -129,6 +132,7 @@ function validDate(value: unknown) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a valid service date.");
   return date;
 }
+
 function validDateTime(value: unknown, label: string) {
   const date = new Date(String(value ?? ""));
   if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`);

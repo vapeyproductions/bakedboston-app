@@ -201,6 +201,7 @@ export const bakeryPickupOccurrences = pgTable("bakery_pickup_occurrences", {
     "insufficient_food", "reserved", "cancelled",
   ] }).notNull().default("awaiting_confirmation"),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  commitmentReminderDueAt: timestamp("commitment_reminder_due_at", { withTimezone: true }),
   confirmationNote: text("confirmation_note").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
