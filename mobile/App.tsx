@@ -884,6 +884,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime) || (scheduledBakeryOpen && pickupConfirmed));
+  const priorityNotification = workspace.notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt) ?? workspace.notifications[0];
   async function changeAvailability(action: "pause" | "resume" | "pause-one-time" | "resume-one-time") {
     if ((action === "pause-one-time" || action === "resume-one-time") && (activeOneTime || pausedOneTime)) {
       const window = activeOneTime ?? pausedOneTime!;
@@ -903,8 +904,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
           <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
           <Text style={styles.portalStatusTitle}>{paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
           <Text style={styles.portalStatusBody}>{activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}` : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}` : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
-          {workspace.notifications[0] && <PartnerMobileNotificationCard notification={workspace.notifications[0]} onChanged={onChanged} compact />}
-          {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} showSummary={!workspace.notifications[0]} />}
+          {priorityNotification && <PartnerMobileNotificationCard notification={priorityNotification} onChanged={onChanged} compact />}
+          {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
         </View>
         <View style={styles.portalStatusActions}>
           {activeOneTime && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
@@ -964,14 +965,17 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
 }
 
 function PartnerMobileNotificationCard({ notification, onChanged, compact = false }: { notification: DriverNotification; onChanged: () => Promise<void>; compact?: boolean }) {
-  async function acknowledge(handoffAction?: "confirm-handoff" | "handoff-not-picked-up") {
+  async function acknowledge(handoffAction?: "confirm-handoff" | "handoff-not-picked-up", deliveryReceived?: boolean) {
     try {
       const pickupReady = notification.actionKey.startsWith("pickup-ready:");
       const handoff = notification.actionKey.startsWith("confirm-handoff:");
+      const delivery = notification.actionKey.startsWith("confirm-delivery:");
       await mobileNotificationsRequest("PATCH", pickupReady
         ? { action: "pickup-ready", offerId: Number(notification.actionKey.split(":")[1]) }
         : handoff
           ? { action: handoffAction ?? "confirm-handoff", offerId: Number(notification.actionKey.split(":")[1]) }
+          : delivery
+            ? { action: "confirm-delivery", offerId: Number(notification.actionKey.split(":")[1]), received: deliveryReceived }
           : { id: notification.id, acknowledge: true });
       await onChanged();
     } catch (reason) {
@@ -979,13 +983,14 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
     }
   }
   const handoff = notification.actionKey.startsWith("confirm-handoff:");
+  const delivery = notification.actionKey.startsWith("confirm-delivery:");
   const arrivedAt = Number(notification.actionKey.split(":")[2] ?? 0);
   const canReportMissing = handoff && arrivedAt > 0 && Date.now() - arrivedAt >= 15 * 60_000;
   return <View style={compact ? styles.statusNotificationMobile : styles.driverNotificationCard}>
     <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
     <Text style={compact ? styles.statusNotificationTitle : styles.connectedTitle}>{notification.title}</Text>
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
-    {notification.actionRequired && !notification.acknowledgedAt && <View style={styles.notificationActionRow}><Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined)}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : "Acknowledge"}</Text></Pressable>{canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}</View>}
+    {notification.actionRequired && !notification.acknowledgedAt && <View style={styles.notificationActionRow}><Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Yes, it arrived" : "Acknowledge"}</Text></Pressable>{delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery did not arrive?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>No, it did not arrive</Text></Pressable>}{canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}</View>}
     {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }

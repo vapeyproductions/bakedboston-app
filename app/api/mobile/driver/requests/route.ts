@@ -15,7 +15,7 @@ import {
   rescueRoutes,
   routeOffers,
 } from "../../../../../db/schema";
-import { matchConfirmedPickup, pantryAcceptsAt } from "../../../../pickup-matching";
+import { matchConfirmedPickup, pantryAcceptsAt, pantryServiceModeAt } from "../../../../pickup-matching";
 import { processDepartureNotifications } from "../../../../departure-notifications";
 import { replaceOperationalNotification } from "../../../../operational-notifications";
 import { trafficAwareDriveMinutes } from "../../../../google-routes";
@@ -201,6 +201,7 @@ async function reserveBrowseRoute(driver: typeof driverAccounts.$inferSelect, pi
     driverRequestId: request.id,
     driverId: driver.id,
     pantryId: candidate.pantryId,
+    pantryServiceMode: candidate.pantryServiceMode,
     rank: 1,
     score: candidate.score,
     estimatedBakeryArrival: new Date(candidate.estimatedBakeryArrival),
@@ -244,7 +245,8 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
       const routeMiles = milesBetween(bakery.latitude!, bakery.longitude!, pantry.latitude, pantry.longitude);
       const routeMinutes = Math.max(5, Math.ceil(routeMiles / 25 * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (15 + routeMinutes) * 60_000);
-      if (!pantryAcceptsAt(pantry, pantryArrival)) return [];
+      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival);
+      if (!pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
       const score = priority * 20 - driverMiles * 2.5 - routeMiles - Math.max(0, (departureStart.getTime() - now.getTime()) / 3_600_000);
       return [{
@@ -254,6 +256,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
         serviceDate: pickup.serviceDate,
         bakeryName: bakery.name,
         pantryName: pantry.name,
+        pantryServiceMode,
         departureWindowStartsAt: departureStart.toISOString(),
         departureWindowEndsAt: departureEnd.toISOString(),
         estimatedBakeryArrival: bakeryArrival.toISOString(),
@@ -512,6 +515,18 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         eq(rescueRoutes.status, "reserved"),
       )).limit(1);
       if (route) await db.update(rescueRoutes).set({ status: "completed" }).where(eq(rescueRoutes.id, route.id));
+      await replaceOperationalNotification({
+        recipientType: "pantry",
+        recipientId: pantry.id,
+        eventType: "delivery_confirmation_required",
+        threadKey: `delivery:${offer.id}`,
+        title: offer.pantryServiceMode === "unattended" ? "Confirm this delivery arrived" : "Confirm this delivery was received",
+        body: offer.pantryServiceMode === "unattended"
+          ? `${driver.displayName} marked the delivery from ${bakery.name} complete. The next person to open BakedBoston must confirm whether the food was present at the drop-off location.`
+          : `${driver.displayName} marked the delivery from ${bakery.name} complete. Please confirm whether your pantry received it.`,
+        actionRequired: true,
+        actionKey: `confirm-delivery:${offer.id}`,
+      });
     }
   }
   return Response.json({ offer: updated });

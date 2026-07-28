@@ -1,9 +1,10 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { inAppNotifications, partnerAccounts } from "../../../../db/schema";
+import { inAppNotifications, partnerAccounts, routeOffers } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { markPickupReady } from "../../../pickup-readiness";
 import { recordBakeryHandoff } from "../../../bakery-handoffs";
+import { writeAudit } from "../../../audit";
 
 async function currentRecipient() {
   const accountId = await getPartnerAccountId();
@@ -38,6 +39,22 @@ export async function PATCH(request: Request) {
     if (recipient.type !== "bakery") return Response.json({ error: "Only bakery accounts can respond to pickup handoffs." }, { status: 403 });
     const result = await recordBakeryHandoff(recipient.id, Number(body.offerId), body.action === "confirm-handoff");
     return "error" in result ? Response.json({ error: result.error }, { status: result.status }) : Response.json(result);
+  }
+  if (body.action === "confirm-delivery") {
+    if (recipient.type !== "pantry") return Response.json({ error: "Only pantry accounts can confirm deliveries." }, { status: 403 });
+    const offerId = Number(body.offerId);
+    const received = body.received === true;
+    const db = getDb();
+    const [offer] = await db.select().from(routeOffers).where(and(eq(routeOffers.id, offerId), eq(routeOffers.pantryId, recipient.id), eq(routeOffers.deliveryStage, "completed"))).limit(1);
+    if (!offer) return Response.json({ error: "Completed delivery not found." }, { status: 404 });
+    const [notification] = await db.update(inAppNotifications).set({ readAt: new Date(), acknowledgedAt: new Date(), actionRequired: false }).where(and(
+      eq(inAppNotifications.recipientType, "pantry"), eq(inAppNotifications.recipientId, recipient.id), eq(inAppNotifications.actionKey, `confirm-delivery:${offerId}`),
+    )).returning();
+    if (!received) {
+      await db.insert(inAppNotifications).values({ recipientType: "admin", recipientId: 0, eventType: "delivery_disputed", threadKey: `delivery:${offerId}`, title: "Pantry reported a missing delivery", body: `Pantry ${recipient.id} reported that completed delivery ${offerId} did not arrive.` });
+      await writeAudit({ actorType: "partner", actorId: recipient.id, actorName: `Pantry ${recipient.id}`, action: "reported completed delivery missing", entityType: "delivery", entityId: offerId, entityName: `Delivery ${offerId}`, details: "Driver marked the delivery complete, but the pantry reported that it did not arrive." });
+    }
+    return Response.json({ notification, received });
   }
   const id = Number(body.id);
   if (!Number.isInteger(id)) return Response.json({ error: "A valid notification is required." }, { status: 400 });

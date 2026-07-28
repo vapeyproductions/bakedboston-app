@@ -1,0 +1,1 @@
+ALTER TABLE "pantry_access_photos" ADD COLUMN "pantry_service_mode" text DEFAULT 'staffed' NOT NULL;

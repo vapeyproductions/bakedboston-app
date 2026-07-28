@@ -45,11 +45,12 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
       const driveMinutes = Math.max(5, Math.ceil((miles / 25) * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (15 + driveMinutes) * 60_000);
       const completion = new Date(pantryArrival.getTime() + 15 * 60_000);
-      if (completion > request.latestFinish || !pantryAcceptsAt(pantry, pantryArrival)) return [];
+      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival);
+      if (completion > request.latestFinish || !pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
       const destinationBonus = request.endZip && pantry.address.includes(request.endZip) ? 5 : 0;
       const score = priority * 20 + destinationBonus - miles;
-      return [{ request, pantry, bakeryArrival, pantryArrival, score }];
+      return [{ request, pantry, bakeryArrival, pantryArrival, pantryServiceMode, score }];
     });
   });
 
@@ -81,6 +82,7 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
       driverRequestId: candidate.request.id,
       driverId: candidate.request.driverId,
       pantryId: candidate.pantry.id,
+      pantryServiceMode: candidate.pantryServiceMode,
       rank: index + 1,
       score: candidate.score,
       estimatedBakeryArrival: candidate.bakeryArrival,
@@ -118,6 +120,10 @@ function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 export function pantryAcceptsAt(pantry: typeof pantries.$inferSelect, arrival: Date) {
+  return pantryServiceModeAt(pantry, arrival) !== null;
+}
+
+export function pantryServiceModeAt(pantry: typeof pantries.$inferSelect, arrival: Date): "staffed" | "unattended" | null {
   const day = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(arrival);
   const time = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",
@@ -125,18 +131,20 @@ export function pantryAcceptsAt(pantry: typeof pantries.$inferSelect, arrival: D
   try {
     const opens = JSON.parse(pantry.openTime) as Array<{ day: string; time: string; recurrence: string; ordinal: number | null }> | Record<string, string>;
     const latest = JSON.parse(pantry.latestArrival) as Array<{ time: string }> | Record<string, string>;
+    const modes = JSON.parse(pantry.serviceModes || "[]") as Array<{ mode?: "staffed" | "unattended" }>;
     if (Array.isArray(opens) && Array.isArray(latest)) {
-      return opens.some((window, index) => {
+      const index = opens.findIndex((window, index) => {
         if (window.day !== day || time < window.time || time > (latest[index]?.time ?? "")) return false;
         if (window.recurrence !== "monthly") return true;
         const occurrence = Math.ceil(Number(new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone: "America/New_York" }).format(arrival)) / 7);
         return occurrence === window.ordinal;
       });
+      return index < 0 ? null : modes[index]?.mode ?? "staffed";
     }
     const legacyOpens = opens as Record<string, string>;
-    return Boolean(legacyOpens[day] && time >= legacyOpens[day] && time <= (latest as Record<string, string>)[day]);
+    return legacyOpens[day] && time >= legacyOpens[day] && time <= (latest as Record<string, string>)[day] ? "staffed" : null;
   } catch {
     return pantry.recurringDays.split(",").map((value) => value.trim()).includes(day)
-      && time >= pantry.openTime && time <= pantry.latestArrival;
+      && time >= pantry.openTime && time <= pantry.latestArrival ? "staffed" : null;
   }
 }

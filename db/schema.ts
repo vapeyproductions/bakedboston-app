@@ -231,6 +231,7 @@ export const routeOffers = pgTable("route_offers", {
   driverRequestId: integer("driver_request_id").notNull(),
   driverId: integer("driver_id").notNull(),
   pantryId: integer("pantry_id").notNull(),
+  pantryServiceMode: text("pantry_service_mode", { enum: ["staffed", "unattended"] }).notNull().default("staffed"),
   rank: integer("rank").notNull().default(1),
   score: doublePrecision("score").notNull().default(0),
   estimatedBakeryArrival: timestamp("estimated_bakery_arrival", { withTimezone: true }).notNull(),
