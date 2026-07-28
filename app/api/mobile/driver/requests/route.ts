@@ -47,6 +47,7 @@ export async function GET(request: Request) {
     ? { latitude, longitude }
     : null;
   await expireAndAdvanceOffers();
+  await processDriverConfirmations(driver);
   await processDepartureNotifications(driver.id, driverLocation);
   const db = getDb();
   const [requests, offers, notifications] = await Promise.all([
@@ -149,6 +150,7 @@ export async function PATCH(request: Request) {
     if (action === "decline-offer") return declineOffer(driver.id, Number(body.offerId));
     if (action === "route-progress") return progressRoute(driver, Number(body.offerId), String(body.stage ?? ""));
     if (action === "cancel-route") return cancelRoute(driver, Number(body.offerId));
+    if (action === "confirm-route") return confirmRoute(driver.id, Number(body.offerId));
     const id = Number(body.id);
     const status = String(body.status ?? "");
     if (!Number.isInteger(id) || !["active", "paused", "cancelled"].includes(status)) throw new Error("Choose a valid ride-request action.");
@@ -163,7 +165,51 @@ export async function PATCH(request: Request) {
   }
 }
 
-async function cancelRoute(driver: typeof driverAccounts.$inferSelect, offerId: number) {
+async function confirmRoute(driverId: number, offerId: number) {
+  const now = new Date();
+  const [confirmed] = await getDb().update(routeOffers).set({ driverConfirmedAt: now }).where(and(
+    eq(routeOffers.id, offerId),
+    eq(routeOffers.driverId, driverId),
+    eq(routeOffers.status, "accepted"),
+    eq(routeOffers.deliveryStage, "reserved"),
+  )).returning();
+  if (!confirmed) return Response.json({ error: "This route is no longer awaiting confirmation." }, { status: 409 });
+  await getDb().insert(inAppNotifications).values({
+    recipientType: "driver", recipientId: driverId, eventType: "route_reconfirmed",
+    title: "Delivery confirmed", body: "Your reservation remains active. We’ll remind you when the recommended departure window approaches.",
+  });
+  return Response.json({ offer: confirmed });
+}
+
+async function processDriverConfirmations(driver: typeof driverAccounts.$inferSelect) {
+  const db = getDb();
+  const now = new Date();
+  const offers = await db.select().from(routeOffers).where(and(
+    eq(routeOffers.driverId, driver.id),
+    eq(routeOffers.status, "accepted"),
+    eq(routeOffers.deliveryStage, "reserved"),
+  ));
+  for (const offer of offers) {
+    if (!offer.driverConfirmationDueAt || !offer.driverConfirmationDeadlineAt || offer.driverConfirmedAt) continue;
+    if (now >= offer.driverConfirmationDeadlineAt) {
+      await cancelRoute(driver, offer.id, true);
+      continue;
+    }
+    if (now >= offer.driverConfirmationDueAt && !offer.driverConfirmationRequestedAt) {
+      const [requested] = await db.update(routeOffers).set({ driverConfirmationRequestedAt: now }).where(and(
+        eq(routeOffers.id, offer.id), eq(routeOffers.status, "accepted"),
+      )).returning();
+      if (requested) await db.insert(inAppNotifications).values({
+        recipientType: "driver", recipientId: driver.id, eventType: "route_confirmation_required",
+        title: "Confirm your upcoming delivery",
+        body: `Please confirm within 15 minutes to keep this reservation. Confirmation closes at ${offer.driverConfirmationDeadlineAt.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`,
+        actionRequired: true, actionKey: `confirm-route:${offer.id}`,
+      });
+    }
+  }
+}
+
+async function cancelRoute(driver: typeof driverAccounts.$inferSelect, offerId: number, missedConfirmation = false) {
   const db = getDb();
   const [offer] = await db.select().from(routeOffers).where(and(
     eq(routeOffers.id, offerId),
@@ -219,18 +265,18 @@ async function cancelRoute(driver: typeof driverAccounts.$inferSelect, offerId: 
   await db.insert(inAppNotifications).values([
     {
       recipientType: "bakery", recipientId: bakery.id, eventType: "driver_cancelled_route",
-      title: "Driver cancelled the pickup",
-      body: `${driver.displayName} cancelled this delivery. The pickup is available for future driver searches again.`,
+      title: missedConfirmation ? "Driver did not reconfirm" : "Driver cancelled the pickup",
+      body: `${driver.displayName} ${missedConfirmation ? "did not reconfirm this delivery in time" : "cancelled this delivery"}. The pickup is available for future driver searches again.`,
     },
     {
       recipientType: "pantry", recipientId: pantry.id, eventType: "driver_cancelled_route",
       title: "Planned delivery cancelled",
-      body: `${driver.displayName} cancelled the planned delivery from ${bakery.name}. A future match may select a different pantry.`,
+      body: `${driver.displayName} ${missedConfirmation ? "did not reconfirm" : "cancelled"} the planned delivery from ${bakery.name}. A future match may select a different pantry.`,
     },
     {
       recipientType: "driver", recipientId: driver.id, eventType: "route_cancelled",
-      title: "Delivery cancelled",
-      body: `The pickup from ${bakery.name} has returned to the available pickup pool.`,
+      title: missedConfirmation ? "Reservation expired" : "Delivery cancelled",
+      body: `${missedConfirmation ? "You did not reconfirm within 15 minutes. " : ""}The pickup from ${bakery.name} has returned to the available pickup pool.`,
     },
   ]);
   return Response.json({ offer: cancelled });
@@ -351,7 +397,15 @@ async function acceptOffer(driver: typeof driverAccounts.$inferSelect, offerId: 
     eq(routeOffers.pickupOccurrenceId, pickup.id),
     ne(routeOffers.id, offer.id),
   ));
-  const [accepted] = await db.update(routeOffers).set({ status: "accepted", respondedAt: new Date() }).where(eq(routeOffers.id, offer.id)).returning();
+  const confirmationDueAt = new Date(offer.estimatedBakeryArrival.getTime() - 60 * 60_000);
+  const advanceReservation = confirmationDueAt > new Date();
+  const [accepted] = await db.update(routeOffers).set({
+    status: "accepted",
+    respondedAt: new Date(),
+    driverConfirmationDueAt: advanceReservation ? confirmationDueAt : null,
+    driverConfirmationDeadlineAt: advanceReservation ? new Date(confirmationDueAt.getTime() + 15 * 60_000) : null,
+    driverConfirmedAt: advanceReservation ? null : new Date(),
+  }).where(eq(routeOffers.id, offer.id)).returning();
   await db.update(driverRideRequests).set({ status: "matched", updatedAt: new Date() }).where(eq(driverRideRequests.id, offer.driverRequestId));
   const eta = offer.estimatedBakeryArrival.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
   const pantryEta = offer.estimatedPantryArrival.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });

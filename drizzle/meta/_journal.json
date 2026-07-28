@@ -127,6 +127,13 @@
       "when": 1785203157538,
       "tag": "0017_lame_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785203758648,
+      "tag": "0018_massive_ikaris",
+      "breakpoints": true
     }
   ]
 }

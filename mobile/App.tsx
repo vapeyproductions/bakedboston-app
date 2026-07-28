@@ -32,6 +32,8 @@ type DriverRouteOffer = {
   deliveryStage: "reserved" | "en_route_to_bakery" | "arrived_at_bakery" | "picked_up" | "en_route_to_pantry" | "arrived_at_pantry" | "completed";
   expiresAt: string | null; estimatedBakeryArrival: string; estimatedPantryArrival: string;
   departureWindowStartsAt: string | null; departureWindowEndsAt: string | null;
+  driverConfirmationDueAt: string | null; driverConfirmationDeadlineAt: string | null;
+  driverConfirmationRequestedAt: string | null; driverConfirmedAt: string | null;
   pickup: PickupOccurrence | null;
   bakery: DriverDestination | null; pantry: DriverDestination | null;
 };
@@ -460,6 +462,16 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       ],
     );
   }
+  async function confirmReservedRoute(offer: DriverRouteOffer) {
+    try {
+      await updateDriverMatching({ action: "confirm-route", offerId: offer.id });
+      const data = await loadDriverMatching();
+      setRideRequests(data.requests); setRouteOffers(data.offers); setDriverNotifications(data.notifications);
+      Alert.alert("Delivery confirmed", "Your reservation remains active.");
+    } catch (reason) {
+      Alert.alert("Could not confirm delivery", reason instanceof Error ? reason.message : "Please try again.");
+    }
+  }
   const verificationStatus = profile?.verificationStatus ?? session.verificationStatus ?? "not_started";
   const verificationLabel = verificationStatus === "verified" ? "Identity verified" : verificationStatus === "pending" ? "Verification pending" : verificationStatus === "needs_attention" ? "Verification needs attention" : "Verification required";
   const tabs: Array<{ id: DriverSection; label: string; icon: string }> = [
@@ -495,9 +507,9 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {session.demo && <View style={styles.driverDemoBanner}><Text style={styles.driverDemoBannerText}>PROTOTYPE DRIVER · FICTIONAL PROFILE</Text></View>}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} key={offer.id} />)}</>}
+      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verified={verificationStatus === "verified"} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission will be connected when live route optimization is enabled. You can use a ZIP code during prototype testing.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>{session.demo ? "Prototype ride request saved for this session." : "Ride request saved. We’ll notify you when a confirmed pickup matches."}</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
-      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
+      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); if (session.demo) { setProfileNotice("Demo profile updated for this session."); return; } try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} />}
     </ScrollView>
   </SafeAreaView>;
@@ -521,11 +533,12 @@ function DriverRideRequestList({ requests }: { requests: DriverRideRequest[] }) 
   </View>)}</View>;
 }
 
-function LiveRouteOffer({ offer, onRespond, onProgress, onCancel }: {
+function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
   offer: DriverRouteOffer;
   onRespond: (offer: DriverRouteOffer, action: "accept-offer" | "decline-offer") => void;
   onProgress: (offer: DriverRouteOffer, stage: DriverRouteOffer["deliveryStage"]) => void;
   onCancel: (offer: DriverRouteOffer) => void;
+  onConfirm: (offer: DriverRouteOffer) => void;
 }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const bakeryFocused = ["reserved", "en_route_to_bakery", "arrived_at_bakery"].includes(offer.deliveryStage);
@@ -566,6 +579,7 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCancel }: {
     <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
     <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {formatMobileTime(offer.estimatedBakeryArrival)}</Text><Text style={styles.driverRouteFact}>Arrival {formatMobileTime(offer.estimatedPantryArrival)}</Text></View>
     {offer.status === "accepted" && offer.departureWindowStartsAt && offer.departureWindowEndsAt && <Text style={styles.driverRouteReason}>Recommended departure: {formatMobileTime(offer.departureWindowStartsAt)}–{formatMobileTime(offer.departureWindowEndsAt)}</Text>}
+    {offer.status === "accepted" && offer.driverConfirmationRequestedAt && !offer.driverConfirmedAt && <View style={styles.driverNotificationCard}><Text style={styles.authEyebrow}>ACTION REQUIRED</Text><Text style={styles.connectedTitle}>Confirm this delivery</Text><Text style={styles.connectedBody}>Confirm by {offer.driverConfirmationDeadlineAt ? formatMobileTime(offer.driverConfirmationDeadlineAt) : "the displayed deadline"} to keep the reservation.</Text><Pressable style={styles.driverReserveButton} onPress={() => onConfirm(offer)}><Text style={styles.driverReserveButtonText}>Confirm delivery</Text></Pressable></View>}
     {offer.status === "offered" && <View style={styles.offerActions}><Pressable onPress={() => onRespond(offer, "decline-offer")}><Text style={styles.offerDeclineText}>Not this one</Text></Pressable><Pressable style={styles.driverReserveButton} onPress={() => onRespond(offer, "accept-offer")}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable></View>}
     {offer.status === "accepted" && offer.deliveryStage === "completed" && <View style={styles.completedRouteSummary}><Text style={styles.authEyebrow}>DELIVERY COMPLETED</Text><Text style={styles.connectedTitle}>{offer.bakery?.name} → {offer.pantry?.name}</Text></View>}
     {offer.status === "accepted" && offer.deliveryStage !== "completed" && destination && <View style={styles.activeDestination}>
