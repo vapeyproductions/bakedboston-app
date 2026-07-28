@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { supportReportMessages, supportReports } from "../../../../db/schema";
+import { adminInboxMessages, supportReportMessages, supportReports } from "../../../../db/schema";
 
 type ReceivedEvent = {
   type: string;
@@ -13,21 +13,32 @@ export async function POST(request: Request) {
   if (!verifyWebhook(payload, request.headers)) return Response.json({ error: "Invalid webhook signature." }, { status: 400 });
   const event = JSON.parse(payload) as ReceivedEvent;
   if (event.type !== "email.received" || !event.data?.email_id) return Response.json({ ok: true });
-  const caseId = findCaseId([...(event.data.to ?? []), event.data.subject ?? ""]);
-  if (!caseId) return Response.json({ ok: true, ignored: true });
-  const reportId = Number(caseId.split("-")[1]);
-  const [report] = await getDb().select({ id: supportReports.id }).from(supportReports).where(eq(supportReports.id, reportId)).limit(1);
-  if (!report) return Response.json({ ok: true, ignored: true });
   const content = await retrieveReceivedEmail(event.data.email_id);
+  const caseId = findCaseId([...(event.data.to ?? []), event.data.subject ?? ""]);
+  const reportId = caseId ? Number(caseId.split("-")[1]) : 0;
+  const [report] = reportId
+    ? await getDb().select({ id: supportReports.id }).from(supportReports).where(eq(supportReports.id, reportId)).limit(1)
+    : [];
+  const message = {
+    senderEmail: event.data.from ?? content.from ?? "",
+    recipientEmails: JSON.stringify(event.data.to ?? []),
+    subject: event.data.subject ?? content.subject ?? (caseId ? `[${caseId}] Reply` : "(No subject)"),
+    body: cleanReply(content.text || stripHtml(content.html || "") || "Message received without readable text."),
+    externalEmailId: event.data.email_id,
+  };
+  if (!report) {
+    try {
+      await getDb().insert(adminInboxMessages).values(message);
+    } catch {
+      // Resend retries webhooks. Treat an already-stored email id as successfully processed.
+    }
+    return Response.json({ ok: true, inbox: true });
+  }
   try {
     await getDb().insert(supportReportMessages).values({
       reportId,
       direction: "inbound",
-      senderEmail: event.data.from ?? content.from ?? "",
-      recipientEmails: JSON.stringify(event.data.to ?? []),
-      subject: event.data.subject ?? content.subject ?? `[${caseId}] Reply`,
-      body: cleanReply(content.text || stripHtml(content.html || "") || "Reply received without readable text."),
-      externalEmailId: event.data.email_id,
+      ...message,
     });
     await getDb().update(supportReports).set({
       unreadReplyCount: sql`${supportReports.unreadReplyCount} + 1`,

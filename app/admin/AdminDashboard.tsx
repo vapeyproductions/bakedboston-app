@@ -70,6 +70,7 @@ type PickupOccurrence = { id: number; bakeryId: number; serviceDate: string; pic
 type InAppNotification = { id: number; recipientType: "driver" | "bakery" | "pantry" | "admin"; recipientId: number; title: string; body: string; actionRequired: boolean; createdAt: string };
 type SupportReport = { id: number; reporterType: "driver" | "bakery" | "pantry" | "system"; reporterId: number | null; reporterName: string; routeOfferId: number | null; category: string; urgency: "routine" | "urgent" | "safety"; details: string; status: "submitted" | "reviewing" | "resolved" | "closed"; adminNotes: string; resolutionSummary: string; unreadReplyCount: number; createdAt: string };
 type SupportReportMessage = { id: number; reportId: number; direction: "outbound" | "inbound"; senderEmail: string; recipientEmails: string; subject: string; body: string; createdAt: string };
+type AdminInboxMessage = { id: number; externalEmailId: string; senderEmail: string; recipientEmails: string; subject: string; body: string; status: "unread" | "read" | "archived"; linkedReportId: number | null; createdAt: string; updatedAt: string };
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const timeOptions = Array.from({ length: 48 }, (_, index) => {
@@ -168,7 +169,7 @@ function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime"
 }
 
 export default function AdminDashboard({ user }: { user: { name: string; email: string; isMaster: boolean } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "drivers" | "map" | "routes" | "reports & support" | "change log" | "settings">("overview");
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "drivers" | "map" | "routes" | "inbox" | "reports & support" | "change log" | "settings">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -188,6 +189,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [supportReports, setSupportReports] = useState<SupportReport[]>([]);
   const [supportReportMessages, setSupportReportMessages] = useState<SupportReportMessage[]>([]);
+  const [inboxMessages, setInboxMessages] = useState<AdminInboxMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
   const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
@@ -196,7 +198,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [notice, setNotice] = useState("");
 
   const refresh = async () => {
-    const response = await fetch("/api/admin");
+    const [response, inboxResponse] = await Promise.all([fetch("/api/admin"), fetch("/api/admin/inbox")]);
     if (response.ok) {
       const data = await response.json();
       setBakeries(data.bakeries);
@@ -218,6 +220,10 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setNotifications(data.notifications ?? []);
       setSupportReports(data.supportReports ?? []);
       setSupportReportMessages(data.supportReportMessages ?? []);
+    }
+    if (inboxResponse.ok) {
+      const inboxData = await inboxResponse.json();
+      setInboxMessages(inboxData.messages ?? []);
     }
     setLoading(false);
   };
@@ -280,14 +286,15 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "accounts", "drivers", "map", "routes", "reports & support", "change log", "settings"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "accounts", "drivers", "map", "routes", "inbox", "reports & support", "change log", "settings"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "drivers" ? "D" : item === "map" ? "⌖" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "drivers" ? "D" : item === "map" ? "⌖" : item === "inbox" ? "✉" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
               {item === "accounts" && <small>{partnerAccounts.length}</small>}
               {item === "drivers" && <small>{drivers.length}</small>}
+              {item === "inbox" && inboxMessages.some((message) => message.status === "unread") && <small>{inboxMessages.filter((message) => message.status === "unread").length}</small>}
               {item === "reports & support" && <small>{supportReports.filter((report) => report.status === "submitted").length}</small>}
             </button>
           ))}
@@ -318,6 +325,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "drivers" && <DriversWorkspace drivers={drivers} onChanged={refresh} setNotice={setNotice} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} routes={routes} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
+            {tab === "inbox" && <InboxWorkspace messages={inboxMessages} reports={supportReports} onChanged={refresh} />}
             {tab === "reports & support" && <ReportsWorkspace reports={supportReports} messages={supportReportMessages} onChanged={refresh} />}
             {tab === "change log" && <ChangeLog entries={auditEntries} />}
             {tab === "settings" && <AdminSettings currentUser={user} administrators={administrators} invitations={adminInvitations} onChanged={refresh} setNotice={setNotice} />}
@@ -329,6 +337,71 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
+}
+
+function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInboxMessage[]; reports: SupportReport[]; onChanged: () => Promise<void> }) {
+  const [selected, setSelected] = useState<AdminInboxMessage | null>(null);
+  const [folder, setFolder] = useState<"active" | "archived">("active");
+  const [reply, setReply] = useState("");
+  const [reportId, setReportId] = useState("");
+  const [urgency, setUrgency] = useState<SupportReport["urgency"]>("routine");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const visible = messages.filter((message) => folder === "archived" ? message.status === "archived" : message.status !== "archived");
+
+  async function patch(action: string, extra: Record<string, unknown> = {}) {
+    if (!selected) return;
+    setBusy(true);
+    setNotice("");
+    const response = await fetch("/api/admin/inbox", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selected.id, action, ...extra }) });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setNotice(action === "create_report" ? `Created ${formatReportId(data.reportId)}.` : action === "link" ? `Connected to ${formatReportId(data.reportId)}.` : "Inbox updated.");
+      setSelected(null);
+      await onChanged();
+    } else setNotice(data?.error ?? "Could not update this message.");
+    setBusy(false);
+  }
+
+  async function sendReply() {
+    if (!selected || !reply.trim()) return;
+    setBusy(true);
+    const response = await fetch("/api/admin/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selected.id, message: reply }) });
+    const data = await response.json().catch(() => null);
+    setNotice(response.ok ? `Reply sent to ${selected.senderEmail}.` : data?.error ?? "Could not send reply.");
+    if (response.ok) { setReply(""); await onChanged(); }
+    setBusy(false);
+  }
+
+  async function openMessage(message: AdminInboxMessage) {
+    setSelected(message);
+    setReply("");
+    setReportId("");
+    setNotice("");
+    if (message.status === "unread") {
+      await fetch("/api/admin/inbox", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: message.id, action: "read" }) });
+      await onChanged();
+    }
+  }
+
+  return <section className="inboxWorkspace">
+    <div className="inboxToolbar"><p>Messages sent to BakedBoston that are not already connected to a report appear here.</p><div><button className={folder === "active" ? "selected" : ""} onClick={() => setFolder("active")}>Inbox</button><button className={folder === "archived" ? "selected" : ""} onClick={() => setFolder("archived")}>Archived</button></div></div>
+    {notice && <div className="reportUpdateNotice">{notice}</div>}
+    <div className="inboxLayout">
+      <div className="inboxList">{visible.length ? visible.map((message) => <button className={`${message.status} ${selected?.id === message.id ? "selected" : ""}`} key={message.id} onClick={() => openMessage(message)}><span>{message.senderEmail || "Unknown sender"}<time>{new Date(message.createdAt).toLocaleString()}</time></span><strong>{message.subject || "(No subject)"}</strong><p>{message.body}</p>{message.linkedReportId && <small>Connected to {formatReportId(message.linkedReportId)}</small>}</button>) : <p className="reportQueueEmpty">No messages in this folder.</p>}</div>
+      <article className="inboxReader">
+        {!selected ? <div className="adminEmpty"><span>✉</span><h2>Select a message</h2><p>Read, reply, archive, or connect it to support work.</p></div> : <>
+          <header><div><small>FROM</small><strong>{selected.senderEmail}</strong></div><time>{new Date(selected.createdAt).toLocaleString()}</time></header>
+          <h2>{selected.subject}</h2><p className="inboxBody">{selected.body}</p>
+          {selected.linkedReportId ? <p className="inboxLinked">Connected to {formatReportId(selected.linkedReportId)}</p> : <>
+            <section className="inboxActions"><h3>Connect to support</h3><div><select value={reportId} onChange={(event) => setReportId(event.target.value)}><option value="">Choose an existing report…</option>{reports.map((report) => <option key={report.id} value={report.id}>{formatReportId(report.id)} · {report.reporterName} · {report.category.replaceAll("_", " ")}</option>)}</select><button disabled={!reportId || busy} onClick={() => patch("link", { reportId: Number(reportId) })}>Connect</button></div><div><select value={urgency} onChange={(event) => setUrgency(event.target.value as SupportReport["urgency"])}><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety</option></select><button disabled={busy} onClick={() => patch("create_report", { urgency, category: "email_request" })}>Create new report</button></div></section>
+            <label className="inboxReply">Reply<textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Write a reply…" /><button className="solidBtn" disabled={!reply.trim() || busy} onClick={sendReply}>Send from help@baked-boston.com</button></label>
+          </>}
+          <div className="inboxFooter">{selected.status === "archived" ? <button onClick={() => patch("restore")} disabled={busy}>Return to inbox</button> : <button onClick={() => patch("archive")} disabled={busy}>Archive message</button>}</div>
+        </>}
+      </article>
+    </div>
+  </section>;
 }
 
 function ReportsWorkspace({ reports, messages, onChanged }: { reports: SupportReport[]; messages: SupportReportMessage[]; onChanged: () => Promise<void> }) {

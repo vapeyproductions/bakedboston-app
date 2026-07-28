@@ -204,6 +204,21 @@ export const supportReportMessages = pgTable("support_report_messages", {
   uniqueIndex("support_report_messages_external_email_unique").on(table.externalEmailId),
 ]);
 
+export const adminInboxMessages = pgTable("admin_inbox_messages", {
+  id: serial("id").primaryKey(),
+  externalEmailId: text("external_email_id").notNull(),
+  senderEmail: text("sender_email").notNull().default(""),
+  recipientEmails: text("recipient_emails").notNull().default("[]"),
+  subject: text("subject").notNull().default(""),
+  body: text("body").notNull().default(""),
+  status: text("status", { enum: ["unread", "read", "archived"] }).notNull().default("unread"),
+  linkedReportId: integer("linked_report_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("admin_inbox_messages_external_email_unique").on(table.externalEmailId),
+]);
+
 export const driverAccounts = pgTable("driver_accounts", {
   id: serial("id").primaryKey(),
   email: text("email").notNull(),
