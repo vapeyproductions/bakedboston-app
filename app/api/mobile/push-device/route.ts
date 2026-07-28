@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { driverAccounts, inAppNotifications, mobileSessions, partnerAccounts, pushDevices } from "../../../../db/schema";
+import { driverAccounts, mobileSessions, partnerAccounts, pushDevices } from "../../../../db/schema";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -39,7 +39,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "A valid Expo push token is required." }, { status: 400 });
   }
   const [existing] = await db.select().from(pushDevices).where(eq(pushDevices.expoPushToken, expoPushToken)).limit(1);
-  const newAssociation = !existing || existing.recipientType !== recipientType || existing.recipientId !== recipientId;
   const [device] = existing
     ? await db.update(pushDevices).set({
       recipientType, recipientId, platform, active: true, lastSeenAt: new Date(),
@@ -47,12 +46,5 @@ export async function POST(request: Request) {
     : await db.insert(pushDevices).values({
       recipientType, recipientId, expoPushToken, platform,
     }).returning();
-  if (newAssociation) await db.insert(inAppNotifications).values({
-    recipientType,
-    recipientId,
-    eventType: "push_device_connected",
-    title: "BakedBoston notifications are connected",
-    body: `This test confirms that scheduled ${recipientType === "bakery" ? "pickup" : recipientType === "pantry" ? "delivery" : "route"} reminders can reach this iPhone while the app is in the background.`,
-  });
   return Response.json({ device });
 }

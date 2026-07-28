@@ -726,7 +726,7 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => undefined);
     void registerForPushNotifications()
-      .then(() => Alert.alert("Notifications connected", `This iPhone is registered for ${bakery ? "bakery pickup" : "pantry delivery"} alerts.`))
+      .then(() => undefined)
       .catch((error) => Alert.alert("Notifications not connected", error instanceof Error ? error.message : "Please try signing in again."));
   }, []);
   const refreshWorkspace = useCallback(async () => {
