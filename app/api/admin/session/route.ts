@@ -30,6 +30,26 @@ export async function POST(request: NextRequest) {
     }
   } else {
     [account] = await db.select().from(adminAccounts).where(eq(adminAccounts.email, email)).limit(1);
+    const masterEmail = (process.env.MASTER_ADMIN_EMAIL ?? "eva.moughan@gmail.com").trim().toLowerCase();
+    const recoveryPassword = process.env.ADMIN_PASSWORD ?? "";
+    if (
+      account?.active &&
+      email === masterEmail &&
+      recoveryPassword &&
+      supplied === recoveryPassword &&
+      !verifyPartnerPassword(supplied, account.passwordHash)
+    ) {
+      const [updated] = await db.update(adminAccounts).set({
+        passwordHash: hashPartnerPassword(supplied),
+        updatedAt: new Date(),
+      }).where(eq(adminAccounts.id, account.id)).returning();
+      account = updated;
+      await db.insert(auditLog).values({
+        actorType: "system", actorName: "BakedBoston",
+        action: "recovered master administrator password",
+        entityType: "admin_account", entityId: account.id, entityName: account.displayName,
+      });
+    }
   }
 
   if (!account || !account.active || !verifyPartnerPassword(supplied, account.passwordHash)) {
