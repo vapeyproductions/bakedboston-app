@@ -426,5 +426,9 @@ if (!databaseUrl) {
       AND reporter_id IN (SELECT id FROM driver_accounts WHERE email = 'jordan.driver@example.com')
   `;
   await sql`DELETE FROM driver_accounts WHERE email = 'jordan.driver@example.com'`;
+  await sql`ALTER TABLE rescue_routes ADD COLUMN IF NOT EXISTS delivery_proof_url text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE rescue_routes ADD COLUMN IF NOT EXISTS delivery_proof_pathname text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS delivery_proof_url text DEFAULT '' NOT NULL`;
+  await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS delivery_proof_pathname text DEFAULT '' NOT NULL`;
   console.log("Partner-account database migration complete.");
 }
