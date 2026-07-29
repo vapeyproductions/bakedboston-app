@@ -154,6 +154,14 @@ export async function POST(request: Request) {
     const serviceMode = validServiceMode(body.serviceMode, account.organizationType);
     validateWindow(startsAt, endsAt, latestArrival);
     const [record] = await db.insert(availabilityWindows).values({ organizationType: account.organizationType, organizationId: account.organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
+    if (account.organizationType === "bakery") {
+      await db.insert(bakeryPickupOccurrences).values({
+        bakeryId: account.organizationId,
+        serviceDate: easternDate(startsAt),
+        pickupWindowStartsAt: startsAt,
+        pickupDeadline: endsAt,
+      }).onConflictDoNothing();
+    }
     await audit(account, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
     return Response.json({ record }, { status: 201 });
   } catch (error) {
@@ -296,6 +304,25 @@ export async function PATCH(request: Request) {
     const serviceMode = validServiceMode(body.serviceMode, account.organizationType);
     validateWindow(startsAt, endsAt, latestArrival);
     const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode }).where(eq(availabilityWindows.id, id)).returning();
+    if (account.organizationType === "bakery") {
+      const [updatedOccurrence] = await db.update(bakeryPickupOccurrences).set({
+        serviceDate: easternDate(startsAt),
+        pickupWindowStartsAt: startsAt,
+        pickupDeadline: endsAt,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
+        eq(bakeryPickupOccurrences.pickupWindowStartsAt, window.startsAt),
+      )).returning();
+      if (!updatedOccurrence) {
+        await db.insert(bakeryPickupOccurrences).values({
+          bakeryId: account.organizationId,
+          serviceDate: easternDate(startsAt),
+          pickupWindowStartsAt: startsAt,
+          pickupDeadline: endsAt,
+        }).onConflictDoNothing();
+      }
+    }
     await audit(account, "updated one-time availability window", String(id));
     return Response.json({ record });
   } catch (error) {
@@ -340,6 +367,12 @@ export async function DELETE(request: Request) {
     const [record] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
     if (!record || record.organizationType !== account.organizationType || record.organizationId !== account.organizationId) return Response.json({ error: "Availability window not found." }, { status: 404 });
     await db.delete(availabilityWindows).where(eq(availabilityWindows.id, id));
+    if (account.organizationType === "bakery") {
+      await db.delete(bakeryPickupOccurrences).where(and(
+        eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
+        eq(bakeryPickupOccurrences.pickupWindowStartsAt, record.startsAt),
+      ));
+    }
     await audit(account, "deleted one-time availability window", String(id));
   }
   return Response.json({ ok: true });
@@ -348,6 +381,13 @@ export async function DELETE(request: Request) {
 function validDay(value: unknown) { const day = String(value ?? ""); if (!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day)) throw new Error("Choose a valid day."); return day; }
 function validTime(value: unknown) { const time = String(value ?? ""); if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("Enter a valid time."); return time; }
 function validOrdinal(value: unknown) { const ordinal = Number(value); if (!Number.isInteger(ordinal) || ordinal < 1 || ordinal > 5) throw new Error("Choose a monthly occurrence."); return ordinal; }
+function easternDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 function validDateOnly(value: unknown) { const date = String(value ?? ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a valid date."); return date; }
 function validDateTime(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
 function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest arrival must fall inside the availability window."); }

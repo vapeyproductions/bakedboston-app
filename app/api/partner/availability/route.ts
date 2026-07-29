@@ -78,6 +78,25 @@ export async function PATCH(request: Request) {
   const serviceMode = validServiceMode(body.serviceMode, current.organizationType);
   validateWindow(startsAt, endsAt, latestArrival);
   const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode }).where(eq(availabilityWindows.id, id)).returning();
+  if (current.organizationType === "bakery") {
+    const [updatedOccurrence] = await db.update(bakeryPickupOccurrences).set({
+      serviceDate: easternDate(startsAt),
+      pickupWindowStartsAt: startsAt,
+      pickupDeadline: endsAt,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(bakeryPickupOccurrences.bakeryId, current.organizationId),
+      eq(bakeryPickupOccurrences.pickupWindowStartsAt, window.startsAt),
+    )).returning();
+    if (!updatedOccurrence) {
+      await db.insert(bakeryPickupOccurrences).values({
+        bakeryId: current.organizationId,
+        serviceDate: easternDate(startsAt),
+        pickupWindowStartsAt: startsAt,
+        pickupDeadline: endsAt,
+      }).onConflictDoNothing();
+    }
+  }
   await audit(current, "updated one-time availability window", String(id));
   return Response.json({ record });
 }
@@ -97,6 +116,12 @@ export async function DELETE(request: Request) {
     const [window] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
     if (!window || window.organizationType !== current.organizationType || window.organizationId !== current.organizationId) return Response.json({ error: "Availability window not found." }, { status: 404 });
     await db.delete(availabilityWindows).where(eq(availabilityWindows.id, id));
+    if (current.organizationType === "bakery") {
+      await db.delete(bakeryPickupOccurrences).where(and(
+        eq(bakeryPickupOccurrences.bakeryId, current.organizationId),
+        eq(bakeryPickupOccurrences.pickupWindowStartsAt, window.startsAt),
+      ));
+    }
     await audit(current, "deleted one-time availability window", String(id));
   }
   return Response.json({ ok: true });
