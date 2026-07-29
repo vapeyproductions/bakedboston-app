@@ -1247,11 +1247,17 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const activeOneTimePickup = activeOneTime
     ? workspace.pickupOccurrences.find((occurrence) =>
       new Date(occurrence.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime()
-      && !["fulfilled", "cancelled"].includes(occurrence.status),
+      && occurrence.status !== "cancelled",
     )
     : undefined;
-  const todayPickup = chronologicalOpenPickups[0]
-    ?? activeOneTimePickup
+  const currentTimedPickup = workspace.pickupOccurrences.find((occurrence) =>
+    occurrence.status !== "cancelled"
+    && new Date(occurrence.pickupWindowStartsAt) <= now
+    && new Date(occurrence.pickupDeadline) > now,
+  );
+  const todayPickup = activeOneTimePickup
+    ?? currentTimedPickup
+    ?? chronologicalOpenPickups[0]
     ?? workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
   const notificationAppliesToCurrentPickup = (notification: DriverNotification) => {
     if (notification.eventType !== "pickup_commitment_reminder") return true;
@@ -1285,7 +1291,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
           <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? pickupFulfilled ? "PICKUP COMPLETE" : paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime && !pickupConfirmed ? "AWAITING PICKUP CONFIRMATION" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
           <Text style={styles.portalStatusTitle}>{pickupFulfilled ? "Today’s pickup is complete." : paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? activeOneTime && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
           <Text style={styles.portalStatusBody}>{pickupFulfilled && todayPickup
-            ? `${formatMobileDate(todayPickup.pickupWindowStartsAt)} · ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)} · The food has been collected and this bakery is no longer available for matching in this window.`
+            ? `${formatMobileDate(todayPickup.pickupWindowStartsAt)} · ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)} · Food for this window has been picked up, and the bakery has been excluded from any more pickups during this window.`
             : activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}${bakery && !pickupConfirmed ? " · Confirm food availability below before drivers can reserve it." : ""}`
               : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`
                 : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>

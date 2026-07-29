@@ -54,7 +54,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const activeOneTimePickup = activeOneTime
     ? pickupOccurrences.find((item) =>
       new Date(item.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime()
-      && !["fulfilled", "cancelled"].includes(item.status),
+      && item.status !== "cancelled",
     )
     : undefined;
   const chronologicalOpenPickups = [...pickupOccurrences]
@@ -63,8 +63,14 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       && !["fulfilled", "cancelled", "insufficient_food"].includes(item.status),
     )
     .sort((a, b) => new Date(a.pickupWindowStartsAt).getTime() - new Date(b.pickupWindowStartsAt).getTime());
-  const todayPickup = chronologicalOpenPickups[0]
-    ?? activeOneTimePickup
+  const currentTimedPickup = pickupOccurrences.find((item) =>
+    item.status !== "cancelled"
+    && new Date(item.pickupWindowStartsAt) <= new Date()
+    && new Date(item.pickupDeadline) > new Date(),
+  );
+  const todayPickup = activeOneTimePickup
+    ?? currentTimedPickup
+    ?? chronologicalOpenPickups[0]
     ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
   const notificationAppliesToCurrentPickup = (notification: PartnerNotification) => {
     if (notification.eventType !== "pickup_commitment_reminder") return true;
@@ -223,9 +229,11 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
 
       {section === "overview" && <>
         <div className="statusBanner">
-          <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
+          <div><span className={available ? "statusLight on" : "statusLight"} /><small>{pickupFulfilled ? "PICKUP COMPLETE" : available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
             <h2>{pickupFulfilled ? "Today’s pickup is complete." : activeOneTime && bakery && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
-            <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p>
+            <p>{pickupFulfilled
+              ? "Food for this window has been picked up, and the bakery has been excluded from any more pickups during this window."
+              : activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p>
             {priorityNotification && <StatusNotification notification={priorityNotification} onAcknowledge={async (notification, handoffAction, deliveryReceived) => {
               const pickupReady = notification.actionKey.startsWith("pickup-ready:");
               const handoff = notification.actionKey.startsWith("confirm-handoff:");
