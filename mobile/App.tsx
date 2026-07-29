@@ -661,10 +661,19 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     try {
       const asset = result.assets[0];
       const token = await SecureStore.getItemAsync(TOKEN_KEY);
-      const form = new FormData();
-      form.append("offerId", String(offer.id));
-      form.append("photo", { uri: asset.uri, name: asset.fileName ?? `delivery-${offer.id}.jpg`, type: asset.mimeType ?? "image/jpeg" } as unknown as Blob);
-      const response = await fetch(`${API_URL}/api/mobile/driver/proof`, { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}` }, body: form });
+      const imageResponse = await fetch(asset.uri);
+      const imageBytes = await imageResponse.arrayBuffer();
+      const response = await fetch(`${API_URL}/api/mobile/driver/proof`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token ?? ""}`,
+          "Content-Type": asset.mimeType ?? "image/jpeg",
+          "X-BakedBoston-Upload": "delivery-proof",
+          "X-Offer-Id": String(offer.id),
+          "X-File-Name": asset.fileName ?? `delivery-${offer.id}.jpg`,
+        },
+        body: imageBytes,
+      });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error ?? "Could not upload the drop-off photo.");
       await progressRoute({ ...offer, deliveryProofUrl: data.imageUrl }, "completed");

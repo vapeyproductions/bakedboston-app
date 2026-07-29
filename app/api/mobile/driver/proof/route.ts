@@ -26,9 +26,12 @@ export async function POST(request: Request) {
   try {
     const driver = await currentDriver(request);
     if (!driver) return Response.json({ error: "Sign in required." }, { status: 401 });
-    const form = await request.formData();
-    const offerId = Number(form.get("offerId"));
-    const photo = form.get("photo");
+    const directUpload = request.headers.get("x-bakedboston-upload") === "delivery-proof";
+    const form = directUpload ? null : await request.formData();
+    const offerId = Number(directUpload ? request.headers.get("x-offer-id") : form?.get("offerId"));
+    const photo = directUpload
+      ? new File([await request.arrayBuffer()], request.headers.get("x-file-name") || `delivery-${offerId}.jpg`, { type: request.headers.get("content-type") || "image/jpeg" })
+      : form?.get("photo");
     if (!Number.isInteger(offerId)) return Response.json({ error: "A delivery is required." }, { status: 400 });
     if (!(photo instanceof File)) return Response.json({ error: "Take a drop-off photo before completing the delivery." }, { status: 400 });
     if (!allowedTypes.has(photo.type) || photo.size > 6 * 1024 * 1024) {
