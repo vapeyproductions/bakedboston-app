@@ -96,6 +96,11 @@ export async function GET(request: Request) {
     bakeryIds.length ? db.select().from(bakeryAccessPhotos) : Promise.resolve([]),
     pantryIds.length ? db.select().from(pantryAccessPhotos) : Promise.resolve([]),
   ]);
+  const visibleNotifications = notifications.filter((notification) => {
+    const offeredRouteId = notification.actionKey.match(/^route-offer:(\d+)$/)?.[1];
+    if (!offeredRouteId) return true;
+    return offers.some((offer) => offer.id === Number(offeredRouteId) && offer.status === "offered");
+  });
 
   return Response.json({
     requests,
@@ -124,7 +129,7 @@ export async function GET(request: Request) {
         })(),
       };
     }),
-    notifications,
+    notifications: visibleNotifications,
     browseRoutes,
   });
 }
@@ -702,8 +707,16 @@ async function acceptOffer(driver: typeof driverAccounts.$inferSelect, offerId: 
       recipientType: "driver", recipientId: driver.id, eventType: "route_reserved",
       title: "Route reserved",
       body: `Pick up from ${bakery.name} around ${eta}, then deliver to ${pantry.name} around ${pantryEta}.`,
-      actionRequired: true, actionKey: `confirm-route:${route.id}`,
+      actionRequired: false, actionKey: "",
     }),
+    db.update(inAppNotifications).set({
+      readAt: new Date(),
+      acknowledgedAt: new Date(),
+    }).where(and(
+      eq(inAppNotifications.recipientType, "driver"),
+      eq(inAppNotifications.recipientId, driver.id),
+      eq(inAppNotifications.actionKey, `route-offer:${offer.id}`),
+    )),
   ]);
   return Response.json({ offer: accepted, route });
 }
@@ -716,6 +729,14 @@ async function declineOffer(driverId: number, offerId: number) {
     eq(routeOffers.status, "offered"),
   )).returning();
   if (!offer) return Response.json({ error: "Route offer not found." }, { status: 404 });
+  await db.update(inAppNotifications).set({
+    readAt: new Date(),
+    acknowledgedAt: new Date(),
+  }).where(and(
+    eq(inAppNotifications.recipientType, "driver"),
+    eq(inAppNotifications.recipientId, driverId),
+    eq(inAppNotifications.actionKey, `route-offer:${offer.id}`),
+  ));
   await promoteNextOffer(offer.pickupOccurrenceId);
   return Response.json({ offer });
 }
