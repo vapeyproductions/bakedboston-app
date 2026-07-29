@@ -77,6 +77,24 @@ export async function GET(request: Request) {
       eq(inAppNotifications.recipientId, organization.id),
     )).orderBy(desc(inAppNotifications.createdAt)),
   ]);
+  const acceptedOffers = account.organizationType === "bakery"
+    ? pickupOccurrences.length
+      ? await db.select().from(routeOffers).where(and(
+        inArray(routeOffers.pickupOccurrenceId, pickupOccurrences.map((occurrence) => occurrence.id)),
+        eq(routeOffers.status, "accepted"),
+      ))
+      : []
+    : await db.select().from(routeOffers).where(and(
+      eq(routeOffers.pantryId, organization.id),
+      eq(routeOffers.status, "accepted"),
+    ));
+  const nextArrival = acceptedOffers
+    .filter((offer) => account.organizationType === "bakery"
+      ? ["reserved", "en_route_to_bakery"].includes(offer.deliveryStage)
+      : offer.deliveryStage !== "completed")
+    .map((offer) => account.organizationType === "bakery" ? offer.estimatedBakeryArrival : offer.estimatedPantryArrival)
+    .filter((arrival) => arrival.getTime() >= Date.now() - 15 * 60_000)
+    .sort((left, right) => left.getTime() - right.getTime())[0] ?? null;
 
   return Response.json({
     account: {
@@ -94,6 +112,7 @@ export async function GET(request: Request) {
     photos,
     pickupOccurrences,
     notifications,
+    nextArrival: nextArrival?.toISOString() ?? null,
   });
 }
 

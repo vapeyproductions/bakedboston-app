@@ -69,6 +69,7 @@ type WorkspaceData = {
   photos: Array<{ id: number; imageUrl: string; caption: string }>;
   pickupOccurrences: PickupOccurrence[];
   notifications: DriverNotification[];
+  nextArrival: string | null;
 };
 type PickupOccurrence = { id: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string; status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "fulfilled" | "cancelled"; confirmedAt: string | null };
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://www.baked-boston.com";
@@ -1234,7 +1235,6 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     const date = new Date(route.createdAt);
     return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
   });
-  const upcoming = workspace.routes.find((route) => route.status !== "completed");
   const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const pausedOneTime = workspace.availabilityWindows.find((window) => window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
@@ -1302,7 +1302,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
         </View>
       </View>
       <View style={[styles.portalMetrics, !landscape && styles.portalMetricsMobile]}>
-        <MetricCard value={upcoming ? formatMobileDateTime(upcoming.scheduledArrival) : "—"} label="Next arrival" />
+        <MetricCard value={workspace.nextArrival ? formatMobileDateTime(workspace.nextArrival) : "—"} label="Next arrival" />
         <MetricCard value={String(thisMonth.length)} label="Deliveries this month" />
         <MetricCard value={String(completed.length)} label="Completed orders" />
       </View>
