@@ -1152,12 +1152,13 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
     <SafeAreaView style={styles.portalSafe} edges={landscape ? ["top"] : ["top", "bottom"]}>
       <View style={[styles.portalShell, landscape ? styles.portalLandscape : styles.portalPortrait]}>
         {landscape ? (
-          <ScrollView
-            style={[styles.portalSidebar, { width: 238 + insets.left }]}
-            contentContainerStyle={[styles.portalSidebarContent, { paddingLeft: 18 + insets.left, paddingBottom: 20 + insets.bottom }]}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
+          <View style={[styles.portalSidebar, { width: 238 + insets.left, paddingLeft: 18 + insets.left }]}>
+            <ScrollView
+              style={styles.portalSidebarScroller}
+              contentContainerStyle={[styles.portalSidebarContent, { paddingBottom: 20 + insets.bottom }]}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
               <PortalBrand light />
               <View style={styles.portalOrganization}>
                 <Text style={styles.portalOrganizationIcon}>{bakery ? "🥖" : "🥫"}</Text>
@@ -1173,7 +1174,8 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
                 <Text style={styles.portalAccountEmail} numberOfLines={1}>{workspace?.account.accountEmail ?? session.email}</Text>
                 <Pressable onPress={onSignOut}><Text style={styles.portalSignOut}>Sign out</Text></Pressable>
               </View>
-          </ScrollView>
+            </ScrollView>
+          </View>
         ) : (
           <>
             <View style={styles.portalMobileHeader}>
@@ -1827,8 +1829,9 @@ const styles = StyleSheet.create({
   portalShell: { flex: 1 },
   portalLandscape: { flexDirection: "row" },
   portalPortrait: { flexDirection: "column" },
-  portalSidebar: { width: 238, backgroundColor: colors.forest, borderRightWidth: 1, borderRightColor: "#315443" },
-  portalSidebarContent: { flexGrow: 1, paddingRight: 18, paddingTop: 20 },
+  portalSidebar: { width: 238, flexGrow: 0, flexShrink: 0, backgroundColor: colors.forest, paddingRight: 18, paddingTop: 20, borderRightWidth: 1, borderRightColor: "#315443" },
+  portalSidebarScroller: { flex: 1 },
+  portalSidebarContent: { flexGrow: 1 },
   portalBrand: { flexDirection: "row", alignItems: "center", gap: 8 },
   portalBrandText: { color: colors.forest, fontSize: 17, fontWeight: "900", letterSpacing: -0.5 },
   portalBrandTextLight: { color: colors.white },
