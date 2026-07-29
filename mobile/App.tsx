@@ -28,7 +28,7 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-
 type Role = "driver" | "bakery" | "pantry";
 type Screen = "welcome" | "learn" | "driver-access" | "driver-register" | "partner-login" | "partner-request" | "pending" | "workspace";
 type Session = { role: Role; accountId: number; displayName: string; email: string; verificationStatus?: "not_started" | "pending" | "verified" | "needs_attention" };
-type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string };
+type MobileRoute = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; deliveryProofUrl: string; createdAt: string };
 type DriverProfile = { id: number; email: string; displayName: string; phone: string; homeAddress: string; homeZip: string; dateOfBirth: string; verificationStatus: "not_started" | "pending" | "verified" | "needs_attention" };
 type IdentityVerificationResponse = { status: DriverProfile["verificationStatus"]; method: "stripe"; url?: string | null; message?: string };
 type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
@@ -41,6 +41,8 @@ type DriverRouteOffer = {
   driverConfirmationDueAt: string | null; driverConfirmationDeadlineAt: string | null;
   driverConfirmationRequestedAt: string | null; driverConfirmedAt: string | null;
   pickupReadyAt: string | null;
+  pantryServiceMode: "staffed" | "unattended";
+  deliveryProofUrl: string;
   pickup: PickupOccurrence | null;
   bakery: DriverDestination | null; pantry: DriverDestination | null;
 };
@@ -650,6 +652,25 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       Alert.alert("Could not update route", reason instanceof Error ? reason.message : "Please try again.");
     }
   }
+  async function completeUnattendedDelivery(offer: DriverRouteOffer) {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) return Alert.alert("Camera permission required", "A drop-off photo is required for unattended deliveries.");
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.8 });
+    if (result.canceled || !result.assets[0]) return;
+    try {
+      const asset = result.assets[0];
+      const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      const form = new FormData();
+      form.append("offerId", String(offer.id));
+      form.append("photo", { uri: asset.uri, name: asset.fileName ?? `delivery-${offer.id}.jpg`, type: asset.mimeType ?? "image/jpeg" } as unknown as Blob);
+      const response = await fetch(`${API_URL}/api/mobile/driver/proof`, { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}` }, body: form });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error ?? "Could not upload the drop-off photo.");
+      await progressRoute({ ...offer, deliveryProofUrl: data.imageUrl }, "completed");
+    } catch (reason) {
+      Alert.alert("Could not complete delivery", reason instanceof Error ? reason.message : "Please try again.");
+    }
+  }
   function cancelRoute(offer: DriverRouteOffer) {
     Alert.alert(
       "Cancel this delivery?",
@@ -733,6 +754,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   ];
   const driverName = profile?.displayName ?? session.displayName;
   const driverEmail = profile?.email ?? session.email;
+  const activeOffer = routeOffers.find((offer) => offer.status === "accepted" && offer.deliveryStage !== "completed");
   function signOutFromMenu() {
     Alert.alert("Log out of BakedBoston?", "You’ll need to sign in again to access this driver profile.", [
       { text: "Cancel", style: "cancel" },
@@ -760,9 +782,9 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
     <View style={styles.driverTabs}>{tabs.map((tab) => <Pressable key={tab.id} onPress={() => setSection(tab.id)} style={[styles.driverTab, section === tab.id && styles.driverTabActive]}><Text style={[styles.driverTabIcon, section === tab.id && styles.driverTabTextActive]}>{tab.icon}</Text><Text style={[styles.driverTabText, section === tab.id && styles.driverTabTextActive]}>{tab.label}</Text></Pressable>)}</View>
     <ScrollView contentContainerStyle={styles.driverContent} keyboardShouldPersistTaps="handled">
       {error && section !== "search" ? <Text style={styles.errorText}>{error}</Text> : null}
-      {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verificationStatus={verificationStatus} verificationBusy={verificationBusy} onVerify={beginIdentityVerification} onRefreshVerification={refreshIdentityVerification} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.filter((route) => !routeOffers.some((offer) => offer.pickupOccurrenceId === route.pickupId && ["offered", "accepted"].includes(offer.status))).map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
+      {section === "home" && <>{activeOffer ? <><ReservationStateNotice offer={activeOffer} /><LiveRouteOffer offer={activeOffer} onRespond={respondToOffer} onProgress={progressRoute} onCompleteUnattended={completeUnattendedDelivery} onCancel={cancelRoute} onConfirm={confirmReservedRoute} /></> : <><DriverHome displayName={profile?.displayName ?? session.displayName} verificationStatus={verificationStatus} verificationBusy={verificationBusy} onVerify={beginIdentityVerification} onRefreshVerification={refreshIdentityVerification} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.filter((route) => !routeOffers.some((offer) => offer.pickupOccurrenceId === route.pickupId && ["offered", "accepted"].includes(offer.status))).map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCompleteUnattended={completeUnattendedDelivery} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text>{error ? <Text style={[styles.errorText, styles.driverSearchError]}>{error}</Text> : null}<View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission is used to recommend nearby routes. You can use a ZIP code instead.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>Ride request saved. We’ll notify you when a confirmed pickup matches.</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
-      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
+      {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCompleteUnattended={completeUnattendedDelivery} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
       {section === "impact" && <DriverImpactPage offers={routeOffers} />}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} onDelete={async () => { try { await deleteDriverAccount(); await SecureStore.deleteItemAsync(TOKEN_KEY); onSignOut(); } catch (reason) { Alert.alert("Account not deleted", reason instanceof Error ? reason.message : "Please try again."); } }} />}
       {section === "report" && <ReportProblemMobile />}
@@ -847,14 +869,29 @@ function DriverImpactPage({ offers }: { offers: DriverRouteOffer[] }) {
   </View>;
 }
 
-function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
+function ReservationStateNotice({ offer }: { offer: DriverRouteOffer }) {
+  if (offer.deliveryStage !== "reserved") return null;
+  const open = Boolean(offer.departureWindowStartsAt && new Date(offer.departureWindowStartsAt) <= new Date());
+  return <View style={styles.driverNotificationCard}>
+    <Text style={styles.authEyebrow}>{open ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
+    <Text style={styles.connectedTitle}>{open ? "You can begin your delivery" : "Route reserved"}</Text>
+    <Text style={styles.connectedBody}>{open
+      ? `Your recommended departure window is open${offer.departureWindowEndsAt ? `. Try to leave by ${formatMobileTime(offer.departureWindowEndsAt)}` : ""}.`
+      : `You can begin your delivery when the recommended departure window opens${offer.departureWindowStartsAt ? ` at ${formatMobileTime(offer.departureWindowStartsAt)}` : ""}.`}</Text>
+  </View>;
+}
+
+function LiveRouteOffer({ offer, onRespond, onProgress, onCompleteUnattended, onCancel, onConfirm }: {
   offer: DriverRouteOffer;
   onRespond: (offer: DriverRouteOffer, action: "accept-offer" | "decline-offer") => void;
   onProgress: (offer: DriverRouteOffer, stage: DriverRouteOffer["deliveryStage"]) => void;
+  onCompleteUnattended: (offer: DriverRouteOffer) => void;
   onCancel: (offer: DriverRouteOffer) => void;
   onConfirm: (offer: DriverRouteOffer) => void;
 }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [helpExpanded, setHelpExpanded] = useState(false);
+  const [helpQuestion, setHelpQuestion] = useState("");
   const bakeryFocused = ["reserved", "en_route_to_bakery", "arrived_at_bakery"].includes(offer.deliveryStage);
   const destination = bakeryFocused ? offer.bakery : offer.pantry;
   const laterDestination = bakeryFocused ? offer.pantry : offer.bakery;
@@ -870,6 +907,10 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
         ? { label: "Delivery completed", stage: "completed" as const }
         : { label: "I have arrived at the bakery", stage: "arrived_at_bakery" as const };
   function continueRoute() {
+    if (nextAction.stage === "completed" && offer.pantryServiceMode === "unattended") {
+      onCompleteUnattended(offer);
+      return;
+    }
     if (nextAction.stage !== "en_route_to_bakery") {
       onProgress(offer, nextAction.stage);
       return;
@@ -901,12 +942,18 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
       <Text style={styles.authEyebrow}>{bakeryFocused ? arrived ? "YOU HAVE ARRIVED AT THE BAKERY" : "FIRST DESTINATION · PICKUP" : arrived ? "YOU HAVE ARRIVED AT THE PANTRY" : "NEXT DESTINATION · DELIVERY"}</Text>
       <Text style={styles.activeDestinationName}>{destination.name}</Text>
       <Text style={styles.activeDestinationAddress}>{destination.address}</Text>
+      <Pressable style={styles.routeProgressButton} onPress={continueRoute}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
       <Pressable style={styles.primaryDirectionButton} onPress={() => chooseNavigationApp(destination.name, destination.address)}><Text style={styles.portalStatusButtonText}>Open directions</Text></Pressable>
       {!showDetails && <Pressable style={styles.arrivalDetailsToggle} onPress={() => setDetailsExpanded(true)}><Text style={styles.secondaryDirectionText}>View arrival instructions and photos</Text></Pressable>}
       {showDetails && <DestinationArrivalDetails destination={destination} expanded={arrived} onClose={arrived ? undefined : () => setDetailsExpanded(false)} />}
-      <Pressable style={styles.routeProgressButton} onPress={continueRoute}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
-      <Pressable onPress={() => Alert.alert("I need help", "For urgent help during this delivery, call BakedBoston support. You can also submit a detailed report from your account menu.", [{ text: "Cancel", style: "cancel" }, { text: "Call 617-233-2956", onPress: () => Linking.openURL("tel:+16172332956") }])}><Text style={styles.mobileSupportPhone}>I need help · Call BakedBoston support</Text></Pressable>
-      {!["picked_up", "en_route_to_pantry", "arrived_at_pantry", "completed"].includes(offer.deliveryStage) && <Pressable onPress={() => onCancel(offer)}><Text style={styles.offerDeclineText}>Cancel delivery</Text></Pressable>}
+      <Pressable style={styles.deliveryHelpButton} onPress={() => setHelpExpanded((value) => !value)}><Text style={styles.secondaryDirectionText}>I need help</Text></Pressable>
+      {helpExpanded && <View style={styles.deliveryHelpPanel}>{[
+        ["bakery", "I can’t find or reach the bakery", "Open directions and review the arrival instructions. If the address or instructions are incorrect, report the problem from your account menu."],
+        ["food", "The food is not ready", "Wait somewhere safe and contact the bakery using the displayed business information. Do not mark the food picked up until you have it."],
+        ["pantry", "I can’t find the pantry drop-off", "Review the pantry instructions and photos before leaving the food. For unattended deliveries, photograph the food at the correct drop-off point."],
+        ["delay", "I’m delayed", "Continue only if you can safely complete the route. BakedBoston recalculates ETAs as the delivery progresses."],
+      ].map(([id, question, answer]) => <Pressable key={id} style={styles.deliveryHelpQuestion} onPress={() => setHelpQuestion(helpQuestion === id ? "" : id)}><Text style={styles.deliveryHelpQuestionText}>{question}</Text>{helpQuestion === id && <Text style={styles.deliveryHelpAnswer}>{answer}</Text>}</Pressable>)}<Text style={styles.deliveryHelpImmediate}>Need immediate support?</Text><Pressable onPress={() => Linking.openURL("tel:+16172332956")}><Text style={styles.mobileSupportPhone}>Call 617-233-2956</Text></Pressable></View>}
+      {!["picked_up", "en_route_to_pantry", "arrived_at_pantry", "completed"].includes(offer.deliveryStage) && <Pressable style={styles.cancelDeliveryButton} onPress={() => onCancel(offer)}><Text style={styles.offerDeclineText}>Cancel delivery</Text></Pressable>}
       {laterDestination && <View style={styles.routeSecondaryDestination}><Text style={styles.previewLabel}>{bakeryFocused ? "AFTER PICKUP" : "PICKED UP FROM"}</Text><Text style={styles.connectedTitle}>{laterDestination.name}</Text><Text style={styles.connectedBody}>{laterDestination.address}</Text></View>}
     </View>}
   </View>;
@@ -1186,7 +1233,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime && pickupConfirmed) || (scheduledBakeryOpen && pickupConfirmed));
-  const priorityNotification = workspace.notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt) ?? workspace.notifications[0];
+  const priorityNotification = workspace.notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
+    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt);
   async function changeAvailability(action: "pause" | "resume" | "pause-one-time" | "resume-one-time") {
     if ((action === "pause-one-time" || action === "resume-one-time") && (activeOneTime || pausedOneTime)) {
       const window = activeOneTime ?? pausedOneTime!;
@@ -1209,7 +1257,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
           {priorityNotification && <PartnerMobileNotificationCard notification={priorityNotification} onChanged={onChanged} compact />}
           {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
         </View>
-        <View style={styles.portalStatusActions}>
+        <View style={[styles.portalStatusActions, !landscape && styles.portalStatusActionsMobile]}>
           {activeOneTime && (!bakery || pickupConfirmed) && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
           {pausedOneTime && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume-one-time")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
           {!activeOneTime && !pausedOneTime && paused && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
@@ -1218,7 +1266,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
         </View>
       </View>
       <View style={[styles.portalMetrics, !landscape && styles.portalMetricsMobile]}>
-        <MetricCard value={upcoming?.scheduledArrival ?? "—"} label="Next arrival" />
+        <MetricCard value={upcoming ? formatMobileDateTime(upcoming.scheduledArrival) : "—"} label="Next arrival" />
         <MetricCard value={String(thisMonth.length)} label="Deliveries this month" />
         <MetricCard value={String(completed.length)} label="Completed orders" />
       </View>
@@ -1328,7 +1376,7 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
     <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
     <Text style={compact ? styles.statusNotificationTitle : styles.connectedTitle}>{notification.title}</Text>
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
-    {notification.actionRequired && !notification.acknowledgedAt && <View style={styles.notificationActionRow}><Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Yes, it arrived" : "Acknowledge"}</Text></Pressable>{delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery did not arrive?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>No, it did not arrive</Text></Pressable>}{canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}</View>}
+    {notification.actionRequired && !notification.acknowledgedAt && <View style={[styles.notificationActionRow, compact && styles.notificationActionRowCompact]}><Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Yes, it arrived" : "Acknowledge"}</Text></Pressable>{delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery did not arrive?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>No, it did not arrive</Text></Pressable>}{canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}</View>}
     {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }
@@ -1374,7 +1422,7 @@ function RouteList({ routes, bakery }: { routes: MobileRoute[]; bakery: boolean 
   if (!routes.length) return <View style={styles.portalEmpty}><Text style={styles.portalEmptyTitle}>No deliveries yet</Text><Text style={styles.portalEmptyBody}>Reserved, ongoing, and completed deliveries will appear here automatically.</Text></View>;
   return <View style={styles.routeList}>{routes.map((route) => <View style={styles.routeRow} key={route.id}>
     <View style={[styles.routeDot, route.status === "completed" && styles.routeDotComplete]} />
-    <View style={styles.routeCopy}><Text style={styles.routeTitle}>{bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`}</Text><Text style={styles.routeDetail}>{route.driverName} · {route.scheduledArrival}</Text></View>
+    <View style={styles.routeCopy}><Text style={styles.routeTitle}>{bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`}</Text><Text style={styles.routeDetail}>{route.driverName} · {formatMobileDateTime(route.scheduledArrival)}</Text>{route.deliveryProofUrl ? <Image source={{ uri: route.deliveryProofUrl }} style={styles.deliveryProofImage} /> : null}</View>
     <Text style={styles.routeStatus}>{route.status}</Text>
   </View>)}</View>;
 }
@@ -1684,6 +1732,12 @@ function formatMobileTime(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function formatMobileDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time not available";
+  return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+}
+
 function displayClock(value: string) {
   const [hour, minute] = value.split(":").map(Number);
   if (!Number.isFinite(hour)) return value;
@@ -1796,9 +1850,9 @@ const styles = StyleSheet.create({
   portalAvatarText: { color: colors.forest, fontSize: 11, fontWeight: "900" },
   portalContent: { padding: 28, gap: 16 },
   portalContentMobile: { padding: 16, paddingBottom: 36 },
-  portalStatusCard: { minHeight: 168, padding: 25, borderRadius: 14, backgroundColor: colors.forest, flexDirection: "row", alignItems: "center", gap: 20 },
+  portalStatusCard: { minHeight: 168, padding: 25, borderRadius: 14, backgroundColor: colors.forest, flexDirection: "row", alignItems: "stretch", gap: 18, overflow: "hidden" },
   portalStatusCardMobile: { flexDirection: "column", alignItems: "stretch", padding: 21 },
-  portalStatusCopy: { flex: 1 },
+  portalStatusCopy: { flex: 1, minWidth: 0 },
   portalStatusLabel: { flexDirection: "row", alignItems: "center", gap: 7 },
   portalStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#76C997" },
   portalStatusDotPaused: { backgroundColor: colors.yellow },
@@ -1806,7 +1860,8 @@ const styles = StyleSheet.create({
   portalStatusTitle: { color: colors.white, fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 11 },
   portalStatusBody: { color: "#B7CBC0", fontSize: 11, lineHeight: 17, marginTop: 8, maxWidth: 520 },
   portalStatusButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
-  portalStatusActions: { gap: 8 },
+  portalStatusActions: { width: 190, maxWidth: "32%", minWidth: 0, gap: 8, justifyContent: "center" },
+  portalStatusActionsMobile: { width: "100%", maxWidth: "100%" },
   portalStatusSecondaryButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38", alignItems: "center", justifyContent: "center" },
   portalStatusButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   portalMetrics: { flexDirection: "row", gap: 12 },
@@ -2044,7 +2099,16 @@ const styles = StyleSheet.create({
   statusNotificationBody: { color: "#B7CBC0", fontSize: 9, lineHeight: 14, marginTop: 4 },
   statusNotificationButton: { backgroundColor: colors.coral },
   notificationActionRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 9 },
+  notificationActionRowCompact: { marginTop: 16, paddingTop: 2 },
   notificationSecondaryButton: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38" },
+  deliveryHelpButton: { minHeight: 42, marginTop: 18, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.paper },
+  deliveryHelpPanel: { marginTop: 9, padding: 13, gap: 8, borderRadius: 10, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
+  deliveryHelpQuestion: { paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.border },
+  deliveryHelpQuestionText: { color: colors.forest, fontSize: 10, lineHeight: 15, fontWeight: "900" },
+  deliveryHelpAnswer: { marginTop: 6, color: colors.forestSoft, fontSize: 9, lineHeight: 14 },
+  deliveryHelpImmediate: { marginTop: 8, color: colors.forest, fontSize: 10, fontWeight: "900" },
+  cancelDeliveryButton: { alignSelf: "flex-start", marginTop: 24, paddingVertical: 8, paddingHorizontal: 4 },
+  deliveryProofImage: { width: 150, height: 105, marginTop: 10, borderRadius: 9, backgroundColor: colors.border },
   driverSearchTimeRow: { flexDirection: "row", gap: 10, marginBottom: 8 },
   locationPreferenceButton: { minHeight: 42, marginBottom: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, alignItems: "center", justifyContent: "center" },
   locationPreferenceText: { color: colors.forest, fontSize: 9, fontWeight: "900" },

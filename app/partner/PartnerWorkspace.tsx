@@ -20,7 +20,7 @@ type Account = {
 };
 type Contact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: string };
-type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string | Date };
+type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; deliveryProofUrl?: string; createdAt: string | Date };
 type OneTimeWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type AvailabilityPause = { id: number; endsAt: string };
 type ScheduleException = { id: number; exceptionDate: string };
@@ -45,7 +45,8 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [notifications, setNotifications] = useState<PartnerNotification[]>([]);
-  const priorityNotification = notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt) ?? notifications[0];
+  const priorityNotification = notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
+    ?? notifications.find((notification) => !notification.acknowledgedAt);
   const [windowDraft, setWindowDraft] = useState({ date: "", starts: "", ends: "", latest: "", serviceMode: "staffed" as "staffed" | "unattended" });
   const scheduledOpen = organizationIsOpen(kind, organization, new Date()) && !scheduleExceptions.some((exception) => exception.exceptionDate === localDate(new Date()));
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
@@ -58,7 +59,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);
   const available = recurringAvailable || Boolean(activeOneTime && (!bakery || pickupConfirmed));
-  const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${route.scheduledArrival}`, status: route.status }));
+  const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${formatPartnerDateTime(route.scheduledArrival)}`, status: route.status, photoUrl: route.deliveryProofUrl }));
   const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
   async function refreshAvailability() {
     const [response, exceptionResponse] = await Promise.all([fetch("/api/partner/availability", { cache: "no-store" }), fetch("/api/partner/schedule-exceptions", { cache: "no-store" })]);
@@ -401,11 +402,17 @@ function ProfileEditor({ kind, organization, account, contacts: initialContacts,
   </div>;
 }
 
-function ActivityCard({ activity, onAll }: { activity: Array<{ title: string; detail: string; status: string }>; onAll?: () => void }) {
+function ActivityCard({ activity, onAll }: { activity: Array<{ title: string; detail: string; status: string; photoUrl?: string }>; onAll?: () => void }) {
   return <article className="activityPanel">
     <div className="panelHeading"><div><span className="panelKicker">RECENT ACTIVITY</span><h2>Delivery updates</h2></div>{onAll && <button onClick={onAll}>View all</button>}</div>
-    {!activity.length ? <div className="emptyActivity"><strong>No deliveries yet</strong><p>Real delivery activity will appear here when routes are reserved or completed.</p></div> : activity.map((item) => <div className="activityRow" key={`${item.title}-${item.detail}`}><span className={item.status === "completed" ? "activityDot complete" : "activityDot"} /><div><strong>{item.title}</strong><small>{item.detail}</small></div><b>{item.status}</b></div>)}
+    {!activity.length ? <div className="emptyActivity"><strong>No deliveries yet</strong><p>Real delivery activity will appear here when routes are reserved or completed.</p></div> : activity.map((item) => <div className="activityRow" key={`${item.title}-${item.detail}`}><span className={item.status === "completed" ? "activityDot complete" : "activityDot"} /><div><strong>{item.title}</strong><small>{item.detail}</small>{item.photoUrl && <img className="activityProofPhoto" src={item.photoUrl} alt="Delivery drop-off evidence" />}</div><b>{item.status}</b></div>)}
   </article>;
+}
+
+function formatPartnerDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time not available";
+  return `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 }
 
 const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

@@ -3,6 +3,17 @@
   display: block;
 }
 
+.activityProofPhoto {
+  display: block;
+  width: min(260px, 100%);
+  height: auto;
+  max-height: 180px;
+  object-fit: cover;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
 .statusBanner > div:first-child {
   min-width: 0;
   padding-right: 250px;

@@ -535,6 +535,9 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
   if (!transitions[offer.deliveryStage]?.includes(nextStage)) {
     return Response.json({ error: "That route update is not available at this stage." }, { status: 409 });
   }
+  if (nextStage === "completed" && offer.pantryServiceMode === "unattended" && !offer.deliveryProofUrl) {
+    return Response.json({ error: "Take and upload a drop-off photo before completing this unattended delivery." }, { status: 409 });
+  }
   const now = new Date();
   const timestamps = {
     ...(nextStage === "arrived_at_bakery" ? { arrivedAtBakeryAt: now } : {}),
@@ -615,8 +618,12 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
       await replaceOperationalNotification({
         recipientType: "pantry", recipientId: pantry.id, eventType: "driver_arrived_at_pantry",
         threadKey: `pickup:${pickup.id}`,
-        title: "Driver has arrived", body: `${driver.displayName} has arrived with food from ${bakery.name}.`,
-        actionRequired: true, actionKey: `confirm-delivery:${offer.id}`,
+        title: offer.pantryServiceMode === "unattended" ? "Driver reached the unattended drop-off" : "Driver has arrived",
+        body: offer.pantryServiceMode === "unattended"
+          ? `${driver.displayName} reached the drop-off with food from ${bakery.name}. No staff response is required.`
+          : `${driver.displayName} has arrived with food from ${bakery.name}.`,
+        actionRequired: false,
+        actionKey: "",
       });
     } else if (nextStage === "completed") {
       const [route] = await db.select().from(rescueRoutes).where(and(
@@ -625,19 +632,33 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         eq(rescueRoutes.driverName, driver.displayName),
         eq(rescueRoutes.status, "reserved"),
       )).limit(1);
-      if (route) await db.update(rescueRoutes).set({ status: "completed" }).where(eq(rescueRoutes.id, route.id));
-      await replaceOperationalNotification({
-        recipientType: "pantry",
-        recipientId: pantry.id,
-        eventType: "delivery_confirmation_required",
-        threadKey: `delivery:${offer.id}`,
-        title: offer.pantryServiceMode === "unattended" ? "Confirm this delivery arrived" : "Confirm this delivery was received",
-        body: offer.pantryServiceMode === "unattended"
-          ? `${driver.displayName} marked the delivery from ${bakery.name} complete. The next person to open BakedBoston must confirm whether the food was present at the drop-off location.`
-          : `${driver.displayName} marked the delivery from ${bakery.name} complete. Please confirm whether your pantry received it.`,
-        actionRequired: true,
-        actionKey: `confirm-delivery:${offer.id}`,
-      });
+      if (route) await db.update(rescueRoutes).set({
+        status: "completed",
+        deliveryProofUrl: offer.deliveryProofUrl,
+        deliveryProofPathname: offer.deliveryProofPathname,
+      }).where(eq(rescueRoutes.id, route.id));
+      await Promise.all([
+        replaceOperationalNotification({
+          recipientType: "bakery",
+          recipientId: bakery.id,
+          eventType: "delivery_completed",
+          threadKey: `pickup:${pickup.id}`,
+          title: "Delivery completed",
+          body: `${driver.displayName} completed the delivery from ${bakery.name} to ${pantry.name}.`,
+        }),
+        replaceOperationalNotification({
+          recipientType: "pantry",
+          recipientId: pantry.id,
+          eventType: offer.pantryServiceMode === "unattended" ? "unattended_delivery_completed" : "delivery_confirmation_required",
+          threadKey: `pickup:${pickup.id}`,
+          title: offer.pantryServiceMode === "unattended" ? "Unattended delivery completed" : "Confirm this delivery was received",
+          body: offer.pantryServiceMode === "unattended"
+            ? `${driver.displayName} completed the drop-off from ${bakery.name} and submitted photo evidence. The delivery is complete; please verify the drop-off when someone is next available.`
+            : `${driver.displayName} marked the delivery from ${bakery.name} complete. Please confirm whether your pantry received it.`,
+          actionRequired: true,
+          actionKey: `confirm-delivery:${offer.id}`,
+        }),
+      ]);
     }
   }
   return Response.json({ offer: updated });

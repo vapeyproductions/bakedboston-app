@@ -102,6 +102,8 @@ export const rescueRoutes = pgTable("rescue_routes", {
   driverName: text("driver_name").notNull().default("Unassigned"),
   scheduledArrival: text("scheduled_arrival").notNull(),
   status: text("status", { enum: ["reserved", "ongoing", "completed", "cancelled"] }).notNull(),
+  deliveryProofUrl: text("delivery_proof_url").notNull().default(""),
+  deliveryProofPathname: text("delivery_proof_pathname").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -312,6 +314,8 @@ export const routeOffers = pgTable("route_offers", {
   pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
   arrivedAtPantryAt: timestamp("arrived_at_pantry_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  deliveryProofUrl: text("delivery_proof_url").notNull().default(""),
+  deliveryProofPathname: text("delivery_proof_pathname").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("route_offer_request_pickup_unique").on(table.driverRequestId, table.pickupOccurrenceId),
