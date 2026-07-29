@@ -603,10 +603,15 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
     if (nextStage === "en_route_to_bakery") {
       await Promise.all([
         replaceOperationalNotification({
-          recipientType: "bakery", recipientId: bakery.id, eventType: "driver_began_delivery",
+          recipientType: "bakery", recipientId: bakery.id,
+          eventType: offer.pickupReadyAt ? "pickup_ready_driver_en_route" : "driver_began_delivery",
           threadKey: `pickup:${pickup.id}`,
-          title: "Driver is on the way",
-          body: `${driver.displayName} has begun the delivery and is traveling to ${bakery.name}. Current estimated bakery arrival: ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}. The food is planned for ${pantry.name}.`,
+          title: offer.pickupReadyAt ? "Food is ready and the driver is on the way" : "Driver is on the way — prepare the pickup",
+          body: offer.pickupReadyAt
+            ? `The food is ready, and ${driver.displayName} is traveling to ${bakery.name}. Current estimated bakery arrival: ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`
+            : `${driver.displayName} is traveling to ${bakery.name}. Current estimated bakery arrival: ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}. Prepare the food for pickup and confirm when it is ready.`,
+          actionRequired: !offer.pickupReadyAt,
+          actionKey: offer.pickupReadyAt ? "" : `pickup-ready:${offer.id}`,
         }),
         replaceOperationalNotification({
           recipientType: "pantry", recipientId: pantry.id, eventType: "driver_began_delivery",

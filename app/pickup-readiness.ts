@@ -67,12 +67,27 @@ export async function markPickupReady(bakeryId: number, offerId: number) {
     eq(inAppNotifications.recipientId, bakeryId),
     eq(inAppNotifications.actionKey, `pickup-ready:${offer.id}`),
   ));
-  await db.insert(inAppNotifications).values({
-    recipientType: "driver",
-    recipientId: offer.driverId,
-    eventType: "pickup_ready",
-    title: "Your pickup is ready",
-    body: "The bakery confirmed that the food is packaged and ready for pickup.",
-  });
+  const driverTraveling = ["en_route_to_bakery", "arrived_at_bakery"].includes(offer.deliveryStage);
+  await Promise.all([
+    db.insert(inAppNotifications).values({
+      recipientType: "driver",
+      recipientId: offer.driverId,
+      eventType: "pickup_ready",
+      title: "Your pickup is ready",
+      body: "The bakery confirmed that the food is packaged and ready for pickup.",
+    }),
+    replaceOperationalNotification({
+      recipientType: "bakery",
+      recipientId: bakeryId,
+      eventType: driverTraveling ? "pickup_ready_driver_en_route" : "pickup_ready",
+      threadKey: `pickup:${pickup.id}`,
+      title: driverTraveling ? "Food is ready and the driver is on the way" : "Food is ready for pickup",
+      body: driverTraveling
+        ? `The food is ready, and the driver is traveling to the bakery. Current estimated arrival: ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`
+        : "The food is packaged and ready. The driver has been notified and will confirm when the delivery begins.",
+      actionRequired: false,
+      actionKey: "",
+    }),
+  ]);
   return updated;
 }

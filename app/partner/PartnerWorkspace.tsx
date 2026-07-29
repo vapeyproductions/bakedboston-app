@@ -72,7 +72,9 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     ?? currentTimedPickup
     ?? chronologicalOpenPickups[0]
     ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+  const hasActiveRoute = routeRows.some((route) => route.status === "reserved" || route.status === "ongoing");
   const notificationAppliesToCurrentPickup = (notification: PartnerNotification) => {
+    if (hasActiveRoute && notification.eventType === "delivery_completed") return false;
     if (notification.eventType !== "pickup_commitment_reminder") return true;
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
     return pickupId > 0 && pickupId === todayPickup?.id;
