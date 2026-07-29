@@ -136,6 +136,7 @@ export async function POST(request: Request) {
     const earliestStart = validDateTime(body.earliestStart, "Earliest start");
     const latestFinish = validDateTime(body.latestFinish, "Latest finish");
     if (latestFinish <= earliestStart) throw new Error("Latest finish must be after the earliest start.");
+    if (earliestStart <= new Date()) throw new Error("You can’t request a ride in the past. Choose a future date and starting time.");
     const startZip = optionalZip(body.startZip, "Starting ZIP");
     const endZip = optionalZip(body.endZip, "Destination ZIP");
     const maximumExtraMinutes = body.maximumExtraMinutes === null || body.maximumExtraMinutes === undefined || body.maximumExtraMinutes === ""

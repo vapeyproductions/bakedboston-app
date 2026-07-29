@@ -598,6 +598,11 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       setError("Choose a valid date and a latest finish after the earliest start.");
       return;
     }
+    const requestedStart = new Date(mobileLocalDateTime(search.date, search.earliest));
+    if (requestedStart.getTime() <= Date.now()) {
+      setError("You can’t request a ride in the past. Choose a future date and starting time.");
+      return;
+    }
     if ((search.startZip && !/^\d{5}$/.test(search.startZip)) || (search.endZip && !/^\d{5}$/.test(search.endZip))) {
       setError("ZIP-code preferences must contain five digits.");
       return;
