@@ -1,25 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-
-type Route = {
-  id: number;
-  bakery: string;
-  pantry: string;
-  food: string;
-  pounds: number;
-  pickup: string;
-  distance: number;
-  minutes: number;
-  urgency: "High" | "Medium";
-  color: string;
-};
-
-const routes: Route[] = [
-  { id: 1, bakery: "Flour & Field", pantry: "Harbor Community Pantry", food: "Artisan bread + produce", pounds: 42, pickup: "4:15–4:45 PM", distance: 2.4, minutes: 18, urgency: "High", color: "#ef6548" },
-  { id: 2, bakery: "Morning Bell Bakery", pantry: "Northside Food Shelf", food: "Pastries + fruit", pounds: 28, pickup: "5:00–5:30 PM", distance: 3.1, minutes: 24, urgency: "Medium", color: "#f4bf43" },
-  { id: 3, bakery: "Grain House", pantry: "St. Anne's Cupboard", food: "Sandwiches + loaves", pounds: 17, pickup: "5:30–6:00 PM", distance: 1.8, minutes: 14, urgency: "Medium", color: "#4e8b6b" },
-];
+import { useEffect, useState } from "react";
 
 const pins = [
   { label: "Flour & Field", type: "B", left: "18%", top: "28%", color: "#ef6548" },
@@ -31,24 +12,9 @@ const pins = [
 ];
 
 export default function Home() {
-  const [capacity, setCapacity] = useState(120);
-  const [priority, setPriority] = useState<"balanced" | "carbon" | "speed">("balanced");
-  const [optimized, setOptimized] = useState(true);
-  const [claimed, setClaimed] = useState<number[]>([]);
   const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0 });
 
   useEffect(() => { void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); }); }, []);
-
-  const score = useMemo(() => {
-    if (priority === "carbon") return { miles: 2.9, served: 3 };
-    if (priority === "speed") return { miles: 3.5, served: 3 };
-    return { miles: 3.2, served: 3 };
-  }, [priority]);
-
-  const runOptimizer = () => {
-    setOptimized(false);
-    window.setTimeout(() => setOptimized(true), 750);
-  };
 
   return (
     <main>
@@ -100,7 +66,7 @@ export default function Home() {
             <div className="driverCar">🚗<span>YOU</span></div>
           </div>
           <div className="routeSummary">
-            <div><small>OPTIMIZED LOOP</small><strong>{score.miles} mi <span>·</span> 30 min</strong></div>
+            <div><small>OPTIMIZED LOOP</small><strong>3.2 mi <span>·</span> 30 min</strong></div>
             <div className="summaryImpact"><strong>{network.bakeries}</strong><small>registered bakeries</small></div>
             <div className="summaryImpact"><strong>{network.pantries}</strong><small>registered pantries</small></div>
           </div>
@@ -132,42 +98,6 @@ export default function Home() {
           </div>
           <aside className="appQr"><div className="qrPlaceholder" aria-label="Scan to download BakedBoston">▦<span>▦</span><i>▦</i></div><strong>Scan to download<br />the BakedBoston app</strong><small>Driver routes are mobile-only.</small></aside>
         </div>
-        <div className="routeLayout">
-          <div className="routeList">
-            {routes.map((route, index) => (
-              <article className="routeCard" key={route.id}>
-                <div className="routeNumber" style={{ background: route.color }}>{String(index + 1).padStart(2, "0")}</div>
-                <div className="routeMain">
-                  <div className="routeHead">
-                    <div><h3>{route.bakery} <span>→</span> {route.pantry}</h3><p>{route.food} · {route.pounds} lb</p></div>
-                    <span className={`urgency ${route.urgency.toLowerCase()}`}>{route.urgency} priority</span>
-                  </div>
-                  <div className="routeMeta">
-                    <span>◷ {route.pickup}</span><span>↗ {route.distance} miles</span><span>≈ {route.minutes} min</span>
-                    <button className={claimed.includes(route.id) ? "claimed" : ""} onClick={() => setClaimed((c) => c.includes(route.id) ? c.filter((id) => id !== route.id) : [...c, route.id])}>
-                      {claimed.includes(route.id) ? "Claimed ✓" : "Claim stop"}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <aside className="optimizer" id="model">
-            <div className="optimizerHead"><span>✦</span><div><small>BAKEDBOSTON ENGINE</small><h3>Route optimizer</h3></div></div>
-            <label>Vehicle capacity <strong>{capacity} lb</strong></label>
-            <input aria-label="Vehicle capacity" type="range" min="60" max="180" step="10" value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} />
-            <label>Optimize for</label>
-            <div className="toggleGroup">
-              {(["balanced", "carbon", "speed"] as const).map((item) => <button key={item} onClick={() => setPriority(item)} className={priority === item ? "active" : ""}>{item}</button>)}
-            </div>
-            <div className="constraints">
-              <span><i>✓</i> Pickup windows</span><span><i>✓</i> Pantry demand</span><span><i>✓</i> Food freshness</span><span><i>✓</i> Driver capacity</span>
-            </div>
-            <button className="optimizeButton" onClick={runOptimizer}>{optimized ? "Run optimizer" : "Solving network…"} <span>→</span></button>
-            <p className="solverNote"><i /> {optimized ? `Optimal solution found · ${score.served}/3 pantries served` : "Evaluating 2,184 feasible routes…"}</p>
-          </aside>
-        </div>
       </section>
 
       <section className="howSection" id="how">
@@ -185,9 +115,10 @@ export default function Home() {
           <h2>Less waste is<br />a solvable problem.</h2>
         </div>
         <div className="modelCopy">
-          <p>BakedBoston uses a mixed-integer optimization model to match one confirmed bakery pickup with a feasible pantry receiving window and a volunteer driver’s time, origin, and preferred destination. Candidate routes are screened against real travel time, pickup and latest-arrival deadlines, pantry availability, and whether a bakery has already committed its single daily pickup.</p>
-          <div className="formula">min <b>Σ</b> <i>cᵢⱼxᵢⱼ + λCO₂ + μwaste</i></div>
-          <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li><li>Explainable, carbon-aware scoring</li></ul>
+          <p>BakedBoston uses a mixed-integer optimization model to match each confirmed bakery pickup with a feasible pantry receiving window and a volunteer driver. The model decides which bakery–pantry–driver combinations should be offered while respecting the practical limits of a real delivery.</p>
+          <div className="formula">min <b>Σ</b> <i>(travel time + route distance + lateness risk − pantry priority)</i></div>
+          <div className="modelDetails"><div><strong>What is minimized</strong><p>Total predicted driving time and distance, with penalties for routes that approach pickup deadlines or a pantry’s latest permitted arrival.</p></div><div><strong>How a route is scored</strong><p>Feasible routes receive higher scores when they are short, fit a driver’s requested time and direction, and serve a pantry that has received fewer recent delivery opportunities.</p></div><div><strong>Hard constraints</strong><p>Every route must reach the bakery before its pickup deadline, reach the pantry before its acceptance cutoff, use an open and confirmed staffed pantry window (or unattended window), and assign a bakery pickup only once.</p></div><div><strong>Live inputs</strong><p>Google travel estimates, partner coordinates, recurring and one-time availability, driver origin/destination preferences, and rolling pantry priority data update the available network.</p></div></div>
+          <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li></ul>
           <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
         </div>
       </section>
