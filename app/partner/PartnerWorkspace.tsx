@@ -26,7 +26,7 @@ type AvailabilityPause = { id: number; endsAt: string };
 type ScheduleException = { id: number; exceptionDate: string };
 type PickupOccurrence = {
   id: number; serviceDate: string; pickupWindowStartsAt: string; pickupDeadline: string;
-  status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "cancelled";
+  status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "fulfilled" | "cancelled";
   confirmedAt: string | null;
 };
 type PartnerNotification = { id: number; title: string; body: string; actionRequired: boolean; actionKey: string; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
@@ -57,6 +57,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     : undefined;
   const todayPickup = activeOneTimePickup ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
+  const pickupFulfilled = todayPickup?.status === "fulfilled";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);
   const available = recurringAvailable || Boolean(activeOneTime && (!bakery || pickupConfirmed));
   const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${formatPartnerDateTime(route.scheduledArrival)}`, status: route.status, photoUrl: route.deliveryProofUrl }));
@@ -201,7 +202,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       {section === "overview" && <>
         <div className="statusBanner">
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
-            <h2>{activeOneTime && bakery && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
+            <h2>{pickupFulfilled ? "Today’s pickup is complete." : activeOneTime && bakery && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
             <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p>
             {priorityNotification && <StatusNotification notification={priorityNotification} onAcknowledge={async (notification, handoffAction, deliveryReceived) => {
               const pickupReady = notification.actionKey.startsWith("pickup-ready:");
@@ -275,10 +276,11 @@ function BakeryPickupConfirmation({ occurrence, busy, onRespond, showSummary }: 
 }) {
   if (!occurrence) return null;
   const confirmed = occurrence.status === "confirmed" || occurrence.status === "reserved";
+  const fulfilled = occurrence.status === "fulfilled";
   const unavailable = occurrence.status === "insufficient_food" || occurrence.status === "cancelled";
   return <section className={`statusCommitment ${showSummary ? "" : "controlsOnly"}`}>
-    {showSummary && <><strong>{occurrence.status === "reserved" ? "A driver has reserved this pickup." : confirmed ? "Food availability confirmed." : unavailable ? "Marked unavailable today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</strong><span>{formatOccurrenceWindow(occurrence)}</span></>}
-    {occurrence.status !== "reserved" && <div className="pickupConfirmationActions">
+    {showSummary && <><strong>{fulfilled ? "Today’s food was picked up." : occurrence.status === "reserved" ? "A driver has reserved this pickup." : confirmed ? "Food availability confirmed." : unavailable ? "Marked unavailable today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</strong><span>{formatOccurrenceWindow(occurrence)}</span></>}
+    {!fulfilled && occurrence.status !== "reserved" && <div className="pickupConfirmationActions">
       {!confirmed && <button disabled={busy} className="confirmPickup" onClick={() => onRespond("confirmed")}>{unavailable ? "Change to food available" : "Food will be available"}</button>}
       {confirmed && <button disabled={busy} onClick={() => onRespond("insufficient_food")}>Change to not enough food</button>}
       {!confirmed && !unavailable && <button disabled={busy} onClick={() => onRespond("decision_deferred")}>Don’t know yet</button>}

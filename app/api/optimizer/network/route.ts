@@ -84,7 +84,9 @@ export async function GET(request: Request) {
       status: route.status,
       createdAt: route.createdAt,
     })),
-    pickupOccurrences: pickupOccurrences.filter((pickup) => registeredBakeries.has(pickup.bakeryId)),
+    pickupOccurrences: pickupOccurrences.filter((pickup) =>
+      registeredBakeries.has(pickup.bakeryId) && pickup.status === "confirmed"
+    ),
     rideRequests: rideRequests.filter((request) => ["active", "paused"].includes(request.status)),
     routeOffers: offers,
   }, {

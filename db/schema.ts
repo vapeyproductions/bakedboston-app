@@ -249,7 +249,7 @@ export const bakeryPickupOccurrences = pgTable("bakery_pickup_occurrences", {
   pickupDeadline: timestamp("pickup_deadline", { withTimezone: true }).notNull(),
   status: text("status", { enum: [
     "scheduled", "awaiting_confirmation", "confirmed", "decision_deferred",
-    "insufficient_food", "reserved", "cancelled",
+    "insufficient_food", "reserved", "fulfilled", "cancelled",
   ] }).notNull().default("awaiting_confirmation"),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
   commitmentReminderDueAt: timestamp("commitment_reminder_due_at", { withTimezone: true }),

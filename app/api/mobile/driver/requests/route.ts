@@ -599,6 +599,13 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         actionRequired: true, actionKey: `confirm-handoff:${offer.id}:${now.getTime()}`,
       });
     } else if (nextStage === "picked_up") {
+      await db.update(bakeryPickupOccurrences).set({
+        status: "fulfilled",
+        updatedAt: now,
+      }).where(and(
+        eq(bakeryPickupOccurrences.id, pickup.id),
+        eq(bakeryPickupOccurrences.status, "reserved"),
+      ));
       await Promise.all([
         replaceOperationalNotification({
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_picked_up",
