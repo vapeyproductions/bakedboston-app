@@ -6,6 +6,9 @@ import { reportCaseId } from "../../../report-email";
 import { writeAudit } from "../../../audit";
 
 const INFO_FROM = "BakedBoston <info@baked-boston.com>";
+const INFO_EMAIL = "info@baked-boston.com";
+const recipientsFrom = (value: unknown) => String(value ?? "").split(",").map((email) => email.trim()).filter(Boolean);
+const attachmentsFrom = (value: unknown) => Array.isArray(value) ? value.filter((item): item is { filename: string; content: string } => Boolean(item && typeof item === "object" && typeof (item as { filename?: unknown }).filename === "string" && typeof (item as { content?: unknown }).content === "string")).slice(0, 6) : [];
 
 export async function GET() {
   if (!(await getAdministrator())) return Response.json({ error: "Sign in required." }, { status: 401 });
@@ -78,6 +81,9 @@ export async function POST(request: Request) {
 
   if (compose) {
     const recipient = String(body.to ?? "").trim();
+    const cc = recipientsFrom(body.cc);
+    const bcc = recipientsFrom(body.bcc);
+    const attachments = attachmentsFrom(body.attachments);
     const subject = String(body.subject ?? "").trim();
     const text = String(body.message ?? "").trim();
     if (!recipient || !subject || !text) return Response.json({ error: "Recipient, subject, and message are required." }, { status: 400 });
@@ -87,19 +93,33 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         from: INFO_FROM,
         to: [recipient],
+        cc,
+        bcc,
+        attachments,
         reply_to: "info@baked-boston.com",
         subject,
         text: `${text}\n\nBakedBoston`,
       }),
     });
-    const result = await response.json().catch(() => ({})) as { message?: string };
+    const result = await response.json().catch(() => ({})) as { message?: string; id?: string };
     if (!response.ok) return Response.json({ error: result.message ?? "Could not send email." }, { status: 400 });
+    await getDb().insert(adminInboxMessages).values({
+      externalEmailId: `outbound:${result.id ?? crypto.randomUUID()}`,
+      senderEmail: INFO_EMAIL,
+      recipientEmails: JSON.stringify([recipient, ...cc, ...bcc]),
+      subject,
+      body: `${text}${attachments.length ? `\n\nAttachments: ${attachments.map((file) => file.filename).join(", ")}` : ""}`,
+      status: "read",
+    });
     await writeAudit({ actorType: "admin", actorId: admin.id, actorName: admin.displayName, action: "sent general inbox email", entityType: "admin_inbox", entityId: null, entityName: subject });
     return Response.json({ ok: true });
   }
 
   const id = Number(body.id);
   const text = String(body.message ?? "").trim();
+  const cc = recipientsFrom(body.cc);
+  const bcc = recipientsFrom(body.bcc);
+  const attachments = attachmentsFrom(body.attachments);
   if (!Number.isInteger(id) || !text) return Response.json({ error: "A message and reply are required." }, { status: 400 });
   const [message] = await getDb().select().from(adminInboxMessages).where(and(eq(adminInboxMessages.id, id))).limit(1);
   if (!message?.senderEmail) return Response.json({ error: "This email has no reply address." }, { status: 400 });
@@ -109,13 +129,25 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       from: INFO_FROM,
       to: [message.senderEmail],
+      cc,
+      bcc,
+      attachments,
       reply_to: "info@baked-boston.com",
       subject: /^re:/i.test(message.subject) ? message.subject : `Re: ${message.subject}`,
       text: `${text}\n\nBakedBoston`,
     }),
   });
-  const result = await response.json().catch(() => ({})) as { message?: string };
+  const result = await response.json().catch(() => ({})) as { message?: string; id?: string };
   if (!response.ok) return Response.json({ error: result.message ?? "Could not send reply." }, { status: 400 });
+  await getDb().insert(adminInboxMessages).values({
+    externalEmailId: `outbound:${result.id ?? crypto.randomUUID()}`,
+    senderEmail: INFO_EMAIL,
+    recipientEmails: JSON.stringify([message.senderEmail, ...cc, ...bcc]),
+    subject: /^re:/i.test(message.subject) ? message.subject : `Re: ${message.subject}`,
+    body: `${text}${attachments.length ? `\n\nAttachments: ${attachments.map((file) => file.filename).join(", ")}` : ""}`,
+    status: "read",
+    linkedReportId: message.linkedReportId,
+  });
   await getDb().update(adminInboxMessages).set({ status: "read", updatedAt: new Date() }).where(eq(adminInboxMessages.id, id));
   await writeAudit({ actorType: "admin", actorId: admin.id, actorName: admin.displayName, action: "replied to inbox email", entityType: "admin_inbox_message", entityId: id, entityName: message.subject });
   return Response.json({ ok: true });

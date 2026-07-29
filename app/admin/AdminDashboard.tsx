@@ -340,9 +340,12 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
 }
 
 function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInboxMessage[]; reports: SupportReport[]; onChanged: () => Promise<void> }) {
-  const [selected, setSelected] = useState<AdminInboxMessage | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [folder, setFolder] = useState<"active" | "archived">("active");
   const [reply, setReply] = useState("");
+  const [replyCc, setReplyCc] = useState("");
+  const [replyBcc, setReplyBcc] = useState("");
+  const [replyAttachments, setReplyAttachments] = useState<EmailAttachment[]>([]);
   const [reportId, setReportId] = useState("");
   const [urgency, setUrgency] = useState<SupportReport["urgency"]>("routine");
   const [busy, setBusy] = useState(false);
@@ -351,7 +354,17 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
   const [composeTo, setComposeTo] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
+  const [composeCc, setComposeCc] = useState("");
+  const [composeBcc, setComposeBcc] = useState("");
+  const [composeAttachments, setComposeAttachments] = useState<EmailAttachment[]>([]);
   const visible = messages.filter((message) => folder === "archived" ? message.status === "archived" : message.status !== "archived");
+  const threads = useMemo(() => {
+    const grouped = new Map<string, AdminInboxMessage[]>();
+    for (const message of visible) { const key = inboxThreadKey(message); grouped.set(key, [...(grouped.get(key) ?? []), message]); }
+    return [...grouped.entries()].map(([key, entries]) => ({ key, messages: entries.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)), latest: entries.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0] })).sort((a, b) => +new Date(b.latest.createdAt) - +new Date(a.latest.createdAt));
+  }, [visible]);
+  const selectedThread = threads.find((thread) => thread.key === selectedKey) ?? null;
+  const selected = selectedThread?.latest ?? null;
 
   async function patch(action: string, extra: Record<string, unknown> = {}) {
     if (!selected) return;
@@ -361,7 +374,7 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
     const data = await response.json().catch(() => null);
     if (response.ok) {
       setNotice(action === "create_report" ? `Created ${formatReportId(data.reportId)}.` : action === "link" ? `Connected to ${formatReportId(data.reportId)}.` : "Inbox updated.");
-      setSelected(null);
+      setSelectedKey(null);
       await onChanged();
     } else setNotice(data?.error ?? "Could not update this message.");
     setBusy(false);
@@ -370,54 +383,71 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
   async function sendReply() {
     if (!selected || !reply.trim()) return;
     setBusy(true);
-    const response = await fetch("/api/admin/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selected.id, message: reply }) });
+    const response = await fetch("/api/admin/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selected.id, message: reply, cc: replyCc, bcc: replyBcc, attachments: replyAttachments }) });
     const data = await response.json().catch(() => null);
     setNotice(response.ok ? `Reply sent to ${selected.senderEmail}.` : data?.error ?? "Could not send reply.");
-    if (response.ok) { setReply(""); await onChanged(); }
+    if (response.ok) { setReply(""); setReplyCc(""); setReplyBcc(""); setReplyAttachments([]); await onChanged(); }
     setBusy(false);
   }
 
   async function sendNewEmail() {
     if (!composeTo.trim() || !composeSubject.trim() || !composeBody.trim()) return;
     setBusy(true);
-    const response = await fetch("/api/admin/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compose: true, to: composeTo, subject: composeSubject, message: composeBody }) });
+    const response = await fetch("/api/admin/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compose: true, to: composeTo, cc: composeCc, bcc: composeBcc, subject: composeSubject, message: composeBody, attachments: composeAttachments }) });
     const data = await response.json().catch(() => null);
     setNotice(response.ok ? `Email sent to ${composeTo}.` : data?.error ?? "Could not send email.");
-    if (response.ok) { setComposeTo(""); setComposeSubject(""); setComposeBody(""); setComposing(false); }
+    if (response.ok) { setComposeTo(""); setComposeCc(""); setComposeBcc(""); setComposeSubject(""); setComposeBody(""); setComposeAttachments([]); setComposing(false); await onChanged(); }
     setBusy(false);
   }
 
-  async function openMessage(message: AdminInboxMessage) {
-    setSelected(message);
+  async function openThread(key: string, entries: AdminInboxMessage[]) {
+    setSelectedKey(key);
     setReply("");
+    setReplyCc(""); setReplyBcc("");
+    setReplyAttachments([]);
     setReportId("");
     setNotice("");
-    if (message.status === "unread") {
-      await fetch("/api/admin/inbox", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: message.id, action: "read" }) });
+    const unread = entries.filter((message) => message.status === "unread");
+    if (unread.length) {
+      await Promise.all(unread.map((message) => fetch("/api/admin/inbox", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: message.id, action: "read" }) })));
       await onChanged();
     }
+  }
+
+  function forwardThread() {
+    if (!selectedThread || !selected) return;
+    setComposeSubject(`Fwd: ${selected.subject.replace(/^(re|fw|fwd):\\s*/i, "")}`);
+    setComposeBody(selectedThread.messages.map((message) => `From: ${isInboxOutbound(message) ? "BakedBoston" : message.senderEmail}\nSent: ${new Date(message.createdAt).toLocaleString()}\n\n${message.body}`).join("\n\n---------- Forwarded message ----------\n\n"));
+    setComposing(true);
   }
 
   return <section className="inboxWorkspace">
     <div className="inboxToolbar"><p>Messages sent to <strong>info@baked-boston.com</strong> that are not already connected to a report appear here.</p><div><button className="composeInboxBtn" onClick={() => setComposing(true)}>New email</button><button className={folder === "active" ? "selected" : ""} onClick={() => setFolder("active")}>Inbox</button><button className={folder === "archived" ? "selected" : ""} onClick={() => setFolder("archived")}>Archived</button></div></div>
     {notice && <div className="reportUpdateNotice">{notice}</div>}
     <div className="inboxLayout">
-      <div className="inboxList">{visible.length ? visible.map((message) => <button className={`${message.status} ${selected?.id === message.id ? "selected" : ""}`} key={message.id} onClick={() => openMessage(message)}><span>{message.senderEmail || "Unknown sender"}<time>{new Date(message.createdAt).toLocaleString()}</time></span><strong>{message.subject || "(No subject)"}</strong><p>{message.body}</p>{message.linkedReportId && <small>Connected to {formatReportId(message.linkedReportId)}</small>}</button>) : <p className="reportQueueEmpty">No messages in this folder.</p>}</div>
+      <div className="inboxList">{threads.length ? threads.map((thread) => <button className={`${thread.messages.some((message) => message.status === "unread") ? "unread" : "read"} ${selectedKey === thread.key ? "selected" : ""}`} key={thread.key} onClick={() => openThread(thread.key, thread.messages)}><span>{inboxParticipant(thread.latest)}<time>{new Date(thread.latest.createdAt).toLocaleString()}</time></span><strong>{thread.latest.subject || "(No subject)"}</strong><p>{thread.latest.body}</p><small>{thread.messages.length} message{thread.messages.length === 1 ? "" : "s"}{thread.latest.linkedReportId ? ` · ${formatReportId(thread.latest.linkedReportId)}` : ""}</small></button>) : <p className="reportQueueEmpty">No conversations in this folder.</p>}</div>
       <article className="inboxReader">
-        {!selected ? <div className="adminEmpty"><span>✉</span><h2>Select a message</h2><p>Read, reply, archive, or connect it to support work.</p></div> : <>
-          <header><div><small>FROM</small><strong>{selected.senderEmail}</strong></div><time>{new Date(selected.createdAt).toLocaleString()}</time></header>
-          <h2>{selected.subject}</h2><p className="inboxBody">{selected.body}</p>
+        {!selectedThread || !selected ? <div className="adminEmpty"><span>✉</span><h2>Select a conversation</h2><p>Read the full thread, reply, archive, or optionally connect it to a report.</p></div> : <>
+          <header><div><small>CONVERSATION WITH</small><strong>{inboxParticipant(selected)}</strong></div><time>{selectedThread.messages.length} messages</time></header>
+          <h2>{selected.subject}</h2><div className="inboxThread">{selectedThread.messages.map((message) => <article className={isInboxOutbound(message) ? "outbound" : "inbound"} key={message.id}><small>{isInboxOutbound(message) ? "Sent from BakedBoston" : message.senderEmail} · {new Date(message.createdAt).toLocaleString()}</small><p>{message.body}</p></article>)}</div>
           {selected.linkedReportId ? <p className="inboxLinked">Connected to {formatReportId(selected.linkedReportId)}</p> : <>
-            <section className="inboxActions"><h3>Connect to support</h3><div><select value={reportId} onChange={(event) => setReportId(event.target.value)}><option value="">Choose an existing report…</option>{reports.map((report) => <option key={report.id} value={report.id}>{formatReportId(report.id)} · {report.reporterName} · {report.category.replaceAll("_", " ")}</option>)}</select><button disabled={!reportId || busy} onClick={() => patch("link", { reportId: Number(reportId) })}>Connect</button></div><div><select value={urgency} onChange={(event) => setUrgency(event.target.value as SupportReport["urgency"])}><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety</option></select><button disabled={busy} onClick={() => patch("create_report", { urgency, category: "email_request" })}>Create new report</button></div></section>
-            <label className="inboxReply">Reply<textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Write a reply…" /><button className="solidBtn" disabled={!reply.trim() || busy} onClick={sendReply}>Send from info@baked-boston.com</button></label>
+            <details className="inboxActions"><summary>Connect this conversation to support</summary><div><select value={reportId} onChange={(event) => setReportId(event.target.value)}><option value="">Choose an existing report…</option>{reports.map((report) => <option key={report.id} value={report.id}>{formatReportId(report.id)} · {report.reporterName} · {report.category.replaceAll("_", " ")}</option>)}</select><button disabled={!reportId || busy} onClick={() => patch("link", { reportId: Number(reportId) })}>Connect</button></div><div><select value={urgency} onChange={(event) => setUrgency(event.target.value as SupportReport["urgency"])}><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety</option></select><button disabled={busy} onClick={() => patch("create_report", { urgency, category: "email_request" })}>Create report</button></div></details>
+            <label className="inboxReply">Reply<input value={replyCc} onChange={(event) => setReplyCc(event.target.value)} placeholder="CC (optional, comma-separated)" /><input value={replyBcc} onChange={(event) => setReplyBcc(event.target.value)} placeholder="BCC (optional, comma-separated)" /><input type="file" multiple onChange={(event) => addEmailFiles(event.target.files, setReplyAttachments)} /><AttachmentNames files={replyAttachments} /><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Write a reply…" /><div className="inboxReplyActions"><button onClick={forwardThread} disabled={busy}>Forward</button><button className="solidBtn" disabled={!reply.trim() || busy} onClick={sendReply}>Send from info@baked-boston.com</button></div></label>
           </>}
           <div className="inboxFooter">{selected.status === "archived" ? <button onClick={() => patch("restore")} disabled={busy}>Return to inbox</button> : <button onClick={() => patch("archive")} disabled={busy}>Archive message</button>}</div>
         </>}
       </article>
     </div>
-    {composing && <div className="reportModalBackdrop"><section className="reportEmailModal inboxComposeModal"><button className="reportModalClose" onClick={() => setComposing(false)}>×</button><span>INFO@BAKED-BOSTON.COM</span><h2>New email</h2><p>This message will be sent from BakedBoston&apos;s general inbox.</p><label>To<input type="email" value={composeTo} onChange={(event) => setComposeTo(event.target.value)} placeholder="name@example.com" /></label><label>Subject<input value={composeSubject} onChange={(event) => setComposeSubject(event.target.value)} placeholder="Subject" /></label><label>Message<textarea value={composeBody} onChange={(event) => setComposeBody(event.target.value)} placeholder="Write your email…" /></label><button className="solidBtn" disabled={busy || !composeTo.trim() || !composeSubject.trim() || !composeBody.trim()} onClick={sendNewEmail}>{busy ? "Sending…" : "Send email"}</button></section></div>}
+    {composing && <div className="reportModalBackdrop"><section className="reportEmailModal inboxComposeModal"><button className="reportModalClose" onClick={() => setComposing(false)}>×</button><span>INFO@BAKED-BOSTON.COM</span><h2>New email</h2><p>This message will be sent from BakedBoston&apos;s general inbox.</p><label>To<input type="email" value={composeTo} onChange={(event) => setComposeTo(event.target.value)} placeholder="name@example.com" /></label><label>CC<input value={composeCc} onChange={(event) => setComposeCc(event.target.value)} placeholder="Optional, comma-separated" /></label><label>BCC<input value={composeBcc} onChange={(event) => setComposeBcc(event.target.value)} placeholder="Optional, comma-separated" /></label><label>Subject<input value={composeSubject} onChange={(event) => setComposeSubject(event.target.value)} placeholder="Subject" /></label><label>Attachments<input type="file" multiple onChange={(event) => addEmailFiles(event.target.files, setComposeAttachments)} /><AttachmentNames files={composeAttachments} /></label><label>Message<textarea value={composeBody} onChange={(event) => setComposeBody(event.target.value)} placeholder="Write your email…" /></label><button className="solidBtn" disabled={busy || !composeTo.trim() || !composeSubject.trim() || !composeBody.trim()} onClick={sendNewEmail}>{busy ? "Sending…" : "Send email"}</button></section></div>}
   </section>;
 }
+
+function isInboxOutbound(message: AdminInboxMessage) { return message.senderEmail.toLowerCase() === "info@baked-boston.com"; }
+function inboxParticipant(message: AdminInboxMessage) { if (!isInboxOutbound(message)) return message.senderEmail || "Unknown sender"; try { return (JSON.parse(message.recipientEmails) as string[]).find((email) => email.toLowerCase() !== "info@baked-boston.com") ?? "BakedBoston contact"; } catch { return "BakedBoston contact"; } }
+function inboxThreadKey(message: AdminInboxMessage) { return `${inboxParticipant(message).toLowerCase()}|${message.subject.replace(/^(re|fw|fwd):\s*/gi, "").trim().toLowerCase()}`; }
+type EmailAttachment = { filename: string; content: string };
+function AttachmentNames({ files }: { files: EmailAttachment[] }) { return files.length ? <small className="attachmentNames">{files.map((file) => file.filename).join(", ")}</small> : null; }
+function addEmailFiles(files: FileList | null, setFiles: (files: EmailAttachment[]) => void) { if (!files?.length) return; Promise.all([...files].slice(0, 6).map((file) => new Promise<EmailAttachment>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve({ filename: file.name, content: String(reader.result).split(",")[1] ?? "" }); reader.onerror = reject; reader.readAsDataURL(file); }))).then(setFiles).catch(() => undefined); }
 
 function ReportsWorkspace({ reports, messages, onChanged }: { reports: SupportReport[]; messages: SupportReportMessage[]; onChanged: () => Promise<void> }) {
   const [busyId, setBusyId] = useState<number | null>(null);
