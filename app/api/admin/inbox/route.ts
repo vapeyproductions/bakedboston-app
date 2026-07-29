@@ -5,7 +5,7 @@ import { getAdministrator } from "../../../admin-auth";
 import { reportCaseId } from "../../../report-email";
 import { writeAudit } from "../../../audit";
 
-const HELP_FROM = "BakedBoston Help <help@baked-boston.com>";
+const INFO_FROM = "BakedBoston <info@baked-boston.com>";
 
 export async function GET() {
   if (!(await getAdministrator())) return Response.json({ error: "Sign in required." }, { status: 401 });
@@ -72,20 +72,44 @@ export async function POST(request: Request) {
   const admin = await getAdministrator();
   if (!admin) return Response.json({ error: "Sign in required." }, { status: 401 });
   const body = await request.json() as Record<string, unknown>;
+  const compose = Boolean(body.compose);
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return Response.json({ error: "Resend is not configured." }, { status: 400 });
+
+  if (compose) {
+    const recipient = String(body.to ?? "").trim();
+    const subject = String(body.subject ?? "").trim();
+    const text = String(body.message ?? "").trim();
+    if (!recipient || !subject || !text) return Response.json({ error: "Recipient, subject, and message are required." }, { status: 400 });
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: INFO_FROM,
+        to: [recipient],
+        reply_to: "info@baked-boston.com",
+        subject,
+        text: `${text}\n\nBakedBoston`,
+      }),
+    });
+    const result = await response.json().catch(() => ({})) as { message?: string };
+    if (!response.ok) return Response.json({ error: result.message ?? "Could not send email." }, { status: 400 });
+    await writeAudit({ actorType: "admin", actorId: admin.id, actorName: admin.displayName, action: "sent general inbox email", entityType: "admin_inbox", entityId: null, entityName: subject });
+    return Response.json({ ok: true });
+  }
+
   const id = Number(body.id);
   const text = String(body.message ?? "").trim();
   if (!Number.isInteger(id) || !text) return Response.json({ error: "A message and reply are required." }, { status: 400 });
   const [message] = await getDb().select().from(adminInboxMessages).where(and(eq(adminInboxMessages.id, id))).limit(1);
   if (!message?.senderEmail) return Response.json({ error: "This email has no reply address." }, { status: 400 });
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return Response.json({ error: "Resend is not configured." }, { status: 400 });
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      from: HELP_FROM,
+      from: INFO_FROM,
       to: [message.senderEmail],
-      reply_to: "help@baked-boston.com",
+      reply_to: "info@baked-boston.com",
       subject: /^re:/i.test(message.subject) ? message.subject : `Re: ${message.subject}`,
       text: `${text}\n\nBakedBoston`,
     }),

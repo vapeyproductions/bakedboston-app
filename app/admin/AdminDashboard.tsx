@@ -347,6 +347,10 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
   const [urgency, setUrgency] = useState<SupportReport["urgency"]>("routine");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [composing, setComposing] = useState(false);
+  const [composeTo, setComposeTo] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
   const visible = messages.filter((message) => folder === "archived" ? message.status === "archived" : message.status !== "archived");
 
   async function patch(action: string, extra: Record<string, unknown> = {}) {
@@ -373,6 +377,16 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
     setBusy(false);
   }
 
+  async function sendNewEmail() {
+    if (!composeTo.trim() || !composeSubject.trim() || !composeBody.trim()) return;
+    setBusy(true);
+    const response = await fetch("/api/admin/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ compose: true, to: composeTo, subject: composeSubject, message: composeBody }) });
+    const data = await response.json().catch(() => null);
+    setNotice(response.ok ? `Email sent to ${composeTo}.` : data?.error ?? "Could not send email.");
+    if (response.ok) { setComposeTo(""); setComposeSubject(""); setComposeBody(""); setComposing(false); }
+    setBusy(false);
+  }
+
   async function openMessage(message: AdminInboxMessage) {
     setSelected(message);
     setReply("");
@@ -385,7 +399,7 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
   }
 
   return <section className="inboxWorkspace">
-    <div className="inboxToolbar"><p>Messages sent to BakedBoston that are not already connected to a report appear here.</p><div><button className={folder === "active" ? "selected" : ""} onClick={() => setFolder("active")}>Inbox</button><button className={folder === "archived" ? "selected" : ""} onClick={() => setFolder("archived")}>Archived</button></div></div>
+    <div className="inboxToolbar"><p>Messages sent to <strong>info@baked-boston.com</strong> that are not already connected to a report appear here.</p><div><button className="composeInboxBtn" onClick={() => setComposing(true)}>New email</button><button className={folder === "active" ? "selected" : ""} onClick={() => setFolder("active")}>Inbox</button><button className={folder === "archived" ? "selected" : ""} onClick={() => setFolder("archived")}>Archived</button></div></div>
     {notice && <div className="reportUpdateNotice">{notice}</div>}
     <div className="inboxLayout">
       <div className="inboxList">{visible.length ? visible.map((message) => <button className={`${message.status} ${selected?.id === message.id ? "selected" : ""}`} key={message.id} onClick={() => openMessage(message)}><span>{message.senderEmail || "Unknown sender"}<time>{new Date(message.createdAt).toLocaleString()}</time></span><strong>{message.subject || "(No subject)"}</strong><p>{message.body}</p>{message.linkedReportId && <small>Connected to {formatReportId(message.linkedReportId)}</small>}</button>) : <p className="reportQueueEmpty">No messages in this folder.</p>}</div>
@@ -395,12 +409,13 @@ function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInbox
           <h2>{selected.subject}</h2><p className="inboxBody">{selected.body}</p>
           {selected.linkedReportId ? <p className="inboxLinked">Connected to {formatReportId(selected.linkedReportId)}</p> : <>
             <section className="inboxActions"><h3>Connect to support</h3><div><select value={reportId} onChange={(event) => setReportId(event.target.value)}><option value="">Choose an existing report…</option>{reports.map((report) => <option key={report.id} value={report.id}>{formatReportId(report.id)} · {report.reporterName} · {report.category.replaceAll("_", " ")}</option>)}</select><button disabled={!reportId || busy} onClick={() => patch("link", { reportId: Number(reportId) })}>Connect</button></div><div><select value={urgency} onChange={(event) => setUrgency(event.target.value as SupportReport["urgency"])}><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety</option></select><button disabled={busy} onClick={() => patch("create_report", { urgency, category: "email_request" })}>Create new report</button></div></section>
-            <label className="inboxReply">Reply<textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Write a reply…" /><button className="solidBtn" disabled={!reply.trim() || busy} onClick={sendReply}>Send from help@baked-boston.com</button></label>
+            <label className="inboxReply">Reply<textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Write a reply…" /><button className="solidBtn" disabled={!reply.trim() || busy} onClick={sendReply}>Send from info@baked-boston.com</button></label>
           </>}
           <div className="inboxFooter">{selected.status === "archived" ? <button onClick={() => patch("restore")} disabled={busy}>Return to inbox</button> : <button onClick={() => patch("archive")} disabled={busy}>Archive message</button>}</div>
         </>}
       </article>
     </div>
+    {composing && <div className="reportModalBackdrop"><section className="reportEmailModal inboxComposeModal"><button className="reportModalClose" onClick={() => setComposing(false)}>×</button><span>INFO@BAKED-BOSTON.COM</span><h2>New email</h2><p>This message will be sent from BakedBoston&apos;s general inbox.</p><label>To<input type="email" value={composeTo} onChange={(event) => setComposeTo(event.target.value)} placeholder="name@example.com" /></label><label>Subject<input value={composeSubject} onChange={(event) => setComposeSubject(event.target.value)} placeholder="Subject" /></label><label>Message<textarea value={composeBody} onChange={(event) => setComposeBody(event.target.value)} placeholder="Write your email…" /></label><button className="solidBtn" disabled={busy || !composeTo.trim() || !composeSubject.trim() || !composeBody.trim()} onClick={sendNewEmail}>{busy ? "Sending…" : "Send email"}</button></section></div>}
   </section>;
 }
 
