@@ -70,6 +70,7 @@ export async function GET(request: Request) {
       openTime: pantry.openTime,
       closeTime: pantry.closeTime,
       latestPermittedArrival: pantry.latestArrival,
+      serviceModes: pantry.serviceModes,
       deliveriesSevenDays: pantry.deliveriesSevenDays,
     })),
     availabilityWindows: operationalWindows,
