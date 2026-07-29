@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminMap, milesBetween } from "./AdminMap";
 import "./admin.css";
+import "./pantry-photos.css";
 import "./partner-workspace.css";
 import "../availability-calendar.css";
 
@@ -44,6 +45,7 @@ type OrganizationContact = {
   name: string; email: string; phone: string; isPrimary: boolean;
 };
 type PantryAccessPhoto = { id: number; pantryId: number; imageUrl: string; pathname: string; caption: string };
+type PantryImpactPhoto = { id: number; pantryId: number; rescueRouteId: number; imageUrl: string; pathname: string; caption: string; socialConsent: boolean; createdAt: string };
 type BakeryAccessPhoto = { id: number; bakeryId: number; imageUrl: string; pathname: string; caption: string };
 type AccessPhoto = PantryAccessPhoto | BakeryAccessPhoto;
 type PartnerKind = "bakery" | "pantry";
@@ -59,7 +61,7 @@ type BakeryDayHours = { readyTime: string; pickupDeadline: string };
 type BakerySchedule = Partial<Record<string, BakeryDayHours>>;
 type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
-  scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string;
+  scheduledArrival: string; deliveryProofUrl: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string;
 };
 type ActivityLevel = "high activity" | "regular activity" | "occasional activity" | "no recent activity";
 type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
@@ -180,6 +182,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [organizationContacts, setOrganizationContacts] = useState<OrganizationContact[]>([]);
   const [pantryAccessPhotos, setPantryAccessPhotos] = useState<PantryAccessPhoto[]>([]);
+  const [pantryImpactPhotos, setPantryImpactPhotos] = useState<PantryImpactPhoto[]>([]);
   const [bakeryAccessPhotos, setBakeryAccessPhotos] = useState<BakeryAccessPhoto[]>([]);
   const [availabilityWindows, setAvailabilityWindows] = useState<AvailabilityWindow[]>([]);
   const [availabilityPauses, setAvailabilityPauses] = useState<AvailabilityPause[]>([]);
@@ -211,6 +214,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setAuditEntries(data.auditLog ?? []);
       setOrganizationContacts(data.organizationContacts ?? []);
       setPantryAccessPhotos(data.pantryAccessPhotos ?? []);
+      setPantryImpactPhotos(data.pantryImpactPhotos ?? []);
       setBakeryAccessPhotos(data.bakeryAccessPhotos ?? []);
       setAvailabilityWindows(data.availabilityWindows ?? []);
       setAvailabilityPauses(data.availabilityPauses ?? []);
@@ -343,7 +347,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       </section>
 
       {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={!modal.record ? [] : modal.kind === "pantry" ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : bakeryAccessPhotos.filter((photo) => photo.bakeryId === modal.record!.id)} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
-      {workspaceRecord && <AdminPartnerWorkspace key={`${workspaceRecord.kind}:${workspaceRecord.record.id}:${workspaceRecord.initialSection ?? "overview"}`} initialSection={workspaceRecord.initialSection} kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
+      {workspaceRecord && <AdminPartnerWorkspace key={`${workspaceRecord.kind}:${workspaceRecord.record.id}:${workspaceRecord.initialSection ?? "overview"}`} initialSection={workspaceRecord.initialSection} kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} impactPhotos={workspaceRecord.kind === "pantry" ? pantryImpactPhotos.filter((photo) => photo.pantryId === workspaceRecord.record.id) : []} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
 }
@@ -1008,10 +1012,10 @@ function AdminSettings({ currentUser, administrators, invitations, onChanged, se
   </div>;
 }
 
-function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice, initialSection = "overview" }: {
-  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void; initialSection?: "overview" | "deliveries" | "schedule" | "profile";
+function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice, initialSection = "overview" }: {
+  kind: PartnerKind; record: Partner; routes: Route[]; impactPhotos: PantryImpactPhoto[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void; initialSection?: "overview" | "deliveries" | "schedule" | "profile";
 }) {
-  const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">(initialSection);
+  const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile" | "photos">(initialSection);
   const [addressStatus, setAddressStatus] = useState(record.addressValidationStatus);
   const [displayAddress, setDisplayAddress] = useState(record.address);
   const [confirmingAddress, setConfirmingAddress] = useState(false);
@@ -1024,6 +1028,7 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
   const open = (recurringOpen && !schedulePaused) || activeAdditional.some((window) => !window.paused);
   const completed = routes.filter((route) => route.status === "completed").length;
   const todayPickup = pickupOccurrences.find((pickup) => pickup.serviceDate === adminDateKey(now));
+  const sections: Array<"overview" | "deliveries" | "schedule" | "profile" | "photos"> = kind === "pantry" ? ["overview", "deliveries", "schedule", "profile", "photos"] : ["overview", "deliveries", "schedule", "profile"];
   async function acceptStandardizedAddress() {
     if (!record.formattedAddress || !window.confirm(`Use Google’s standardized address for ${record.name}?\n\n${record.formattedAddress}`)) return;
     setConfirmingAddress(true);
@@ -1045,7 +1050,7 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
   }
   return <div className="modalBackdrop"><section className="adminPartnerWorkspace">
     <header><div><span>{kind.toUpperCase()} WORKSPACE</span><h2>{record.name}</h2></div><button onClick={onClose}>×</button></header>
-    <nav>{(["overview", "deliveries", "schedule", "profile"] as const).map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{item}</button>)}</nav>
+    <nav>{sections.map((item) => <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>{item}</button>)}</nav>
     <main>
       {section === "overview" && <>{kind === "bakery" && <article className={`adminPickupCommitment ${todayPickup?.status === "confirmed" || todayPickup?.status === "reserved" ? "confirmed" : ""}`}><small>TODAY’S PICKUP COMMITMENT</small><h3>{todayPickup ? todayPickup.status.replaceAll("_", " ") : "No dated pickup created"}</h3><p>{todayPickup ? `${new Date(todayPickup.pickupWindowStartsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(todayPickup.pickupDeadline).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "The daily occurrence appears when the bakery opens its web or mobile workspace."}</p></article>}<article className={`adminAvailabilityCard ${open ? "open" : ""}`}><small>CURRENT AVAILABILITY</small><h3>{open ? "Open to accept deliveries" : schedulePaused || activeAdditional.some((window) => window.paused) ? "Availability paused" : "Closed right now"}</h3><p>{activeAdditional.length ? `One-time availability until ${new Date(activeAdditional[0].endsAt).toLocaleString()}${activeAdditional[0].paused ? " · paused" : ""}` : recurringOpen ? schedulePaused ? "The current recurring window is paused." : "Open according to the recurring schedule." : "No recurring or one-time window is currently open."}</p></article><div className="adminWorkspaceMetrics"><article><small>Activity classification</small><strong className="activityMetric">{organizationActivity(kind, record.name, routes)}</strong></article><article><small>Completed deliveries</small><strong>{completed}</strong></article><article><small>Active deliveries</small><strong>{routes.length - completed}</strong></article><article><small>Notifications</small><strong>{notifications.length}</strong></article></div></>}
       {section === "deliveries" && <RoutesTable routes={routes} />}
@@ -1067,8 +1072,23 @@ function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, sch
           </div>}
         </article>
         <article><small>BUSINESS PHONE</small><strong>{record.businessPhone || "—"}</strong></article><article><small>NOTIFICATION CONTACT</small><strong>{record.notificationPhone || "—"}</strong></article><article><small>ORGANIZATIONAL CONTACTS</small>{contacts.map((contact) => <div key={contact.id}><strong>{contact.isPrimary ? "★ Primary · " : ""}{contact.name}</strong><span>{contact.email} · {contact.phone}</span></div>)}</article><button className="solidBtn" onClick={onEdit}>Edit organization profile</button></div>}
+      {section === "photos" && kind === "pantry" && <AdminPantryPhotos impactPhotos={impactPhotos} routes={routes} />}
     </main>
   </section></div>;
+}
+
+function AdminPantryPhotos({ impactPhotos, routes }: { impactPhotos: PantryImpactPhoto[]; routes: Route[] }) {
+  const detailsFor = (routeId: number, fallback: string) => {
+    const route = routes.find((item) => item.id === routeId);
+    return route ? `${route.bakeryName} · ${new Date(route.scheduledArrival || route.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : fallback;
+  };
+  const proofRoutes = routes.filter((route) => Boolean(route.deliveryProofUrl));
+  return <section className="adminPartnerPhotos">
+    <div className="panelTitle"><div><span>PANTRY IMPACT</span><h2>Photos shared by the pantry</h2><p>These photos were submitted with permission for BakedBoston promotional use. Pantry patrons are not shown.</p></div></div>
+    {impactPhotos.length ? <div className="adminPhotoGallery">{impactPhotos.map((photo) => <article key={photo.id}><img src={photo.imageUrl} alt={photo.caption || "Pantry impact submission"} /><div><small>{detailsFor(photo.rescueRouteId, new Date(photo.createdAt).toLocaleString())}</small><strong>{photo.caption || "No caption added"}</strong></div></article>)}</div> : <Empty title="No pantry impact photos yet" body="Completed-delivery photos shared by this pantry will appear here." />}
+    <div className="panelTitle adminProofHeading"><div><span>DRIVER DROP-OFF EVIDENCE</span><h2>Proof photos from deliveries</h2><p>Drivers’ required drop-off photos are visible here with their associated delivery.</p></div></div>
+    {proofRoutes.length ? <div className="adminPhotoGallery">{proofRoutes.map((route) => <article key={route.id}><img src={route.deliveryProofUrl} alt={`Driver proof for delivery from ${route.bakeryName}`} /><div><small>{detailsFor(route.id, route.createdAt)}</small><strong>{route.bakeryName} → {route.pantryName}</strong></div></article>)}</div> : <Empty title="No driver proof photos yet" body="Proof images appear once a driver completes a delivery with a photo." />}
+  </section>;
 }
 
 function AdminReceivingCalendar({ pantry, availability, scheduleExceptions, organizationId, onChanged, setNotice }: { pantry: Pantry; availability: AvailabilityWindow[]; scheduleExceptions: ScheduleException[]; organizationId: number; onChanged: () => Promise<void>; setNotice: (message: string) => void }) {

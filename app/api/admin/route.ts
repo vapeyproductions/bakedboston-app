@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, organizationContacts, pantries, pantryAccessPhotos, partnerAccounts, partnerInvitations, pushDevices, rescueRoutes, routeOffers, scheduleExceptions, supportReportMessages, supportReports } from "../../../db/schema";
+import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabilityWindows, bakeries, bakeryAccessPhotos, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, mobileSessions, organizationContacts, pantries, pantryAccessPhotos, pantryImpactPhotos, partnerAccounts, partnerInvitations, pushDevices, rescueRoutes, routeOffers, scheduleExceptions, supportReportMessages, supportReports } from "../../../db/schema";
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 import { sendAccountStatusEmail } from "../../account-email";
@@ -13,7 +13,7 @@ export async function GET() {
   if (!(await authorized())) return Response.json({ error: "Sign in required" }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows, reportRows, reportMessageRows] = await Promise.all([
+  const [bakeryRows, pantryRows, routeRows, accountRows, invitationRows, administratorRows, adminInvitationRows, auditRows, contactRows, pantryPhotoRows, pantryImpactPhotoRows, bakeryPhotoRows, availabilityRows, pauseRows, driverRows, exceptionRows, pickupRows, rideRequestRows, routeOfferRows, notificationRows, reportRows, reportMessageRows] = await Promise.all([
     db.select().from(bakeries).orderBy(desc(bakeries.createdAt)),
     db.select().from(pantries).orderBy(desc(pantries.createdAt)),
     db.select().from(rescueRoutes).orderBy(desc(rescueRoutes.createdAt)),
@@ -47,6 +47,7 @@ export async function GET() {
     db.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(500),
     db.select().from(organizationContacts).orderBy(desc(organizationContacts.createdAt)),
     db.select().from(pantryAccessPhotos).orderBy(desc(pantryAccessPhotos.createdAt)),
+    db.select().from(pantryImpactPhotos).orderBy(desc(pantryImpactPhotos.createdAt)),
     db.select().from(bakeryAccessPhotos).orderBy(desc(bakeryAccessPhotos.createdAt)),
     db.select().from(availabilityWindows).orderBy(desc(availabilityWindows.createdAt)),
     db.select().from(availabilityPauses).orderBy(desc(availabilityPauses.createdAt)),
@@ -81,7 +82,7 @@ export async function GET() {
     partnerAccounts: accountRows, partnerInvitations: invitationRows,
     administrators: administratorRows, adminInvitations: adminInvitationRows, auditLog: auditRows,
     organizationContacts: contactRows,
-    pantryAccessPhotos: pantryPhotoRows, bakeryAccessPhotos: bakeryPhotoRows, availabilityWindows: availabilityRows, availabilityPauses: pauseRows,
+    pantryAccessPhotos: pantryPhotoRows, pantryImpactPhotos: pantryImpactPhotoRows, bakeryAccessPhotos: bakeryPhotoRows, availabilityWindows: availabilityRows, availabilityPauses: pauseRows,
     drivers: driverRows,
     scheduleExceptions: exceptionRows,
     pickupOccurrences: pickupRows,

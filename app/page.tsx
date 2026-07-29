@@ -12,7 +12,8 @@ const pins = [
 ];
 
 export default function Home() {
-  const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0 });
+  const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0, averagePantriesHelpedPerDay: 0 });
+  const scrollToModel = () => document.getElementById("model")?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   useEffect(() => { void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); }); }, []);
 
@@ -26,7 +27,7 @@ export default function Home() {
         <div className="navLinks">
           <a href="#how">How it works</a>
           <a href="#impact">Impact</a>
-          <a href="#model">The model</a>
+          <button type="button" onClick={scrollToModel}>The model</button>
           <a href="/partners">Partner portal</a>
         </div>
       </nav>
@@ -38,7 +39,7 @@ export default function Home() {
           <p>We match bakery surplus with nearby food pantries—and give volunteer drivers the smartest route to get it there fresh.</p>
           <div className="heroActions">
             <button className="primary" onClick={() => document.getElementById("routes")?.scrollIntoView({ behavior: "smooth" })}>Volunteer to drive <span>↗</span></button>
-            <button className="textButton" onClick={() => document.getElementById("model")?.scrollIntoView({ behavior: "smooth" })}>See how routing works <span>↓</span></button>
+            <button className="textButton" onClick={scrollToModel}>See how routing works <span>↓</span></button>
           </div>
           <div className="trustRow">
             <div className="avatars"><span>JM</span><span>AK</span><span>SR</span><span>+42</span></div>
@@ -75,9 +76,8 @@ export default function Home() {
 
       <section className="impactBar" id="impact">
         <div><strong>{network.completedThisWeek}</strong><span>deliveries completed this week</span></div>
-        <div><strong>{network.completedTotal}</strong><span>deliveries completed since BakedBoston began</span></div>
-        <div><strong>{network.bakeries}</strong><span>registered bakeries</span></div>
-        <div><strong>{network.pantries}</strong><span>registered pantries</span></div>
+        <div><strong>{network.completedTotal}</strong><span>all-time deliveries completed</span></div>
+        <div><strong>{network.averagePantriesHelpedPerDay}</strong><span>average pantries helped per day</span></div>
       </section>
 
       <section className="routesSection" id="routes">
@@ -120,7 +120,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="modelSection">
+      <section className="modelSection" id="model">
         <div>
           <span className="kicker light">THE OPERATIONS RESEARCH</span>
           <h2>Less waste is<br />a solvable problem.</h2>
