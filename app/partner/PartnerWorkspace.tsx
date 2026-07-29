@@ -209,7 +209,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
 
   return <main className={`partnerWorkspace ${kind}`}>
     <aside className="partnerSidebar">
-      <Link className="partnerBrand sideBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
+      <Link className="partnerBrand sideBrand" href="/"><span className="brandMark">B</span><strong className="brandWordmark">BakedBoston</strong></Link>
       <div className="organizationBadge">
         <span>{bakery ? "🥖" : "🥫"}</span>
         <div><small>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</small><strong>{organization.name}</strong></div>

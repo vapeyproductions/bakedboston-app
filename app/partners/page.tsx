@@ -8,7 +8,7 @@ export default async function PartnerPortal({ searchParams }: {
   const selected = query.kind === "bakery" || query.kind === "pantry" ? query.kind : null;
   if (selected) return <main className="portalPage loginPortal">
     <nav className="partnerNav">
-      <Link className="partnerBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
+      <Link className="partnerBrand" href="/"><span className="brandMark">B</span><strong className="brandWordmark">BakedBoston</strong></Link>
     </nav>
     <section className="partnerLoginLayout">
       <div className="partnerLoginIntro">
@@ -33,19 +33,19 @@ export default async function PartnerPortal({ searchParams }: {
 
   return <main className="portalPage">
     <nav className="partnerNav">
-      <Link className="partnerBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
+      <Link className="partnerBrand" href="/"><span className="brandMark">B</span><strong className="brandWordmark">BakedBoston</strong></Link>
     </nav>
     <section className="portalHero">
       <p className="portalKicker">PARTNER PORTAL</p>
-      <h1>Your place in the<br /><em>rescue network.</em></h1>
-      <p>Choose your organization type to preview the workspace your team will use on baked-boston.com.</p>
+      <h1>Your place in the<br /><em>BakedBoston network.</em></h1>
+      <p>Choose your organization type to log in to your team’s workspace.</p>
     </section>
     <section className="portalChoices">
       <Link className="portalChoice bakeryChoice" href="/partners?kind=bakery">
         <span className="choiceIcon">🥖</span>
         <small>BAKERY PARTNERS</small>
         <h2>Share today’s surplus.</h2>
-        <p>Manage pickup availability, publish rescues, and follow each handoff.</p>
+        <p>Manage pickup availability, publish pickups, and follow each handoff.</p>
         <b>Open bakery workspace <span>→</span></b>
       </Link>
       <Link className="portalChoice pantryChoice" href="/partners?kind=pantry">
