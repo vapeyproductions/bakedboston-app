@@ -5,6 +5,7 @@ import {
   bakeries,
   bakeryAccessPhotos,
   bakeryPickupOccurrences,
+  availabilityWindows,
   driverAccounts,
   driverRideRequests,
   inAppNotifications,
@@ -235,11 +236,16 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
   const db = getDb();
   const now = new Date();
   const horizon = new Date(now.getTime() + 2 * 60 * 60_000);
-  const [pickups, bakeryRows, pantryRows, accounts] = await Promise.all([
+  const [pickups, bakeryRows, pantryRows, accounts, pantryWindows] = await Promise.all([
     db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.status, "confirmed")),
     db.select().from(bakeries).where(eq(bakeries.active, true)),
     db.select().from(pantries).where(eq(pantries.active, true)),
     db.select({ type: partnerAccounts.organizationType, id: partnerAccounts.organizationId }).from(partnerAccounts).where(eq(partnerAccounts.active, true)),
+    db.select().from(availabilityWindows).where(and(
+      eq(availabilityWindows.organizationType, "pantry"),
+      eq(availabilityWindows.paused, false),
+      gt(availabilityWindows.endsAt, now),
+    )),
   ]);
   const registeredBakeries = new Set(accounts.filter((item) => item.type === "bakery").map((item) => item.id));
   const registeredPantries = new Set(accounts.filter((item) => item.type === "pantry").map((item) => item.id));
@@ -261,7 +267,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
       const routeMiles = milesBetween(bakery.latitude!, bakery.longitude!, pantry.latitude, pantry.longitude);
       const routeMinutes = Math.max(5, Math.ceil(routeMiles / 25 * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (15 + routeMinutes) * 60_000);
-      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival);
+      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival, pantryWindows);
       if (!pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
       const score = priority * 20 - driverMiles * 2.5 - routeMiles - Math.max(0, (departureStart.getTime() - now.getTime()) / 3_600_000);

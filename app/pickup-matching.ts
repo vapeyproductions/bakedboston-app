@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import {
+  availabilityWindows,
   bakeryPickupOccurrences,
   driverRideRequests,
   inAppNotifications,
@@ -13,7 +14,7 @@ type PickupOccurrence = typeof bakeryPickupOccurrences.$inferSelect;
 
 export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName: string, bakeryLatitude: number | null, bakeryLongitude: number | null) {
   const db = getDb();
-  const [requests, pantryRows, pantryAccounts] = await Promise.all([
+  const [requests, pantryRows, pantryAccounts, pantryWindows] = await Promise.all([
     db.select().from(driverRideRequests).where(and(
       eq(driverRideRequests.serviceDate, pickup.serviceDate),
       eq(driverRideRequests.status, "active"),
@@ -24,6 +25,10 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
     }).from(partnerAccounts).where(and(
       eq(partnerAccounts.organizationType, "pantry"),
       eq(partnerAccounts.active, true),
+    )),
+    db.select().from(availabilityWindows).where(and(
+      eq(availabilityWindows.organizationType, "pantry"),
+      eq(availabilityWindows.paused, false),
     )),
   ]);
   if (!requests.length || bakeryLatitude === null || bakeryLongitude === null) return { matchedRequests: 0, offered: false };
@@ -45,7 +50,7 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
       const driveMinutes = Math.max(5, Math.ceil((miles / 25) * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (15 + driveMinutes) * 60_000);
       const completion = new Date(pantryArrival.getTime() + 15 * 60_000);
-      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival);
+      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival, pantryWindows);
       if (completion > request.latestFinish || !pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
       const destinationBonus = request.endZip && pantry.address.includes(request.endZip) ? 5 : 0;
@@ -123,7 +128,19 @@ export function pantryAcceptsAt(pantry: typeof pantries.$inferSelect, arrival: D
   return pantryServiceModeAt(pantry, arrival) !== null;
 }
 
-export function pantryServiceModeAt(pantry: typeof pantries.$inferSelect, arrival: Date): "staffed" | "unattended" | null {
+export function pantryServiceModeAt(
+  pantry: typeof pantries.$inferSelect,
+  arrival: Date,
+  oneTimeWindows: Array<typeof availabilityWindows.$inferSelect> = [],
+): "staffed" | "unattended" | null {
+  const oneTimeWindow = oneTimeWindows.find((window) =>
+    window.organizationType === "pantry"
+    && window.organizationId === pantry.id
+    && !window.paused
+    && arrival >= window.startsAt
+    && arrival <= window.latestArrival,
+  );
+  if (oneTimeWindow) return oneTimeWindow.serviceMode;
   const day = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(arrival);
   const time = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",

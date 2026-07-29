@@ -1,6 +1,6 @@
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { availabilityPauses, availabilityWindows, partnerAccounts } from "../../../../db/schema";
+import { availabilityPauses, availabilityWindows, bakeryPickupOccurrences, partnerAccounts } from "../../../../db/schema";
 import { writeAudit } from "../../../audit";
 import { getPartnerAccountId } from "../../../partner-auth";
 
@@ -18,6 +18,16 @@ export async function GET() {
     db.select().from(availabilityWindows).where(and(eq(availabilityWindows.organizationType, current.organizationType), eq(availabilityWindows.organizationId, current.organizationId), gt(availabilityWindows.endsAt, new Date(Date.now() - 28 * 24 * 60 * 60 * 1000)))),
     db.select().from(availabilityPauses).where(and(eq(availabilityPauses.organizationType, current.organizationType), eq(availabilityPauses.organizationId, current.organizationId), gt(availabilityPauses.endsAt, new Date()))),
   ]);
+  if (current.organizationType === "bakery") {
+    await Promise.all(windows.filter((window) => window.endsAt > new Date()).map((window) =>
+      db.insert(bakeryPickupOccurrences).values({
+        bakeryId: current.organizationId,
+        serviceDate: easternDate(window.startsAt),
+        pickupWindowStartsAt: window.startsAt,
+        pickupDeadline: window.endsAt,
+      }).onConflictDoNothing(),
+    ));
+  }
   return Response.json({ windows, pauses });
 }
 export async function POST(request: Request) {
@@ -38,6 +48,14 @@ export async function POST(request: Request) {
   validateWindow(startsAt, endsAt, latestArrival);
   if (endsAt.getTime() <= Date.now()) return Response.json({ error: "The one-time window must end in the future." }, { status: 400 });
   const [record] = await db.insert(availabilityWindows).values({ organizationType: current.organizationType, organizationId: current.organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
+  if (current.organizationType === "bakery") {
+    await db.insert(bakeryPickupOccurrences).values({
+      bakeryId: current.organizationId,
+      serviceDate: easternDate(startsAt),
+      pickupWindowStartsAt: startsAt,
+      pickupDeadline: endsAt,
+    }).onConflictDoNothing();
+  }
   await audit(current, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
   return Response.json({ record }, { status: 201 });
 }
@@ -86,4 +104,11 @@ export async function DELETE(request: Request) {
 function validDate(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }
 function validateWindow(start: Date, end: Date, latest: Date) { if (end <= start) throw new Error("Closing time must be later than opening time."); if (latest < start || latest > end) throw new Error("Latest permitted arrival must fall within the availability window."); }
 function validServiceMode(value: unknown, type: string) { if (type === "bakery") return "staffed" as const; if (value !== "staffed" && value !== "unattended") throw new Error("Choose whether the receiving window is staffed or unattended."); return value; }
+function easternDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 async function audit(current: NonNullable<Awaited<ReturnType<typeof account>>>, action: string, details: string) { await writeAudit({ actorType: "partner", actorId: current.id, actorName: current.accountEmail, action, entityType: current.organizationType, entityId: current.organizationId, entityName: current.accountEmail, details }); }
