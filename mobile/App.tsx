@@ -1152,23 +1152,28 @@ function PartnerPortal({ session, onSignOut }: { session: Session; onSignOut: ()
     <SafeAreaView style={styles.portalSafe} edges={landscape ? ["top"] : ["top", "bottom"]}>
       <View style={[styles.portalShell, landscape ? styles.portalLandscape : styles.portalPortrait]}>
         {landscape ? (
-          <View style={[styles.portalSidebar, { width: 238 + insets.left, paddingLeft: 18 + insets.left }]}>
-            <PortalBrand light />
-            <View style={styles.portalOrganization}>
-              <Text style={styles.portalOrganizationIcon}>{bakery ? "🥖" : "🥫"}</Text>
-              <View style={styles.portalOrganizationCopy}>
-                <Text style={styles.portalOrganizationType}>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</Text>
-                <Text style={styles.portalOrganizationName} numberOfLines={2}>{workspace?.organization.name ?? session.displayName}</Text>
+          <ScrollView
+            style={[styles.portalSidebar, { width: 238 + insets.left }]}
+            contentContainerStyle={[styles.portalSidebarContent, { paddingLeft: 18 + insets.left, paddingBottom: 20 + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+              <PortalBrand light />
+              <View style={styles.portalOrganization}>
+                <Text style={styles.portalOrganizationIcon}>{bakery ? "🥖" : "🥫"}</Text>
+                <View style={styles.portalOrganizationCopy}>
+                  <Text style={styles.portalOrganizationType}>{bakery ? "BAKERY" : "PANTRY"} WORKSPACE</Text>
+                  <Text style={styles.portalOrganizationName} numberOfLines={2}>{workspace?.organization.name ?? session.displayName}</Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.portalSideNav}>
-              {nav.map((item) => <PortalNavButton key={item.key} item={item} selected={section === item.key} onPress={() => setSection(item.key)} compact={false} />)}
-            </View>
-            <View style={styles.portalSideBottom}>
-              <Text style={styles.portalAccountEmail} numberOfLines={1}>{workspace?.account.accountEmail ?? session.email}</Text>
-              <Pressable onPress={onSignOut}><Text style={styles.portalSignOut}>Sign out</Text></Pressable>
-            </View>
-          </View>
+              <View style={styles.portalSideNav}>
+                {nav.map((item) => <PortalNavButton key={item.key} item={item} selected={section === item.key} onPress={() => setSection(item.key)} compact={false} />)}
+              </View>
+              <View style={styles.portalSideBottom}>
+                <Text style={styles.portalAccountEmail} numberOfLines={1}>{workspace?.account.accountEmail ?? session.email}</Text>
+                <Pressable onPress={onSignOut}><Text style={styles.portalSignOut}>Sign out</Text></Pressable>
+              </View>
+          </ScrollView>
         ) : (
           <>
             <View style={styles.portalMobileHeader}>
@@ -1822,7 +1827,8 @@ const styles = StyleSheet.create({
   portalShell: { flex: 1 },
   portalLandscape: { flexDirection: "row" },
   portalPortrait: { flexDirection: "column" },
-  portalSidebar: { width: 238, backgroundColor: colors.forest, paddingHorizontal: 18, paddingTop: 20, borderRightWidth: 1, borderRightColor: "#315443" },
+  portalSidebar: { width: 238, backgroundColor: colors.forest, borderRightWidth: 1, borderRightColor: "#315443" },
+  portalSidebarContent: { flexGrow: 1, paddingRight: 18, paddingTop: 20 },
   portalBrand: { flexDirection: "row", alignItems: "center", gap: 8 },
   portalBrandText: { color: colors.forest, fontSize: 17, fontWeight: "900", letterSpacing: -0.5 },
   portalBrandTextLight: { color: colors.white },
