@@ -591,12 +591,14 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         replaceOperationalNotification({
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_began_delivery",
           threadKey: `pickup:${pickup.id}`,
-          title: "Driver is on the way", body: `${driver.displayName} has begun the delivery and is traveling to ${bakery.name}. The food is planned for ${pantry.name}.`,
+          title: "Driver is on the way",
+          body: `${driver.displayName} has begun the delivery and is traveling to ${bakery.name}. Current estimated bakery arrival: ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}. The food is planned for ${pantry.name}.`,
         }),
         replaceOperationalNotification({
           recipientType: "pantry", recipientId: pantry.id, eventType: "driver_began_delivery",
           threadKey: `pickup:${pickup.id}`,
-          title: "Delivery has begun", body: `${driver.displayName} is traveling to ${bakery.name} to collect the food planned for ${pantry.name}.`,
+          title: "Delivery has begun",
+          body: `${driver.displayName} is traveling to ${bakery.name} to collect the food planned for ${pantry.name}. Current estimated pantry arrival: ${offer.estimatedPantryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`,
         }),
       ]);
     } else if (nextStage === "arrived_at_bakery") {

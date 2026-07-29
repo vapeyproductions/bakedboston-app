@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { inAppNotifications, partnerAccounts, routeOffers } from "../../../../db/schema";
+import { bakeries, inAppNotifications, pantries, partnerAccounts, rescueRoutes, routeOffers } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { markPickupReady } from "../../../pickup-readiness";
 import { recordBakeryHandoff } from "../../../bakery-handoffs";
@@ -13,17 +13,27 @@ async function currentRecipient() {
     eq(partnerAccounts.id, accountId),
     eq(partnerAccounts.active, true),
   )).limit(1);
-  return account ? { type: account.organizationType, id: account.organizationId } : null;
+  if (!account) return null;
+  const [organization] = account.organizationType === "bakery"
+    ? await getDb().select({ name: bakeries.name }).from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1)
+    : await getDb().select({ name: pantries.name }).from(pantries).where(eq(pantries.id, account.organizationId)).limit(1);
+  return organization ? { type: account.organizationType, id: account.organizationId, name: organization.name } : null;
 }
 
 export async function GET() {
   const recipient = await currentRecipient();
   if (!recipient) return Response.json({ error: "Sign in required." }, { status: 401 });
-  const notifications = await getDb().select().from(inAppNotifications).where(and(
-    eq(inAppNotifications.recipientType, recipient.type),
-    eq(inAppNotifications.recipientId, recipient.id),
-  )).orderBy(desc(inAppNotifications.createdAt)).limit(100);
-  return Response.json({ notifications });
+  const db = getDb();
+  const [notifications, routes] = await Promise.all([
+    db.select().from(inAppNotifications).where(and(
+      eq(inAppNotifications.recipientType, recipient.type),
+      eq(inAppNotifications.recipientId, recipient.id),
+    )).orderBy(desc(inAppNotifications.createdAt)).limit(100),
+    recipient.type === "bakery"
+      ? db.select().from(rescueRoutes).where(eq(rescueRoutes.bakeryName, recipient.name)).orderBy(desc(rescueRoutes.createdAt))
+      : db.select().from(rescueRoutes).where(eq(rescueRoutes.pantryName, recipient.name)).orderBy(desc(rescueRoutes.createdAt)),
+  ]);
+  return Response.json({ notifications, routes });
 }
 
 export async function PATCH(request: Request) {

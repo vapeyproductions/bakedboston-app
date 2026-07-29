@@ -45,6 +45,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [notifications, setNotifications] = useState<PartnerNotification[]>([]);
+  const [routeRows, setRouteRows] = useState<Route[]>(routes);
   const priorityNotification = notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
     ?? notifications.find((notification) => !notification.acknowledgedAt);
   const [windowDraft, setWindowDraft] = useState({ date: "", starts: "", ends: "", latest: "", serviceMode: "staffed" as "staffed" | "unattended" });
@@ -60,7 +61,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const pickupFulfilled = todayPickup?.status === "fulfilled";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);
   const available = recurringAvailable || Boolean(activeOneTime && (!bakery || pickupConfirmed));
-  const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${formatPartnerDateTime(route.scheduledArrival)}`, status: route.status, photoUrl: route.deliveryProofUrl }));
+  const activity = routeRows.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${formatPartnerDateTime(route.scheduledArrival)}`, status: route.status, photoUrl: route.deliveryProofUrl }));
   const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
   async function refreshAvailability() {
     const [response, exceptionResponse] = await Promise.all([fetch("/api/partner/availability", { cache: "no-store" }), fetch("/api/partner/schedule-exceptions", { cache: "no-store" })]);
@@ -74,7 +75,11 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   useEffect(() => {
     const refresh = () => fetch("/api/partner/notifications", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
-      .then((data) => { if (data) setNotifications(data.notifications ?? []); })
+      .then((data) => {
+        if (!data) return;
+        setNotifications(data.notifications ?? []);
+        setRouteRows(data.routes ?? []);
+      })
       .catch(() => undefined);
     void refresh();
     const timer = window.setInterval(refresh, 20_000);
