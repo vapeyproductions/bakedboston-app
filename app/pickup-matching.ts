@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   availabilityWindows,
@@ -14,7 +14,7 @@ type PickupOccurrence = typeof bakeryPickupOccurrences.$inferSelect;
 
 export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName: string, bakeryLatitude: number | null, bakeryLongitude: number | null) {
   const db = getDb();
-  const [requests, pantryRows, pantryAccounts, pantryWindows] = await Promise.all([
+  const [requests, pantryRows, pantryAccounts, pantryWindows, pantryConfirmations] = await Promise.all([
     db.select().from(driverRideRequests).where(and(
       eq(driverRideRequests.serviceDate, pickup.serviceDate),
       eq(driverRideRequests.status, "active"),
@@ -29,6 +29,11 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
     db.select().from(availabilityWindows).where(and(
       eq(availabilityWindows.organizationType, "pantry"),
       eq(availabilityWindows.paused, false),
+    )),
+    db.select().from(inAppNotifications).where(and(
+      eq(inAppNotifications.recipientType, "pantry"),
+      eq(inAppNotifications.eventType, "pantry_window_confirmation"),
+      isNotNull(inAppNotifications.acknowledgedAt),
     )),
   ]);
   if (!requests.length || bakeryLatitude === null || bakeryLongitude === null) return { matchedRequests: 0, offered: false };
@@ -50,7 +55,7 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
       const driveMinutes = Math.max(5, Math.ceil((miles / 25) * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (15 + driveMinutes) * 60_000);
       const completion = new Date(pantryArrival.getTime() + 15 * 60_000);
-      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival, pantryWindows);
+      const pantryServiceMode = confirmedPantryServiceModeAt(pantry, pantryArrival, pantryWindows, pantryConfirmations);
       if (completion > request.latestFinish || !pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
       const destinationBonus = request.endZip && pantry.address.includes(request.endZip) ? 5 : 0;
@@ -128,11 +133,29 @@ export function pantryAcceptsAt(pantry: typeof pantries.$inferSelect, arrival: D
   return pantryServiceModeAt(pantry, arrival) !== null;
 }
 
-export function pantryServiceModeAt(
+export type PantryWindow = { key: string; serviceMode: "staffed" | "unattended" };
+
+export function confirmedPantryServiceModeAt(
   pantry: typeof pantries.$inferSelect,
   arrival: Date,
   oneTimeWindows: Array<typeof availabilityWindows.$inferSelect> = [],
+  confirmations: Array<typeof inAppNotifications.$inferSelect> = [],
 ): "staffed" | "unattended" | null {
+  const window = pantryWindowAt(pantry, arrival, oneTimeWindows);
+  if (!window) return null;
+  if (window.serviceMode === "unattended") return window.serviceMode;
+  return confirmations.some((notification) =>
+    notification.recipientId === pantry.id
+    && notification.actionKey === `pantry-open:${pantry.id}:${window.key}`
+    && notification.acknowledgedAt,
+  ) ? "staffed" : null;
+}
+
+export function pantryWindowAt(
+  pantry: typeof pantries.$inferSelect,
+  arrival: Date,
+  oneTimeWindows: Array<typeof availabilityWindows.$inferSelect> = [],
+): PantryWindow | null {
   const oneTimeWindow = oneTimeWindows.find((window) =>
     window.organizationType === "pantry"
     && window.organizationId === pantry.id
@@ -140,11 +163,12 @@ export function pantryServiceModeAt(
     && arrival >= window.startsAt
     && arrival <= window.latestArrival,
   );
-  if (oneTimeWindow) return oneTimeWindow.serviceMode;
+  if (oneTimeWindow) return { key: `one-time:${oneTimeWindow.id}`, serviceMode: oneTimeWindow.serviceMode };
   const day = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(arrival);
   const time = new Intl.DateTimeFormat("en-US", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York",
   }).format(arrival).replace("24:", "00:");
+  const date = bostonDate(arrival);
   try {
     const opens = JSON.parse(pantry.openTime) as Array<{ day: string; time: string; recurrence: string; ordinal: number | null }> | Record<string, string>;
     const latest = JSON.parse(pantry.latestArrival) as Array<{ time: string }> | Record<string, string>;
@@ -156,12 +180,30 @@ export function pantryServiceModeAt(
         const occurrence = Math.ceil(Number(new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone: "America/New_York" }).format(arrival)) / 7);
         return occurrence === window.ordinal;
       });
-      return index < 0 ? null : modes[index]?.mode ?? "staffed";
+      return index < 0 ? null : { key: `recurring:${date}:${index}`, serviceMode: modes[index]?.mode ?? "staffed" };
     }
     const legacyOpens = opens as Record<string, string>;
-    return legacyOpens[day] && time >= legacyOpens[day] && time <= (latest as Record<string, string>)[day] ? "staffed" : null;
+    return legacyOpens[day] && time >= legacyOpens[day] && time <= (latest as Record<string, string>)[day]
+      ? { key: `legacy:${date}:${day}`, serviceMode: "staffed" }
+      : null;
   } catch {
     return pantry.recurringDays.split(",").map((value) => value.trim()).includes(day)
-      && time >= pantry.openTime && time <= pantry.latestArrival ? "staffed" : null;
+      && time >= pantry.openTime && time <= pantry.latestArrival
+      ? { key: `legacy:${date}:${day}`, serviceMode: "staffed" }
+      : null;
   }
+}
+
+export function pantryServiceModeAt(
+  pantry: typeof pantries.$inferSelect,
+  arrival: Date,
+  oneTimeWindows: Array<typeof availabilityWindows.$inferSelect> = [],
+): "staffed" | "unattended" | null {
+  return pantryWindowAt(pantry, arrival, oneTimeWindows)?.serviceMode ?? null;
+}
+
+function bostonDate(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }

@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, ne } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import {
   bakeries,
@@ -16,7 +16,7 @@ import {
   rescueRoutes,
   routeOffers,
 } from "../../../../../db/schema";
-import { matchConfirmedPickup, pantryAcceptsAt, pantryServiceModeAt } from "../../../../pickup-matching";
+import { confirmedPantryServiceModeAt, matchConfirmedPickup, pantryAcceptsAt } from "../../../../pickup-matching";
 import { processDepartureNotifications } from "../../../../departure-notifications";
 import { replaceOperationalNotification } from "../../../../operational-notifications";
 import { trafficAwareDriveMinutes } from "../../../../google-routes";
@@ -251,7 +251,7 @@ async function reserveBrowseRoute(driver: typeof driverAccounts.$inferSelect, pi
     driverRequestId: request.id,
     driverId: driver.id,
     pantryId: candidate.pantryId,
-    pantryServiceMode: candidate.pantryServiceMode,
+    pantryServiceMode: candidate.pantryServiceMode as "staffed" | "unattended",
     rank: 1,
     score: candidate.score,
     estimatedBakeryArrival: new Date(candidate.estimatedBakeryArrival),
@@ -277,7 +277,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
     });
     if (optimized !== null) return optimizedBrowseRoutes(optimized);
   }
-  const [pickups, bakeryRows, pantryRows, accounts, pantryWindows] = await Promise.all([
+  const [pickups, bakeryRows, pantryRows, accounts, pantryWindows, pantryConfirmations] = await Promise.all([
     db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.status, "confirmed")),
     db.select().from(bakeries).where(eq(bakeries.active, true)),
     db.select().from(pantries).where(eq(pantries.active, true)),
@@ -286,6 +286,11 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
       eq(availabilityWindows.organizationType, "pantry"),
       eq(availabilityWindows.paused, false),
       gt(availabilityWindows.endsAt, now),
+    )),
+    db.select().from(inAppNotifications).where(and(
+      eq(inAppNotifications.recipientType, "pantry"),
+      eq(inAppNotifications.eventType, "pantry_window_confirmation"),
+      isNotNull(inAppNotifications.acknowledgedAt),
     )),
   ]);
   const registeredBakeries = new Set(accounts.filter((item) => item.type === "bakery").map((item) => item.id));
@@ -308,7 +313,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
       const routeMiles = milesBetween(bakery.latitude!, bakery.longitude!, pantry.latitude, pantry.longitude);
       const routeMinutes = Math.max(5, Math.ceil(routeMiles / 25 * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (15 + routeMinutes) * 60_000);
-      const pantryServiceMode = pantryServiceModeAt(pantry, pantryArrival, pantryWindows);
+      const pantryServiceMode = confirmedPantryServiceModeAt(pantry, pantryArrival, pantryWindows, pantryConfirmations);
       if (!pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
       const score = priority * 20 - driverMiles * 2.5 - routeMiles - Math.max(0, (departureStart.getTime() - now.getTime()) / 3_600_000);

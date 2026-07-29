@@ -1279,6 +1279,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const priorityNotification = workspace.notifications.find((notification) =>
     notification.actionRequired && !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification))
     ?? workspace.notifications.find((notification) => !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification));
+  const pantryConfirmationNeeded = !bakery && workspace.notifications.some((notification) =>
+    notification.actionKey.startsWith("pantry-open:") && notification.actionRequired && !notification.acknowledgedAt);
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const pickupFulfilled = todayPickup?.status === "fulfilled";
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
@@ -1310,7 +1312,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
               <Pressable style={styles.portalStatusHeaderLink} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusHeaderActionText}>{bakery ? "Pickup schedule →" : "Receiving schedule →"}</Text></Pressable>
             </View>}
           </View>
-          <Text style={styles.portalStatusTitle}>{pickupFulfilled ? "Today’s pickup is complete." : paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? activeOneTime && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
+          <Text style={styles.portalStatusTitle}>{pickupFulfilled ? "Today’s pickup is complete." : pantryConfirmationNeeded ? "Confirm that your pantry is open for deliveries." : paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? activeOneTime && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
           <Text style={styles.portalStatusBody}>{pickupFulfilled && todayPickup
             ? `${formatMobileDate(todayPickup.pickupWindowStartsAt)} · ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)} · Food for this window has been picked up, and the bakery has been excluded from any more pickups during this window.`
             : activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}${bakery && !pickupConfirmed ? " · Confirm food availability below before drivers can reserve it." : ""}`
@@ -1434,6 +1436,7 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
   }
   const handoff = notification.actionKey.startsWith("confirm-handoff:");
   const delivery = notification.actionKey.startsWith("confirm-delivery:");
+  const pantryOpening = notification.actionKey.startsWith("pantry-open:");
   const arrivedAt = Number(notification.actionKey.split(":")[2] ?? 0);
   const canReportMissing = handoff && arrivedAt > 0 && Date.now() - arrivedAt >= 15 * 60_000;
   return <View style={compact ? styles.statusNotificationMobile : styles.driverNotificationCard}>
@@ -1442,7 +1445,7 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
     {notification.actionRequired && !notification.acknowledgedAt && <View style={[styles.notificationActionRow, compact && styles.notificationActionRowCompact]}>
       <Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}>
-        <Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Confirm food was dropped off" : "Acknowledge"}</Text>
+        <Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Confirm food was dropped off" : pantryOpening ? "We’re open and accepting deliveries" : "Acknowledge"}</Text>
       </Pressable>
       {delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery was not there?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>Delivery was not there</Text></Pressable>}
       {canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}
