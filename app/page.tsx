@@ -101,7 +101,18 @@ export default function Home() {
       </section>
 
       <section className="howSection" id="how">
-        <div className="howIntro"><span className="kicker">HOW IT WORKS</span><h2>From surplus<br />to supper.</h2><p>A simple act, coordinated intelligently.</p></div>
+        <div className="howIntro"><span className="kicker">WHY BAKEDBOSTON</span><h2>From surplus<br />to supper.</h2><p>A simple act, coordinated intelligently.</p></div>
+        <div className="howStory">
+          <p className="howStoryLead">Edible food is often discarded because a bakery cannot move it in the narrow window when it is still fresh—at the same time that local food-access organizations are under growing pressure. BakedBoston coordinates the people, places, and timing needed to turn that gap into a reliable delivery.</p>
+          <div className="problemStats">
+            <a href="https://magazinebbm.com/blog/food-waste-and-the-problem-of-bakery-product-loss-4003" target="_blank" rel="noreferrer" className="problemStat">
+              <strong>10–25%</strong><span>of bakery product can be discarded each day.<i>Source ↗</i></span>
+            </a>
+            <a href="https://foodaccessreport.gbfb.org/the-state-of-food-insecurity" target="_blank" rel="noreferrer" className="problemStat">
+              <strong>40%</strong><span>of Massachusetts households experienced food insecurity in 2025.<i>Source ↗</i></span>
+            </a>
+          </div>
+        </div>
         <div className="steps">
           <div><span>01</span><div className="stepIcon">🥖</div><h3>Bakeries post surplus</h3><p>Food type, quantity, and safe pickup window are added in under a minute.</p></div>
           <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>Our model balances urgency, distance, availability, and pantry priority.</p></div>
