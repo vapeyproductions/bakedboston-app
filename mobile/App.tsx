@@ -1513,7 +1513,7 @@ function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceD
 }
 
 function PantryImpactShareMobile({ workspace }: { workspace: WorkspaceData }) {
-  const completed = workspace.routes.filter((route) => route.status === "completed");
+  const completed = workspace.routes.filter((route) => route.status === "completed").sort((left, right) => new Date(right.scheduledArrival || right.createdAt).getTime() - new Date(left.scheduledArrival || left.createdAt).getTime()).slice(0, 5);
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [caption, setCaption] = useState("");
@@ -1529,16 +1529,31 @@ function PantryImpactShareMobile({ workspace }: { workspace: WorkspaceData }) {
   async function share() {
     if (!selectedRouteId || !photo || !consent) return setNotice("Choose a completed delivery, photo, and consent before sharing.");
     setBusy(true); setNotice("");
-    const token = await SecureStore.getItemAsync(TOKEN_KEY);
-    const form = new FormData();
-    form.append("rescueRouteId", String(selectedRouteId));
-    form.append("photo", { uri: photo.uri, name: photo.fileName ?? `impact-photo-${Date.now()}.jpg`, type: photo.mimeType ?? "image/jpeg" } as unknown as Blob);
-    form.append("caption", caption); form.append("socialConsent", "true");
-    const response = await fetch(`${API_URL}/api/mobile/pantry-impact-photos`, { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}` }, body: form });
-    const data = await response.json().catch(() => ({}));
-    setBusy(false);
-    if (response.ok) { setPhoto(null); setCaption(""); setConsent(false); setSelectedRouteId(null); setNotice("Thank you for sharing this delivery’s impact."); }
-    else setNotice(data.error ?? "Could not upload the impact photo.");
+    try {
+      const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      const imageResponse = await fetch(photo.uri);
+      const imageBytes = await imageResponse.arrayBuffer();
+      const response = await fetch(`${API_URL}/api/mobile/pantry-impact-photos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token ?? ""}`,
+          "Content-Type": photo.mimeType ?? "image/jpeg",
+          "X-BakedBoston-Upload": "pantry-impact",
+          "X-Rescue-Route-Id": String(selectedRouteId),
+          "X-File-Name": photo.fileName ?? `impact-photo-${Date.now()}.jpg`,
+          "X-Impact-Caption": encodeURIComponent(caption),
+          "X-Social-Consent": "true",
+        },
+        body: imageBytes,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) { setPhoto(null); setCaption(""); setConsent(false); setSelectedRouteId(null); setNotice("Thank you for sharing this delivery’s impact."); }
+      else setNotice(data.error ?? "Could not upload the impact photo.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not upload the impact photo.");
+    } finally {
+      setBusy(false);
+    }
   }
   return <View style={styles.impactShareMobile}>
     <Text style={styles.portalPanelKicker}>SHARE THE IMPACT</Text>

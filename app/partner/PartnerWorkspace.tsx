@@ -450,7 +450,7 @@ function ActivityCard({ activity, onAll }: { activity: Array<{ title: string; de
 }
 
 function ImpactPhotoShare({ routes, photos, onUploaded, onSaved }: { routes: Route[]; photos: ImpactPhoto[]; onUploaded: (photo: ImpactPhoto) => void; onSaved: (message: string) => void }) {
-  const completed = routes.filter((route) => route.status === "completed");
+  const completed = routes.filter((route) => route.status === "completed").sort((left, right) => new Date(right.scheduledArrival || right.createdAt).getTime() - new Date(left.scheduledArrival || left.createdAt).getTime()).slice(0, 5);
   const [selectedRouteId, setSelectedRouteId] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [caption, setCaption] = useState("");

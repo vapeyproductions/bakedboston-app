@@ -22,11 +22,16 @@ export async function POST(request: Request) {
   try {
     const account = await currentPantry(request);
     if (!account) return Response.json({ error: "Pantry account access is required." }, { status: 401 });
-    const form = await request.formData();
-    const rescueRouteId = Number(form.get("rescueRouteId"));
-    const photo = form.get("photo");
+    const directUpload = request.headers.get("x-bakedboston-upload") === "pantry-impact";
+    const form = directUpload ? null : await request.formData();
+    const rescueRouteId = Number(directUpload ? request.headers.get("x-rescue-route-id") : form?.get("rescueRouteId"));
+    const photo = directUpload
+      ? new File([await request.arrayBuffer()], request.headers.get("x-file-name") || `impact-photo-${rescueRouteId}.jpg`, { type: request.headers.get("content-type") || "image/jpeg" })
+      : form?.get("photo");
+    const socialConsent = directUpload ? request.headers.get("x-social-consent") : form?.get("socialConsent");
+    const caption = directUpload ? decodeURIComponent(request.headers.get("x-impact-caption") || "") : String(form?.get("caption") ?? "").trim();
     if (!Number.isInteger(rescueRouteId) || rescueRouteId < 1) return Response.json({ error: "Choose a completed delivery." }, { status: 400 });
-    if (form.get("socialConsent") !== "true") return Response.json({ error: "Confirm consent before sharing an impact photo." }, { status: 400 });
+    if (socialConsent !== "true") return Response.json({ error: "Confirm consent before sharing an impact photo." }, { status: 400 });
     if (!(photo instanceof File)) return Response.json({ error: "Choose a photo to upload." }, { status: 400 });
     if (!allowedTypes.has(photo.type)) return Response.json({ error: "Use a JPEG, PNG, or WebP image." }, { status: 400 });
     if (photo.size > maxBytes) return Response.json({ error: "Photos must be 4 MB or smaller." }, { status: 400 });
@@ -37,7 +42,7 @@ export async function POST(request: Request) {
     if (!pantry || !route) return Response.json({ error: "Impact photos can only be added to completed deliveries for your pantry." }, { status: 409 });
     const safeName = photo.name.replace(/[^a-zA-Z0-9._-]/g, "-");
     const blob = await put(`pantry-impact/${pantry.id}/${route.id}/${safeName}`, photo, { access: "public", addRandomSuffix: true });
-    const [record] = await db.insert(pantryImpactPhotos).values({ pantryId: pantry.id, rescueRouteId: route.id, imageUrl: blob.url, pathname: blob.pathname, caption: String(form.get("caption") ?? "").trim(), socialConsent: true }).returning();
+    const [record] = await db.insert(pantryImpactPhotos).values({ pantryId: pantry.id, rescueRouteId: route.id, imageUrl: blob.url, pathname: blob.pathname, caption, socialConsent: true }).returning();
     await writeAudit({ actorType: "partner", actorId: account.id, actorName: account.administratorName, action: "shared pantry delivery impact photo", entityType: "pantry", entityId: pantry.id, entityName: pantry.name, details: `Route #${route.id} · consent recorded` });
     return Response.json({ record }, { status: 201 });
   } catch (error) {
