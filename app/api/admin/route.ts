@@ -4,6 +4,7 @@ import { adminAccounts, adminInvitations, auditLog, availabilityPauses, availabi
 import { getAdministrator, isAdministrator } from "../../admin-auth";
 import { writeAudit } from "../../audit";
 import { sendAccountStatusEmail } from "../../account-email";
+import { replaceOperationalNotification } from "../../operational-notifications";
 
 async function authorized() {
   return isAdministrator();
@@ -102,6 +103,37 @@ export async function POST(request: Request) {
     const body = await request.json() as Record<string, string | number | boolean>;
     const kind = String(body.kind ?? "");
     const db = getDb();
+
+    if (kind === "cancel-route") {
+      const routeId = Number(body.id);
+      if (!Number.isInteger(routeId) || routeId < 1) return Response.json({ error: "A valid route is required." }, { status: 400 });
+      const [route] = await db.select().from(rescueRoutes).where(eq(rescueRoutes.id, routeId)).limit(1);
+      if (!route || !["reserved", "ongoing"].includes(route.status)) return Response.json({ error: "Only reserved or ongoing routes can be cancelled." }, { status: 409 });
+      const [[bakery], [pantry]] = await Promise.all([
+        db.select().from(bakeries).where(eq(bakeries.name, route.bakeryName)).limit(1),
+        db.select().from(pantries).where(eq(pantries.name, route.pantryName)).limit(1),
+      ]);
+      const pickups = bakery ? await db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, bakery.id)) : [];
+      const pickupIds = pickups.map((pickup) => pickup.id);
+      const offers = pantry ? await db.select().from(routeOffers).where(and(eq(routeOffers.pantryId, pantry.id), eq(routeOffers.status, "accepted"))) : [];
+      const offer = offers.find((item) => pickupIds.includes(item.pickupOccurrenceId));
+      const now = new Date();
+      await db.update(rescueRoutes).set({ status: "cancelled" }).where(eq(rescueRoutes.id, route.id));
+      if (offer) {
+        await db.update(routeOffers).set({ status: "cancelled", respondedAt: now }).where(eq(routeOffers.id, offer.id));
+        const pickup = pickups.find((item) => item.id === offer.pickupOccurrenceId);
+        if (pickup?.status === "reserved") await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(eq(bakeryPickupOccurrences.id, pickup.id));
+        await db.update(driverRideRequests).set({ status: "active", updatedAt: now }).where(and(eq(driverRideRequests.id, offer.driverRequestId), eq(driverRideRequests.status, "matched")));
+        const [driver] = await db.select().from(driverAccounts).where(eq(driverAccounts.id, offer.driverId)).limit(1);
+        if (bakery && pantry && pickup) await Promise.all([
+          replaceOperationalNotification({ recipientType: "bakery", recipientId: bakery.id, eventType: "admin_cancelled_route", threadKey: `pickup:${pickup.id}`, title: "BakedBoston cancelled this route", body: `The planned delivery to ${pantry.name} was cancelled by BakedBoston administration.${pickup.status === "reserved" ? " This pickup is available for future driver searches again." : " The food was already collected, so this pickup will remain closed."}` }),
+          replaceOperationalNotification({ recipientType: "pantry", recipientId: pantry.id, eventType: "admin_cancelled_route", threadKey: `pickup:${pickup.id}`, title: "BakedBoston cancelled this route", body: `The planned delivery from ${bakery.name} was cancelled by BakedBoston administration.` }),
+          ...(driver ? [db.insert(inAppNotifications).values({ recipientType: "driver", recipientId: driver.id, eventType: "route_cancelled_by_admin", title: "Route cancelled by BakedBoston", body: `Your route from ${bakery.name} to ${pantry.name} was cancelled by BakedBoston administration.` })] : []),
+        ]);
+      }
+      await writeAudit({ actorType: "admin", actorId: actor.id, actorName: actor.displayName, action: "cancelled route", entityType: "route", entityId: route.id, entityName: `${route.bakeryName} → ${route.pantryName}`, details: offer ? "Driver and partner notifications sent" : "Route record cancelled; no active offer found" });
+      return Response.json({ ok: true });
+    }
 
     if (kind === "bakery") {
       const schedule = parseBakerySchedule(body);

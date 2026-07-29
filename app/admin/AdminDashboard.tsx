@@ -200,6 +200,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner; initialSection?: "overview" | "deliveries" | "schedule" | "profile" } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [cancellingRouteId, setCancellingRouteId] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
 
   const refresh = async () => {
@@ -294,6 +295,21 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
     setDeletingId(null);
   };
 
+  const cancelRoute = async (route: Route) => {
+    if (!window.confirm(`Cancel the route from ${route.bakeryName} to ${route.pantryName}? The driver and partners will be notified.`)) return;
+    setCancellingRouteId(route.id);
+    setNotice("");
+    const response = await fetch("/api/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "cancel-route", id: route.id }) });
+    if (response.ok) {
+      setNotice("Route cancelled. The driver and partners have been notified.");
+      await refresh();
+    } else {
+      const data = await response.json().catch(() => null);
+      setNotice(data?.error ?? "Could not cancel this route.");
+    }
+    setCancellingRouteId(null);
+  };
+
   return (
     <main className="adminShell">
       <aside className="adminSidebar">
@@ -340,7 +356,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "drivers" && <DriversWorkspace drivers={drivers} onChanged={refresh} setNotice={setNotice} />}
             {tab === "address verification" && <AddressVerificationWorkspace checks={addressChecks} accounts={partnerAccounts} onView={(kind, record) => setWorkspaceRecord({ kind, record, initialSection: "profile" })} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} routes={routes} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
-            {tab === "routes" && <RoutesTable routes={routes} />}
+            {tab === "routes" && <RoutesTable routes={routes} onCancel={cancelRoute} cancellingRouteId={cancellingRouteId} />}
             {tab === "inbox" && <InboxWorkspace messages={inboxMessages} reports={supportReports} onChanged={refresh} />}
             {tab === "reports & support" && <ReportsWorkspace reports={supportReports} messages={supportReportMessages} onChanged={refresh} />}
             {tab === "change log" && <ChangeLog entries={auditEntries} />}
@@ -1188,10 +1204,10 @@ function sameDate(left: Date, right: Date) { return left.getFullYear() === right
 function adminLocalInput(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`; }
 function adminDateKey(date: Date) { return adminLocalInput(date).slice(0, 10); }
 
-function RoutesTable({ routes, compact = false }: { routes: Route[]; compact?: boolean }) {
+function RoutesTable({ routes, compact = false, onCancel, cancellingRouteId }: { routes: Route[]; compact?: boolean; onCancel?: (route: Route) => void; cancellingRouteId?: number | null }) {
   if (!routes.length) return <Empty title="No route activity" body="Routes will appear after bakery pickups are reserved." />;
   return <div className={compact ? "routeRows" : "tablePanel"}>{compact ? routes.map((route) => <div className="routeRow" key={route.id}><span className={`statusDot ${route.status}`} /><div><strong>{route.bakeryName} → {route.pantryName}</strong><small>{route.driverName} · {route.scheduledArrival}</small></div><b>{route.status}</b></div>) :
-    <table><thead><tr><th>Route</th><th>Driver</th><th>Scheduled arrival</th><th>Status</th></tr></thead><tbody>{routes.map((route) => <tr key={route.id}><td><strong>{route.bakeryName} → {route.pantryName}</strong></td><td>{route.driverName}</td><td>{route.scheduledArrival}</td><td><span className={`routeStatus ${route.status}`}>{route.status}</span></td></tr>)}</tbody></table>}
+    <table><thead><tr><th>Route</th><th>Driver</th><th>Scheduled arrival</th><th>Status</th>{onCancel && <th>Action</th>}</tr></thead><tbody>{routes.map((route) => <tr key={route.id}><td><strong>{route.bakeryName} → {route.pantryName}</strong></td><td>{route.driverName}</td><td>{route.scheduledArrival}</td><td><span className={`routeStatus ${route.status}`}>{route.status}</span></td>{onCancel && <td>{["reserved", "ongoing"].includes(route.status) ? <button className="deleteAction" disabled={cancellingRouteId === route.id} onClick={() => onCancel(route)}>{cancellingRouteId === route.id ? "Cancelling…" : "Cancel route"}</button> : "—"}</td>}</tr>)}</tbody></table>}
   </div>;
 }
 
