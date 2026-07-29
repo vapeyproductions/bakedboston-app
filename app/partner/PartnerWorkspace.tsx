@@ -267,7 +267,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       </>}
 
       {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} oneTimeWindows={oneTimeWindows} scheduleExceptions={scheduleExceptions} onWindowsChanged={refreshAvailability} onAddOneTime={() => showWindowDialog(false)} />}
-      {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} />{!bakery && <ImpactPhotoShare routes={routeRows} photos={impactPhotoRows} onUploaded={(photo) => setImpactPhotoRows((current) => [photo, ...current])} onSaved={prototypeAction} />}</div>}
+      {section === "activity" && <div className="activityPage">{!bakery && <ImpactPhotoShare routes={routeRows} photos={impactPhotoRows} onUploaded={(photo) => setImpactPhotoRows((current) => [photo, ...current])} onSaved={prototypeAction} />}<div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
       {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
       {section === "report" && <ReportProblemWeb />}
     </section>

@@ -1504,10 +1504,10 @@ function RouteList({ routes, bakery }: { routes: MobileRoute[]; bakery: boolean 
 function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
   return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
     <View style={styles.portalPanel}>
+      {!bakery && <PantryImpactShareMobile workspace={workspace} />}
       <Text style={styles.portalPanelKicker}>DELIVERY HISTORY</Text>
       <Text style={styles.portalFeatureBody}>Reserved, ongoing, and completed deliveries are synchronized with the BakedBoston web portal.</Text>
       <RouteList routes={workspace.routes} bakery={bakery} />
-      {!bakery && <PantryImpactShareMobile workspace={workspace} />}
     </View>
   </ScrollView>;
 }
