@@ -97,6 +97,13 @@ export async function GET(request: Request) {
     pantryIds.length ? db.select().from(pantryAccessPhotos) : Promise.resolve([]),
   ]);
   const visibleNotifications = notifications.filter((notification) => {
+    if (notification.eventType === "pickup_ready") {
+      return offers.some((offer) =>
+        offer.status === "accepted"
+        && offer.pickupReadyAt
+        && !["picked_up", "en_route_to_pantry", "arrived_at_pantry", "completed"].includes(offer.deliveryStage),
+      );
+    }
     if ([
       "route_reserved",
       "route_reconfirmed",

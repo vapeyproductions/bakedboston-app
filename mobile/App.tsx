@@ -949,7 +949,7 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCompleteUnattended, on
       <Text style={styles.activeDestinationName}>{destination.name}</Text>
       <Text style={styles.activeDestinationAddress}>{destination.address}</Text>
       <Pressable style={styles.routeProgressButton} onPress={continueRoute}><Text style={styles.driverReserveButtonText}>{nextAction.label}</Text></Pressable>
-      <Pressable style={styles.primaryDirectionButton} onPress={() => chooseNavigationApp(destination.name, destination.address)}><Text style={styles.portalStatusButtonText}>Open directions</Text></Pressable>
+      <Pressable style={[styles.primaryDirectionButton, styles.primaryDirectionAfterProgress]} onPress={() => chooseNavigationApp(destination.name, destination.address)}><Text style={styles.portalStatusButtonText}>Open directions</Text></Pressable>
       {!showDetails && <Pressable style={styles.arrivalDetailsToggle} onPress={() => setDetailsExpanded(true)}><Text style={styles.secondaryDirectionText}>View arrival instructions and photos</Text></Pressable>}
       {showDetails && <DestinationArrivalDetails destination={destination} expanded={arrived} onClose={arrived ? undefined : () => setDetailsExpanded(false)} />}
       <Pressable style={styles.deliveryHelpButton} onPress={() => setHelpExpanded((value) => !value)}><Text style={styles.secondaryDirectionText}>I need help</Text></Pressable>
@@ -1265,9 +1265,13 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
-          <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime && !pickupConfirmed ? "AWAITING PICKUP CONFIRMATION" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
+          <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? pickupFulfilled ? "PICKUP COMPLETE" : paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime && !pickupConfirmed ? "AWAITING PICKUP CONFIRMATION" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
           <Text style={styles.portalStatusTitle}>{pickupFulfilled ? "Today’s pickup is complete." : paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? activeOneTime && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
-          <Text style={styles.portalStatusBody}>{activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}${bakery && !pickupConfirmed ? " · Confirm food availability below before drivers can reserve it." : ""}` : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}` : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
+          <Text style={styles.portalStatusBody}>{pickupFulfilled && todayPickup
+            ? `${formatMobileDate(todayPickup.pickupWindowStartsAt)} · ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)} · The food has been collected and this bakery is no longer available for matching in this window.`
+            : activeOneTime ? `${formatMobileDate(activeOneTime.startsAt)} · ${formatMobileTime(activeOneTime.startsAt)}–${formatMobileTime(activeOneTime.endsAt)}${bakery && !pickupConfirmed ? " · Confirm food availability below before drivers can reserve it." : ""}`
+              : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`
+                : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
           {priorityNotification && <PartnerMobileNotificationCard notification={priorityNotification} onChanged={onChanged} compact />}
           {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
         </View>
@@ -1357,10 +1361,10 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
   return <View style={styles.nativePickupStatusControls}>
     {showSummary && <><Text style={styles.portalPanelKicker}>TODAY’S PICKUP COMMITMENT</Text><Text style={styles.statusNotificationTitle}>{fulfilled ? "Today’s food was picked up." : occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text><Text style={styles.statusNotificationBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {fulfilled ? "This bakery is no longer available for matching today." : confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text></>}
     {!fulfilled && occurrence.status !== "reserved" && <View style={styles.nativePickupActions}>
-      {!confirmed && <Pressable disabled={busy} style={styles.nativeConfirmPickup} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>{unavailable ? "Change to food available" : "Food will be available"}</Text></Pressable>}
-      {confirmed && <Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Change to not enough food</Text></Pressable>}
-      {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("decision_deferred")}><Text style={styles.statusCardLink}>Don’t know yet</Text></Pressable>}
-      {!confirmed && !unavailable && <Pressable disabled={busy} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Not enough food</Text></Pressable>}
+      {!confirmed && <Pressable disabled={busy} style={[styles.nativePickupChoice, styles.nativeConfirmPickup]} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>{unavailable ? "Change to food available" : "Food will be available"}</Text></Pressable>}
+      {confirmed && <Pressable disabled={busy} style={styles.nativePickupChoice} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Change to not enough food</Text></Pressable>}
+      {!confirmed && !unavailable && <Pressable disabled={busy} style={styles.nativePickupChoice} onPress={() => respond("decision_deferred")}><Text style={styles.statusCardLink}>Don’t know yet</Text></Pressable>}
+      {!confirmed && !unavailable && <Pressable disabled={busy} style={styles.nativePickupChoice} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Not enough food</Text></Pressable>}
     </View>}
   </View>;
 }
@@ -1892,10 +1896,10 @@ const styles = StyleSheet.create({
   portalStatusTitle: { color: colors.white, fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 11 },
   portalStatusBody: { color: "#B7CBC0", fontSize: 11, lineHeight: 17, marginTop: 8, maxWidth: 520 },
   portalStatusButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
-  portalStatusActions: { width: 190, maxWidth: "32%", minWidth: 0, gap: 8, justifyContent: "center" },
+  portalStatusActions: { width: 170, maxWidth: "28%", minWidth: 0, flexShrink: 1, gap: 8, justifyContent: "center" },
   portalStatusActionsMobile: { width: "100%", maxWidth: "100%" },
   portalStatusSecondaryButton: { minHeight: 44, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38", alignItems: "center", justifyContent: "center" },
-  portalStatusButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
+  portalStatusButtonText: { color: colors.white, fontSize: 9, fontWeight: "900", textAlign: "center" },
   portalMetrics: { flexDirection: "row", gap: 12 },
   portalMetricsMobile: { flexDirection: "column" },
   portalMetricCard: { flex: 1, minHeight: 92, padding: 17, borderRadius: 12, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
@@ -2097,6 +2101,7 @@ const styles = StyleSheet.create({
   offerReserveButton: { flex: 1, minHeight: 44, marginTop: 0, paddingHorizontal: 8 },
   routeDirectionActions: { marginTop: 15, gap: 9 },
   primaryDirectionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.forest },
+  primaryDirectionAfterProgress: { marginTop: 10 },
   secondaryDirectionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.forest, backgroundColor: colors.paper },
   secondaryDirectionText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
   activeDestination: { marginTop: 17, paddingTop: 17, borderTopWidth: 1, borderTopColor: colors.border },
@@ -2126,8 +2131,9 @@ const styles = StyleSheet.create({
   nativePickupConfirmed: { backgroundColor: "#E8F4EA", borderColor: "#9FC7A8" },
   nativePickupUnavailable: { backgroundColor: colors.paper, borderColor: colors.border },
   nativePickupStatusControls: { marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#FFFFFF24" },
-  nativePickupActions: { marginTop: 13, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 },
-  nativeConfirmPickup: { paddingHorizontal: 15, paddingVertical: 11, borderRadius: 8, backgroundColor: colors.forest },
+  nativePickupActions: { marginTop: 13, flexDirection: "row", alignItems: "stretch", flexWrap: "wrap", gap: 9 },
+  nativePickupChoice: { minHeight: 40, minWidth: 128, flexGrow: 1, flexBasis: 128, paddingHorizontal: 13, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38", alignItems: "center", justifyContent: "center" },
+  nativeConfirmPickup: { backgroundColor: colors.forest },
   statusCardLink: { color: "#D6E5DC", fontSize: 9, fontWeight: "900" },
   statusNotificationMobile: { marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#FFFFFF24" },
   statusNotificationTitle: { color: colors.white, fontSize: 12, fontWeight: "900", marginTop: 5 },
