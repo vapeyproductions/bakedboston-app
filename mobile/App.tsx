@@ -1238,14 +1238,6 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const pausedOneTime = workspace.availabilityWindows.find((window) => window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
-  const priorityNotification = workspace.notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
-    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt);
-  const reminderPickupId = priorityNotification?.eventType === "pickup_commitment_reminder"
-    ? Number(priorityNotification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0)
-    : 0;
-  const reminderPickup = reminderPickupId
-    ? workspace.pickupOccurrences.find((occurrence) => occurrence.id === reminderPickupId)
-    : undefined;
   const chronologicalOpenPickups = [...workspace.pickupOccurrences]
     .filter((occurrence) =>
       new Date(occurrence.pickupDeadline) > now
@@ -1258,10 +1250,17 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
       && !["fulfilled", "cancelled"].includes(occurrence.status),
     )
     : undefined;
-  const todayPickup = activeOneTimePickup
-    ?? reminderPickup
-    ?? chronologicalOpenPickups[0]
+  const todayPickup = chronologicalOpenPickups[0]
+    ?? activeOneTimePickup
     ?? workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
+  const notificationAppliesToCurrentPickup = (notification: DriverNotification) => {
+    if (notification.eventType !== "pickup_commitment_reminder") return true;
+    const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
+    return pickupId > 0 && pickupId === todayPickup?.id;
+  };
+  const priorityNotification = workspace.notifications.find((notification) =>
+    notification.actionRequired && !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification))
+    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const pickupFulfilled = todayPickup?.status === "fulfilled";
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)

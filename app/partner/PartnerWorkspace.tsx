@@ -46,8 +46,6 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [pickupBusy, setPickupBusy] = useState(false);
   const [notifications, setNotifications] = useState<PartnerNotification[]>([]);
   const [routeRows, setRouteRows] = useState<Route[]>(routes);
-  const priorityNotification = notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
-    ?? notifications.find((notification) => !notification.acknowledgedAt);
   const [windowDraft, setWindowDraft] = useState({ date: "", starts: "", ends: "", latest: "", serviceMode: "staffed" as "staffed" | "unattended" });
   const scheduledOpen = organizationIsOpen(kind, organization, new Date()) && !scheduleExceptions.some((exception) => exception.exceptionDate === localDate(new Date()));
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
@@ -59,22 +57,23 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       && !["fulfilled", "cancelled"].includes(item.status),
     )
     : undefined;
-  const reminderPickupId = priorityNotification?.eventType === "pickup_commitment_reminder"
-    ? Number(priorityNotification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0)
-    : 0;
-  const reminderPickup = reminderPickupId
-    ? pickupOccurrences.find((item) => item.id === reminderPickupId)
-    : undefined;
   const chronologicalOpenPickups = [...pickupOccurrences]
     .filter((item) =>
       new Date(item.pickupDeadline) > new Date()
       && !["fulfilled", "cancelled", "insufficient_food"].includes(item.status),
     )
     .sort((a, b) => new Date(a.pickupWindowStartsAt).getTime() - new Date(b.pickupWindowStartsAt).getTime());
-  const todayPickup = activeOneTimePickup
-    ?? reminderPickup
-    ?? chronologicalOpenPickups[0]
+  const todayPickup = chronologicalOpenPickups[0]
+    ?? activeOneTimePickup
     ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+  const notificationAppliesToCurrentPickup = (notification: PartnerNotification) => {
+    if (notification.eventType !== "pickup_commitment_reminder") return true;
+    const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
+    return pickupId > 0 && pickupId === todayPickup?.id;
+  };
+  const priorityNotification = notifications.find((notification) =>
+    notification.actionRequired && !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification))
+    ?? notifications.find((notification) => !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const pickupFulfilled = todayPickup?.status === "fulfilled";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);

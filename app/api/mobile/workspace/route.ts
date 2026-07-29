@@ -21,6 +21,7 @@ import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
 import { replaceOperationalNotification } from "../../../operational-notifications";
 import { firstCommitmentReminder, firstSpontaneousCommitmentReminder, nextCommitmentReminder } from "../../../bakery-commitments";
+import { earliestUnresolvedPickup, pickupWindowDescription } from "../../../pickup-ordering";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -205,6 +206,12 @@ export async function PATCH(request: Request) {
         eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
       )).limit(1);
       if (!existing) throw new Error("Pickup occurrence not found.");
+      const earliest = await earliestUnresolvedPickup(account.organizationId);
+      if (earliest && earliest.id !== existing.id) {
+        return Response.json({
+          error: `Please finish the earlier ${pickupWindowDescription(earliest.pickupWindowStartsAt, earliest.pickupDeadline)} pickup window before updating this one.`,
+        }, { status: 409 });
+      }
       const [record] = await db.update(bakeryPickupOccurrences).set({
         status: status as "confirmed" | "decision_deferred" | "insufficient_food",
         confirmedAt: status === "confirmed" ? new Date() : null,

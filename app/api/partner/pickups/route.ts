@@ -6,6 +6,7 @@ import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
 import { replaceOperationalNotification } from "../../../operational-notifications";
 import { firstCommitmentReminder, nextCommitmentReminder } from "../../../bakery-commitments";
+import { earliestUnresolvedPickup, pickupWindowDescription } from "../../../pickup-ordering";
 
 async function currentBakery() {
   const accountId = await getPartnerAccountId();
@@ -75,6 +76,12 @@ export async function PATCH(request: Request) {
       eq(bakeryPickupOccurrences.bakeryId, current.bakery.id),
     )).limit(1);
     if (!existing) return Response.json({ error: "Pickup occurrence not found." }, { status: 404 });
+    const earliest = await earliestUnresolvedPickup(current.bakery.id);
+    if (earliest && earliest.id !== existing.id) {
+      return Response.json({
+        error: `Please finish the earlier ${pickupWindowDescription(earliest.pickupWindowStartsAt, earliest.pickupDeadline)} pickup window before updating this one.`,
+      }, { status: 409 });
+    }
     if (existing.status === "reserved" && status !== "cancelled") {
       return Response.json({ error: "This pickup is already reserved." }, { status: 409 });
     }
