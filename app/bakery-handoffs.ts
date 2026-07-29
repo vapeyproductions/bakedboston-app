@@ -10,6 +10,9 @@ export async function recordBakeryHandoff(bakeryId: number, offerId: number, pic
     eq(routeOffers.status, "accepted"),
   )).limit(1);
   if (!offer?.arrivedAtBakeryAt) return { error: "The driver has not confirmed arrival at the bakery.", status: 409 };
+  if (pickedUp && !["picked_up", "en_route_to_pantry", "arrived_at_pantry", "completed"].includes(offer.deliveryStage)) {
+    return { error: "Wait until the driver confirms that the food was picked up.", status: 409 };
+  }
   const [pickup] = await db.select().from(bakeryPickupOccurrences).where(and(
     eq(bakeryPickupOccurrences.id, offer.pickupOccurrenceId),
     eq(bakeryPickupOccurrences.bakeryId, bakeryId),

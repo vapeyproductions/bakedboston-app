@@ -903,7 +903,10 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCompleteUnattended, on
     : offer.deliveryStage === "picked_up" || offer.deliveryStage === "en_route_to_pantry"
       ? { label: "I have arrived at the pantry", stage: "arrived_at_pantry" as const }
       : offer.deliveryStage === "arrived_at_pantry"
-        ? { label: "Delivery completed", stage: "completed" as const }
+        ? {
+          label: offer.pantryServiceMode === "unattended" ? "Take photo & complete delivery" : "Delivery completed",
+          stage: "completed" as const,
+        }
         : { label: "I have arrived at the bakery", stage: "arrived_at_bakery" as const };
   function continueRoute() {
     if (nextAction.stage === "completed" && offer.pantryServiceMode === "unattended") {
@@ -933,6 +936,10 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCompleteUnattended, on
     <Text style={styles.driverRouteName}>{offer.bakery?.name ?? "Bakery pickup"}</Text><View style={styles.driverRouteLine} /><Text style={styles.driverRouteName}>{offer.pantry?.name ?? "Pantry delivery"}</Text>
     <View style={styles.driverRouteFacts}><Text style={styles.driverRouteFact}>Pickup {formatMobileTime(offer.estimatedBakeryArrival)}</Text><Text style={styles.driverRouteFact}>Arrival {formatMobileTime(offer.estimatedPantryArrival)}</Text></View>
     {offer.status === "accepted" && offer.departureWindowStartsAt && offer.departureWindowEndsAt && <Text style={styles.driverRouteReason}>Recommended departure: {formatMobileTime(offer.departureWindowStartsAt)}–{formatMobileTime(offer.departureWindowEndsAt)}</Text>}
+    {offer.pantryServiceMode === "unattended" && <View style={styles.unattendedDropoffBanner}>
+      <Text style={styles.unattendedDropoffTitle}>Unattended pantry drop-off</Text>
+      <Text style={styles.unattendedDropoffBody}>No one will be there to receive the food. Leave it in the designated drop-off area and take a photo before completing the delivery.</Text>
+    </View>}
     {offer.status === "accepted" && bakeryFocused && offer.pickupReadyAt && <View style={styles.pickupReadyBanner}><Text style={styles.pickupReadyBannerText}>✓ Bakery confirmed: food is ready for pickup</Text></View>}
     {offer.status === "accepted" && offer.driverConfirmationRequestedAt && !offer.driverConfirmedAt && <View style={styles.driverNotificationCard}><Text style={styles.authEyebrow}>ACTION REQUIRED</Text><Text style={styles.connectedTitle}>Confirm this delivery</Text><Text style={styles.connectedBody}>Confirm by {offer.driverConfirmationDeadlineAt ? formatMobileTime(offer.driverConfirmationDeadlineAt) : "the displayed deadline"} to keep the reservation.</Text><Pressable style={styles.driverReserveButton} onPress={() => onConfirm(offer)}><Text style={styles.driverReserveButtonText}>Confirm delivery</Text></Pressable></View>}
     {offer.status === "offered" && <View style={styles.offerActions}><Pressable style={styles.offerDeclineButton} onPress={() => onRespond(offer, "decline-offer")}><Text style={styles.offerDeclineText}>Not this one</Text></Pressable><Pressable style={[styles.driverReserveButton, styles.offerReserveButton]} onPress={() => onRespond(offer, "accept-offer")}><Text style={styles.driverReserveButtonText}>Reserve this route</Text></Pressable></View>}
@@ -2076,6 +2083,9 @@ const styles = StyleSheet.create({
   driverRouteReason: { color: colors.sage, fontSize: 9, lineHeight: 14, marginTop: 12 },
   pickupReadyBanner: { marginTop: 12, paddingHorizontal: 11, paddingVertical: 9, borderRadius: 8, backgroundColor: "#E8F4EA", borderWidth: 1, borderColor: "#9FC7A8" },
   pickupReadyBannerText: { color: colors.forest, fontSize: 9, fontWeight: "900" },
+  unattendedDropoffBanner: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 11, borderRadius: 8, backgroundColor: "#FFF3D6", borderWidth: 1, borderColor: "#E6BD55" },
+  unattendedDropoffTitle: { color: colors.forest, fontSize: 10, fontWeight: "900" },
+  unattendedDropoffBody: { marginTop: 4, color: colors.forestSoft, fontSize: 9, lineHeight: 14 },
   driverReserveButton: { minHeight: 41, marginTop: 14, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center" },
   driverReserveButtonText: { color: colors.white, fontSize: 9, fontWeight: "900" },
   driverSearchCard: { marginTop: 18, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },

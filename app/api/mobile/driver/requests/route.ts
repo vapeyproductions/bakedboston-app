@@ -549,7 +549,13 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
   const now = new Date();
   const timestamps = {
     ...(nextStage === "arrived_at_bakery" ? { arrivedAtBakeryAt: now } : {}),
-    ...(nextStage === "picked_up" ? { pickedUpAt: now } : {}),
+    ...(nextStage === "picked_up" ? {
+      pickedUpAt: now,
+      // A bakery handoff can only be confirmed after the driver records pickup.
+      // Clear any confirmation that an older client may have submitted at arrival.
+      bakeryHandoffConfirmedAt: null,
+      bakeryHandoffDisputedAt: null,
+    } : {}),
     ...(nextStage === "arrived_at_pantry" ? { arrivedAtPantryAt: now } : {}),
     ...(nextStage === "completed" ? { completedAt: now } : {}),
   };
@@ -605,8 +611,10 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
       await replaceOperationalNotification({
         recipientType: "bakery", recipientId: bakery.id, eventType: "driver_arrived_at_bakery",
         threadKey: `pickup:${pickup.id}`,
-        title: "Driver has arrived", body: `${driver.displayName} has arrived at ${bakery.name} for the pickup.`,
-        actionRequired: true, actionKey: `confirm-handoff:${offer.id}:${now.getTime()}`,
+        title: "Driver has arrived",
+        body: `${driver.displayName} has arrived at ${bakery.name} for the pickup. The bakery will be asked to confirm the handoff after the driver records that the food was picked up.`,
+        actionRequired: false,
+        actionKey: "",
       });
     } else if (nextStage === "picked_up") {
       await db.update(bakeryPickupOccurrences).set({
@@ -621,8 +629,8 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
           recipientType: "bakery", recipientId: bakery.id, eventType: "driver_picked_up",
           threadKey: `pickup:${pickup.id}`,
           title: "Driver marked the food picked up", body: `${driver.displayName} is now taking the food to ${pantry.name}, with an estimated arrival of ${pantryEta.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}. Please confirm the bakery handoff when convenient.`,
-          actionRequired: !offer.bakeryHandoffConfirmedAt && !offer.bakeryHandoffDisputedAt,
-          actionKey: offer.bakeryHandoffConfirmedAt || offer.bakeryHandoffDisputedAt ? "" : `confirm-handoff:${offer.id}:${offer.arrivedAtBakeryAt?.getTime() ?? now.getTime()}`,
+          actionRequired: true,
+          actionKey: `confirm-handoff:${offer.id}:${offer.arrivedAtBakeryAt?.getTime() ?? now.getTime()}`,
         }),
         replaceOperationalNotification({
           recipientType: "pantry", recipientId: pantry.id, eventType: "delivery_en_route",
