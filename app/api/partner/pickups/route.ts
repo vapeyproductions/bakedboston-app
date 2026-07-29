@@ -1,11 +1,11 @@
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { bakeries, bakeryPickupOccurrences, inAppNotifications, partnerAccounts, routeOffers } from "../../../../db/schema";
+import { bakeries, bakeryPickupOccurrences, partnerAccounts, routeOffers } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
 import { replaceOperationalNotification } from "../../../operational-notifications";
-import { firstCommitmentReminder } from "../../../bakery-commitments";
+import { firstCommitmentReminder, nextCommitmentReminder } from "../../../bakery-commitments";
 
 async function currentBakery() {
   const accountId = await getPartnerAccountId();
@@ -81,7 +81,7 @@ export async function PATCH(request: Request) {
     const [occurrence] = await db.update(bakeryPickupOccurrences).set({
       status: status as "confirmed" | "decision_deferred" | "insufficient_food" | "cancelled",
       confirmedAt: status === "confirmed" ? new Date() : null,
-      commitmentReminderDueAt: status === "decision_deferred" ? new Date(Date.now() + 60 * 60_000) : null,
+      commitmentReminderDueAt: status === "decision_deferred" ? nextCommitmentReminder(existing.pickupWindowStartsAt) : null,
       confirmationNote: String(body.note ?? "").trim(),
       updatedAt: new Date(),
     }).where(eq(bakeryPickupOccurrences.id, id)).returning();

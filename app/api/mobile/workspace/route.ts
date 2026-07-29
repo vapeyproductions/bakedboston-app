@@ -20,7 +20,7 @@ import {
 import { writeAudit } from "../../../audit";
 import { matchConfirmedPickup } from "../../../pickup-matching";
 import { replaceOperationalNotification } from "../../../operational-notifications";
-import { firstCommitmentReminder } from "../../../bakery-commitments";
+import { firstCommitmentReminder, nextCommitmentReminder } from "../../../bakery-commitments";
 
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -155,11 +155,13 @@ export async function POST(request: Request) {
     validateWindow(startsAt, endsAt, latestArrival);
     const [record] = await db.insert(availabilityWindows).values({ organizationType: account.organizationType, organizationId: account.organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
     if (account.organizationType === "bakery") {
+      const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
       await db.insert(bakeryPickupOccurrences).values({
         bakeryId: account.organizationId,
         serviceDate: easternDate(startsAt),
         pickupWindowStartsAt: startsAt,
         pickupDeadline: endsAt,
+        commitmentReminderDueAt: bakery ? firstCommitmentReminder(bakery, easternDate(startsAt), startsAt) : nowOrEarlier(startsAt),
       }).onConflictDoNothing();
     }
     await audit(account, "created one-time availability window", `${startsAt.toISOString()}–${endsAt.toISOString()}`);
@@ -188,7 +190,7 @@ export async function PATCH(request: Request) {
       const [record] = await db.update(bakeryPickupOccurrences).set({
         status: status as "confirmed" | "decision_deferred" | "insufficient_food",
         confirmedAt: status === "confirmed" ? new Date() : null,
-        commitmentReminderDueAt: status === "decision_deferred" ? new Date(Date.now() + 60 * 60_000) : null,
+        commitmentReminderDueAt: status === "decision_deferred" ? nextCommitmentReminder(existing.pickupWindowStartsAt) : null,
         updatedAt: new Date(),
       }).where(eq(bakeryPickupOccurrences.id, id)).returning();
       let matching = { matchedRequests: 0, offered: false };
@@ -265,10 +267,22 @@ export async function PATCH(request: Request) {
       const windows = Array.isArray(body.windows) ? body.windows as Array<Record<string, unknown>> : [];
       if (!windows.length) throw new Error("Add at least one recurring window.");
       if (account.organizationType === "bakery") {
-        const normalized = windows.map((window) => ({ day: validDay(window.day), readyTime: validTime(window.readyTime), pickupDeadline: validTime(window.pickupDeadline) }));
-        for (const window of normalized) if (window.readyTime >= window.pickupDeadline) throw new Error(`${window.day}: pickup deadline must be later than food-ready time.`);
+        const normalized = windows.map((window) => ({
+          day: validDay(window.day),
+          businessOpen: validTime(window.businessOpen),
+          businessClose: validTime(window.businessClose),
+          readyTime: validTime(window.readyTime),
+          pickupDeadline: validTime(window.pickupDeadline),
+        }));
+        for (const window of normalized) {
+          if (window.businessOpen >= window.businessClose) throw new Error(`${window.day}: business closing time must be later than opening time.`);
+          if (window.readyTime >= window.pickupDeadline) throw new Error(`${window.day}: pickup deadline must be later than food-ready time.`);
+          if (window.readyTime < window.businessOpen || window.pickupDeadline > window.businessClose) throw new Error(`${window.day}: pickup hours must fall within business hours.`);
+        }
         await db.update(bakeries).set({
           recurringDays: normalized.map((window) => window.day).join(", "),
+          businessOpenTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.businessOpen]))),
+          businessCloseTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.businessClose]))),
           readyTime: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.readyTime]))),
           arrivalDeadline: JSON.stringify(Object.fromEntries(normalized.map((window) => [window.day, window.pickupDeadline]))),
         }).where(eq(bakeries.id, account.organizationId));
@@ -305,10 +319,15 @@ export async function PATCH(request: Request) {
     validateWindow(startsAt, endsAt, latestArrival);
     const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode }).where(eq(availabilityWindows.id, id)).returning();
     if (account.organizationType === "bakery") {
+      const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, account.organizationId)).limit(1);
+      const commitmentReminderDueAt = bakery
+        ? firstCommitmentReminder(bakery, easternDate(startsAt), startsAt)
+        : nowOrEarlier(startsAt);
       const [updatedOccurrence] = await db.update(bakeryPickupOccurrences).set({
         serviceDate: easternDate(startsAt),
         pickupWindowStartsAt: startsAt,
         pickupDeadline: endsAt,
+        commitmentReminderDueAt,
         updatedAt: new Date(),
       }).where(and(
         eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
@@ -320,6 +339,7 @@ export async function PATCH(request: Request) {
           serviceDate: easternDate(startsAt),
           pickupWindowStartsAt: startsAt,
           pickupDeadline: endsAt,
+          commitmentReminderDueAt,
         }).onConflictDoNothing();
       }
     }
@@ -387,6 +407,10 @@ function easternDate(value: Date) {
   }).formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function nowOrEarlier(value: Date) {
+  return new Date(Math.min(Date.now(), value.getTime()));
 }
 function validDateOnly(value: unknown) { const date = String(value ?? ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a valid date."); return date; }
 function validDateTime(value: unknown, label: string) { const date = new Date(String(value ?? "")); if (!Number.isFinite(date.getTime())) throw new Error(`${label} is required.`); return date; }

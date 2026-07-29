@@ -1451,7 +1451,7 @@ function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceD
   </ScrollView>;
 }
 
-type NativeScheduleRow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; serviceMode: "staffed" | "unattended"; readyTime: string; pickupDeadline: string };
+type NativeScheduleRow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; serviceMode: "staffed" | "unattended"; businessOpen: string; businessClose: string; readyTime: string; pickupDeadline: string };
 type ScheduleSelection = { type: "recurring"; index: number; date?: string } | { type: "one-time"; id: number } | null;
 
 function SchedulePage({ workspace, bakery, rightInset, onChanged }: { workspace: WorkspaceData; bakery: boolean; rightInset: number; onChanged: () => Promise<void> }) {
@@ -1506,7 +1506,7 @@ function RecurringNativeEditor({ row, bakery, date, busy, onChange, onClose, onS
   const days = <View style={[styles.choiceRow, compact && styles.landscapeDayRow]}>{nativeDays.map((day) => <Pressable key={day} onPress={() => onChange({ day })} style={[styles.choicePill, compact && styles.landscapeDayPill, row.day === day && styles.choicePillSelected]}><Text style={[styles.choiceText, row.day === day && styles.choiceTextSelected]}>{day}</Text></Pressable>)}</View>;
   const recurrence = !bakery ? <View style={[styles.choiceRow, compact && styles.landscapeRecurrence]}><Pressable onPress={() => onChange({ recurrence: "weekly", ordinal: null })} style={[styles.choicePill, row.recurrence === "weekly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "weekly" && styles.choiceTextSelected]}>Every week</Text></Pressable><Pressable onPress={() => onChange({ recurrence: "monthly", ordinal: row.ordinal ?? 1 })} style={[styles.choicePill, row.recurrence === "monthly" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.recurrence === "monthly" && styles.choiceTextSelected]}>Once a month</Text></Pressable></View> : null;
   const serviceMode = !bakery ? <View style={compact ? styles.landscapeServiceMode : styles.portraitEditorSection}><Text style={styles.informationLabel}>Receiving method</Text><View style={[styles.choiceRow, styles.serviceModeChoices]}><Pressable onPress={() => onChange({ serviceMode: "staffed" })} style={[styles.choicePill, row.serviceMode === "staffed" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.serviceMode === "staffed" && styles.choiceTextSelected]}>Staffed</Text></Pressable><Pressable onPress={() => onChange({ serviceMode: "unattended" })} style={[styles.choicePill, row.serviceMode === "unattended" && styles.choicePillSelected]}><Text style={[styles.choiceText, row.serviceMode === "unattended" && styles.choiceTextSelected]}>Unattended</Text></Pressable></View></View> : null;
-  const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}>{!bakery && row.recurrence === "monthly" && <EditorField label="Occurrence" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}{bakery ? <><TimeEditorField label="Food ready" value={row.readyTime} onChange={(readyTime) => onChange({ readyTime })} /><TimeEditorField label="Pickup deadline" value={row.pickupDeadline} onChange={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><TimeEditorField label="Opens" value={row.open} onChange={(open) => onChange({ open })} /><TimeEditorField label="Closes" value={row.close} onChange={(close) => onChange({ close })} /><TimeEditorField label="Latest arrival" value={row.latestArrival} onChange={(latestArrival) => onChange({ latestArrival })} /></>}</View>;
+  const fields = <View style={[styles.editorFieldsRow, compact && styles.landscapeTimeFields]}>{!bakery && row.recurrence === "monthly" && <EditorField label="Occurrence" value={String(row.ordinal ?? 1)} onChangeText={(value) => onChange({ ordinal: Number(value) || 1 })} />}{bakery ? <><TimeEditorField label="Business opens" value={row.businessOpen} onChange={(businessOpen) => onChange({ businessOpen })} /><TimeEditorField label="Business closes" value={row.businessClose} onChange={(businessClose) => onChange({ businessClose })} /><TimeEditorField label="Food ready" value={row.readyTime} onChange={(readyTime) => onChange({ readyTime })} /><TimeEditorField label="Pickup deadline" value={row.pickupDeadline} onChange={(pickupDeadline) => onChange({ pickupDeadline })} /></> : <><TimeEditorField label="Opens" value={row.open} onChange={(open) => onChange({ open })} /><TimeEditorField label="Closes" value={row.close} onChange={(close) => onChange({ close })} /><TimeEditorField label="Latest arrival" value={row.latestArrival} onChange={(latestArrival) => onChange({ latestArrival })} /></>}</View>;
   const actions = <View style={[styles.editorActions, compact ? styles.landscapeEditorActions : styles.portraitEditorActions]}><Pressable style={[styles.editorDeleteButton, !compact && styles.portraitEditorAction]} onPress={onDelete}><Text style={styles.editorDeleteButtonText}>Delete window</Text></Pressable>{onCancelDate && <Pressable style={[styles.editorCancelButton, !compact && styles.portraitEditorAction]} onPress={onCancelDate}><Text style={styles.editorCancelButtonText}>Cancel hours on {date}</Text></Pressable>}<Pressable style={[styles.saveAction, compact ? styles.landscapeSaveAction : styles.portraitSaveAction]} onPress={onSave} disabled={busy}><Text style={styles.saveActionText}>{busy ? "Saving…" : "Save changes"}</Text></Pressable></View>;
   if (compact) return <View style={styles.nativeEditor}>{heading}<View style={styles.landscapeFrequencyRow}>{recurrence}</View>{days}<View style={styles.landscapeModeRow}>{serviceMode}</View><View style={styles.landscapeRecurringTimes}>{fields}</View>{actions}</View>;
   return <View style={styles.nativeEditor}>{heading}<View style={styles.portraitEditorSection}>{recurrence}</View><View style={styles.portraitEditorSection}>{days}</View>{serviceMode}<View style={styles.portraitEditorSection}>{fields}</View>{actions}</View>;
@@ -1614,13 +1614,22 @@ function confirmRestore(date: string) {
 }
 
 const nativeDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-function emptyNativeScheduleRow(): NativeScheduleRow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", serviceMode: "staffed", readyTime: "15:00", pickupDeadline: "18:00" }; }
+function emptyNativeScheduleRow(): NativeScheduleRow { return { recurrence: "weekly", day: "Mon", ordinal: null, open: "09:00", close: "17:00", latestArrival: "16:30", serviceMode: "staffed", businessOpen: "07:00", businessClose: "18:00", readyTime: "15:00", pickupDeadline: "18:00" }; }
 function nativeScheduleRows(workspace: WorkspaceData, bakery: boolean): NativeScheduleRow[] {
   try {
     if (bakery) {
       const ready = JSON.parse(workspace.organization.readyTime ?? "{}") as Record<string, string>;
       const deadlines = JSON.parse(workspace.organization.arrivalDeadline ?? "{}") as Record<string, string>;
-      const rows = Object.keys(ready).map((day) => ({ ...emptyNativeScheduleRow(), day, readyTime: ready[day], pickupDeadline: deadlines[day] ?? "18:00" }));
+      const businessOpen = JSON.parse(workspace.organization.businessOpenTime ?? "{}") as Record<string, string>;
+      const businessClose = JSON.parse(workspace.organization.businessCloseTime ?? "{}") as Record<string, string>;
+      const rows = Object.keys(ready).map((day) => ({
+        ...emptyNativeScheduleRow(),
+        day,
+        businessOpen: businessOpen[day] ?? ready[day],
+        businessClose: businessClose[day] ?? deadlines[day] ?? "18:00",
+        readyTime: ready[day],
+        pickupDeadline: deadlines[day] ?? "18:00",
+      }));
       return rows.length ? rows : [emptyNativeScheduleRow()];
     }
     const opens = JSON.parse(workspace.organization.openTime ?? "[]") as Array<{ day: string; time: string; recurrence?: "weekly" | "monthly"; ordinal?: number | null }>;
