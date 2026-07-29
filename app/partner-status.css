@@ -1,11 +1,20 @@
+.statusBanner {
+  position: relative;
+  display: block;
+}
+
 .statusBanner > div:first-child {
-  flex: 1;
+  min-width: 0;
+  padding-right: 250px;
 }
 
 .statusActions {
+  position: absolute;
+  top: 68px;
+  right: 36px;
   display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -18,9 +27,20 @@
   border-top: 1px solid #ffffff24;
 }
 
+.statusCommitment {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 24px;
+  align-items: center;
+}
+
 .statusCommitment > strong,
 .statusNotification > strong {
   font-size: 12px;
+}
+
+.statusCommitment > strong,
+.statusCommitment > span {
+  grid-column: 1;
 }
 
 .statusCommitment > span,
@@ -31,10 +51,13 @@
 }
 
 .statusCommitment .pickupConfirmationActions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 5px;
+  margin-top: 0;
 }
 
 .statusCommitment .pickupConfirmationActions button,
@@ -59,4 +82,36 @@
   margin-top: 4px;
   border-color: var(--coral);
   background: var(--coral);
+}
+
+@media (max-width: 1050px) {
+  .statusBanner > div:first-child {
+    padding-right: 0;
+  }
+
+  .statusActions {
+    position: static;
+    justify-content: flex-start;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #ffffff24;
+  }
+}
+
+@media (max-width: 700px) {
+  .statusCommitment {
+    grid-template-columns: 1fr;
+  }
+
+  .statusCommitment .pickupConfirmationActions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+    margin-top: 5px;
+  }
+
+  .statusActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
