@@ -35,13 +35,14 @@ export async function POST(request: Request) {
     if (!(photo instanceof File)) return Response.json({ error: "Choose a photo to upload." }, { status: 400 });
     if (!allowedTypes.has(photo.type)) return Response.json({ error: "Use a JPEG, PNG, or WebP image." }, { status: 400 });
     if (photo.size > maxBytes) return Response.json({ error: "Photos must be 4 MB or smaller." }, { status: 400 });
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return Response.json({ error: "Photo storage is not connected yet." }, { status: 503 });
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN ?? process.env.VERCEL_BLOB_READ_WRITE_TOKEN;
+    if (!blobToken) return Response.json({ error: "Photo storage is not connected yet. Add BLOB_READ_WRITE_TOKEN to this Vercel project's Production environment." }, { status: 503 });
     const db = getDb();
     const [pantry] = await db.select().from(pantries).where(eq(pantries.id, account.organizationId)).limit(1);
     const [route] = pantry ? await db.select().from(rescueRoutes).where(and(eq(rescueRoutes.id, rescueRouteId), eq(rescueRoutes.pantryName, pantry.name), eq(rescueRoutes.status, "completed"))).limit(1) : [];
     if (!pantry || !route) return Response.json({ error: "Impact photos can only be added to completed deliveries for your pantry." }, { status: 409 });
     const safeName = photo.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const blob = await put(`pantry-impact/${pantry.id}/${route.id}/${safeName}`, photo, { access: "public", addRandomSuffix: true });
+    const blob = await put(`pantry-impact/${pantry.id}/${route.id}/${safeName}`, photo, { access: "public", addRandomSuffix: true, token: blobToken });
     const [record] = await db.insert(pantryImpactPhotos).values({ pantryId: pantry.id, rescueRouteId: route.id, imageUrl: blob.url, pathname: blob.pathname, caption, socialConsent: true }).returning();
     await writeAudit({ actorType: "partner", actorId: account.id, actorName: account.administratorName, action: "shared pantry delivery impact photo", entityType: "pantry", entityId: pantry.id, entityName: pantry.name, details: `Route #${route.id} · consent recorded` });
     return Response.json({ record }, { status: 201 });

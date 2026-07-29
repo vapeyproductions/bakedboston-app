@@ -1341,7 +1341,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
       </View>
     </ScrollView>;
   }
-  if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} rightInset={rightInset} />;
+  if (section === "activity") return <ActivityPage workspace={workspace} bakery={bakery} landscape={landscape} rightInset={rightInset} />;
   if (section === "schedule") return <SchedulePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
   if (section === "report") return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]}><ReportProblemMobile /></ScrollView>;
   return <ProfilePage workspace={workspace} bakery={bakery} rightInset={rightInset} onChanged={onChanged} />;
@@ -1501,10 +1501,10 @@ function RouteList({ routes, bakery }: { routes: MobileRoute[]; bakery: boolean 
   </View>)}</View>;
 }
 
-function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceData; bakery: boolean; rightInset: number }) {
-  return <ScrollView contentContainerStyle={[styles.portalContent, { paddingRight: 28 + rightInset }]}>
+function ActivityPage({ workspace, bakery, landscape, rightInset }: { workspace: WorkspaceData; bakery: boolean; landscape: boolean; rightInset: number }) {
+  return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
+    {!bakery && <View style={[styles.portalPanel, styles.impactSharePanel]}><PantryImpactShareMobile workspace={workspace} /></View>}
     <View style={styles.portalPanel}>
-      {!bakery && <PantryImpactShareMobile workspace={workspace} />}
       <Text style={styles.portalPanelKicker}>DELIVERY HISTORY</Text>
       <Text style={styles.portalFeatureBody}>Reserved, ongoing, and completed deliveries are synchronized with the BakedBoston web portal.</Text>
       <RouteList routes={workspace.routes} bakery={bakery} />
@@ -2422,7 +2422,8 @@ const styles = StyleSheet.create({
   pending: { alignItems: "center", paddingTop: 40 },
   pendingIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.mint, alignItems: "center", justifyContent: "center", marginBottom: 24 },
   pendingIconText: { color: colors.forest, fontSize: 30, fontWeight: "900" },
-  impactShareMobile: { marginTop: 22, paddingTop: 22, borderTopWidth: 1, borderTopColor: colors.border },
+  impactSharePanel: { paddingTop: 21 },
+  impactShareMobile: { gap: 0 },
   impactRouteChoices: { gap: 8, marginBottom: 14 },
   impactRouteChoice: { borderWidth: 1, borderColor: colors.border, borderRadius: 9, padding: 12, backgroundColor: colors.paper },
   impactRouteChoiceSelected: { borderColor: colors.forest, backgroundColor: colors.mint },
