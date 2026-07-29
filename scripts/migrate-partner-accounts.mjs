@@ -430,5 +430,30 @@ if (!databaseUrl) {
   await sql`ALTER TABLE rescue_routes ADD COLUMN IF NOT EXISTS delivery_proof_pathname text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS delivery_proof_url text DEFAULT '' NOT NULL`;
   await sql`ALTER TABLE route_offers ADD COLUMN IF NOT EXISTS delivery_proof_pathname text DEFAULT '' NOT NULL`;
+  await sql`
+    UPDATE rescue_routes AS route
+    SET status = 'completed',
+        delivery_proof_url = offer.delivery_proof_url,
+        delivery_proof_pathname = offer.delivery_proof_pathname
+    FROM route_offers AS offer
+    JOIN bakery_pickup_occurrences AS pickup ON pickup.id = offer.pickup_occurrence_id
+    JOIN bakeries AS bakery ON bakery.id = pickup.bakery_id
+    JOIN pantries AS pantry ON pantry.id = offer.pantry_id
+    JOIN driver_accounts AS driver ON driver.id = offer.driver_id
+    WHERE offer.delivery_stage = 'completed'
+      AND route.status IN ('reserved', 'ongoing')
+      AND route.bakery_name = bakery.name
+      AND route.pantry_name = pantry.name
+      AND route.driver_name = driver.display_name
+  `;
+  await sql`
+    UPDATE in_app_notifications
+    SET title = 'Confirm this delivery arrived',
+        body = 'The driver marked this order as delivered. Please confirm that the food was present whenever someone is available to check.',
+        action_required = true
+    WHERE recipient_type = 'pantry'
+      AND action_key LIKE 'confirm-delivery:%'
+      AND acknowledged_at IS NULL
+  `;
   console.log("Partner-account database migration complete.");
 }

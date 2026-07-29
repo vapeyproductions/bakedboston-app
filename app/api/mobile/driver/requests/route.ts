@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, desc, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import {
   bakeries,
@@ -574,7 +574,7 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         eq(rescueRoutes.bakeryName, bakery.name),
         eq(rescueRoutes.pantryName, pantry.name),
         eq(rescueRoutes.driverName, driver.displayName),
-        eq(rescueRoutes.status, "reserved"),
+        inArray(rescueRoutes.status, ["reserved", "ongoing"]),
       )).limit(1);
       if (activeRoute) await db.update(rescueRoutes).set({ scheduledArrival: pantryEta.toISOString(), status: "ongoing" }).where(eq(rescueRoutes.id, activeRoute.id));
     }
@@ -630,7 +630,7 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         eq(rescueRoutes.bakeryName, bakery.name),
         eq(rescueRoutes.pantryName, pantry.name),
         eq(rescueRoutes.driverName, driver.displayName),
-        eq(rescueRoutes.status, "reserved"),
+        inArray(rescueRoutes.status, ["reserved", "ongoing"]),
       )).limit(1);
       if (route) await db.update(rescueRoutes).set({
         status: "completed",
@@ -651,10 +651,10 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
           recipientId: pantry.id,
           eventType: offer.pantryServiceMode === "unattended" ? "unattended_delivery_completed" : "delivery_confirmation_required",
           threadKey: `pickup:${pickup.id}`,
-          title: offer.pantryServiceMode === "unattended" ? "Unattended delivery completed" : "Confirm this delivery was received",
+          title: "Confirm this delivery arrived",
           body: offer.pantryServiceMode === "unattended"
-            ? `${driver.displayName} completed the drop-off from ${bakery.name} and submitted photo evidence. The delivery is complete; please verify the drop-off when someone is next available.`
-            : `${driver.displayName} marked the delivery from ${bakery.name} complete. Please confirm whether your pantry received it.`,
+            ? `The driver marked the delivery from ${bakery.name} as delivered and submitted a drop-off photo. Please confirm that the food was present whenever someone is next available to check.`
+            : `The driver marked the delivery from ${bakery.name} as delivered. Please confirm that your pantry received it.`,
           actionRequired: true,
           actionKey: `confirm-delivery:${offer.id}`,
         }),

@@ -1376,7 +1376,13 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
     <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
     <Text style={compact ? styles.statusNotificationTitle : styles.connectedTitle}>{notification.title}</Text>
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
-    {notification.actionRequired && !notification.acknowledgedAt && <View style={[styles.notificationActionRow, compact && styles.notificationActionRowCompact]}><Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}><Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Yes, it arrived" : "Acknowledge"}</Text></Pressable>{delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery did not arrive?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>No, it did not arrive</Text></Pressable>}{canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}</View>}
+    {notification.actionRequired && !notification.acknowledgedAt && <View style={[styles.notificationActionRow, compact && styles.notificationActionRowCompact]}>
+      <Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}>
+        <Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Confirm delivery" : "Acknowledge"}</Text>
+      </Pressable>
+      {delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery was not there?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>Delivery was not there</Text></Pressable>}
+      {canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}
+    </View>}
     {notification.acknowledgedAt && <Text style={styles.nativeAcknowledged}>✓ Acknowledged</Text>}
   </View>;
 }
@@ -1423,7 +1429,7 @@ function RouteList({ routes, bakery }: { routes: MobileRoute[]; bakery: boolean 
   return <View style={styles.routeList}>{routes.map((route) => <View style={styles.routeRow} key={route.id}>
     <View style={[styles.routeDot, route.status === "completed" && styles.routeDotComplete]} />
     <View style={styles.routeCopy}><Text style={styles.routeTitle}>{bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`}</Text><Text style={styles.routeDetail}>{route.driverName} · {formatMobileDateTime(route.scheduledArrival)}</Text>{route.deliveryProofUrl ? <Image source={{ uri: route.deliveryProofUrl }} style={styles.deliveryProofImage} /> : null}</View>
-    <Text style={styles.routeStatus}>{route.status}</Text>
+    <Text style={styles.routeStatus}>{route.status === "completed" ? "delivered" : route.status}</Text>
   </View>)}</View>;
 }
 
