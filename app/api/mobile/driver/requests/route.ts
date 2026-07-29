@@ -97,6 +97,7 @@ export async function GET(request: Request) {
     pantryIds.length ? db.select().from(pantryAccessPhotos) : Promise.resolve([]),
   ]);
   const visibleNotifications = notifications.filter((notification) => {
+    if (notification.eventType === "route_cancelled") return false;
     if (notification.eventType === "pickup_ready") {
       return offers.some((offer) =>
         offer.status === "accepted"

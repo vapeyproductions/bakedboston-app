@@ -686,6 +686,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
               await updateDriverMatching({ action: "cancel-route", offerId: offer.id });
               const data = await loadDriverMatching();
               setRideRequests(data.requests); setRouteOffers(data.offers); setDriverNotifications(data.notifications);
+              Alert.alert("Delivery cancelled", "The pickup has returned to the available pickup pool.");
             } catch (reason) {
               Alert.alert("Could not cancel delivery", reason instanceof Error ? reason.message : "Please try again.");
             }
@@ -1288,7 +1289,16 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     return <ScrollView contentContainerStyle={[styles.portalContent, landscape && { paddingRight: 28 + rightInset }, !landscape && styles.portalContentMobile]} showsVerticalScrollIndicator={false}>
       <View style={[styles.portalStatusCard, !landscape && styles.portalStatusCardMobile]}>
         <View style={styles.portalStatusCopy}>
-          <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? pickupFulfilled ? "PICKUP COMPLETE" : paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime && !pickupConfirmed ? "AWAITING PICKUP CONFIRMATION" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
+          <View style={styles.portalStatusHeaderRow}>
+            <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? pickupFulfilled ? "PICKUP COMPLETE" : paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime && !pickupConfirmed ? "AWAITING PICKUP CONFIRMATION" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
+            {landscape && <View style={styles.portalStatusHeaderActions}>
+              {activeOneTime && (!bakery || pickupConfirmed) && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusHeaderActionText}>Pause availability</Text></Pressable>}
+              {pausedOneTime && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("resume-one-time")}><Text style={styles.portalStatusHeaderActionText}>Resume availability</Text></Pressable>}
+              {!activeOneTime && !pausedOneTime && paused && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("resume")}><Text style={styles.portalStatusHeaderActionText}>Resume availability</Text></Pressable>}
+              {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusHeaderActionText}>Pause availability</Text></Pressable>}
+              <Pressable style={styles.portalStatusHeaderLink} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusHeaderActionText}>{bakery ? "Pickup schedule →" : "Receiving schedule →"}</Text></Pressable>
+            </View>}
+          </View>
           <Text style={styles.portalStatusTitle}>{pickupFulfilled ? "Today’s pickup is complete." : paused ? (bakery ? "Pickup availability is paused." : "Delivery availability is paused.") : bakery ? activeOneTime && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : bakeryAvailable ? "The confirmed pickup window is open." : scheduledBakeryOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : pickupConfirmed ? "Today’s pickup is confirmed." : "No pickup window is open right now." : "Manage today’s delivery availability."}</Text>
           <Text style={styles.portalStatusBody}>{pickupFulfilled && todayPickup
             ? `${formatMobileDate(todayPickup.pickupWindowStartsAt)} · ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)} · Food for this window has been picked up, and the bakery has been excluded from any more pickups during this window.`
@@ -1298,13 +1308,13 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
           {priorityNotification && <PartnerMobileNotificationCard notification={priorityNotification} onChanged={onChanged} compact />}
           {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
         </View>
-        <View style={[styles.portalStatusActions, !landscape && styles.portalStatusActionsMobile]}>
+        {!landscape && <View style={[styles.portalStatusActions, styles.portalStatusActionsMobile]}>
           {activeOneTime && (!bakery || pickupConfirmed) && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
           {pausedOneTime && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume-one-time")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
           {!activeOneTime && !pausedOneTime && paused && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
           {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
           <Pressable style={styles.portalStatusSecondaryButton} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
-        </View>
+        </View>}
       </View>
       <View style={[styles.portalMetrics, !landscape && styles.portalMetricsMobile]}>
         <MetricCard value={workspace.nextArrival ? formatMobileDateTime(workspace.nextArrival) : "—"} label="Next arrival" />
@@ -1914,6 +1924,11 @@ const styles = StyleSheet.create({
   portalStatusCardMobile: { flexDirection: "column", alignItems: "stretch", padding: 21 },
   portalStatusCopy: { flex: 1, minWidth: 0 },
   portalStatusLabel: { flexDirection: "row", alignItems: "center", gap: 7 },
+  portalStatusHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  portalStatusHeaderActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 7, flexShrink: 1 },
+  portalStatusHeaderPrimary: { minHeight: 30, paddingHorizontal: 11, borderRadius: 7, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
+  portalStatusHeaderLink: { minHeight: 30, paddingHorizontal: 9, borderRadius: 7, borderWidth: 1, borderColor: "#FFFFFF38", alignItems: "center", justifyContent: "center" },
+  portalStatusHeaderActionText: { color: colors.white, fontSize: 8, lineHeight: 11, fontWeight: "900", textAlign: "center" },
   portalStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#76C997" },
   portalStatusDotPaused: { backgroundColor: colors.yellow },
   portalStatusLabelText: { color: "#A9C3B5", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
@@ -2164,10 +2179,10 @@ const styles = StyleSheet.create({
   statusNotificationMobile: { marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#FFFFFF24" },
   statusNotificationTitle: { color: colors.white, fontSize: 12, fontWeight: "900", marginTop: 5 },
   statusNotificationBody: { color: "#B7CBC0", fontSize: 9, lineHeight: 14, marginTop: 4 },
-  statusNotificationButton: { backgroundColor: colors.coral },
+  statusNotificationButton: { backgroundColor: colors.coral, flexShrink: 1, maxWidth: "100%" },
   notificationActionRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 9 },
   notificationActionRowCompact: { marginTop: 16, paddingTop: 2 },
-  notificationSecondaryButton: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38" },
+  notificationSecondaryButton: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38", flexShrink: 1, maxWidth: "100%" },
   deliveryHelpButton: { minHeight: 42, marginTop: 18, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.paper },
   deliveryHelpPanel: { marginTop: 9, padding: 13, gap: 8, borderRadius: 10, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
   deliveryHelpQuestion: { paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.border },
