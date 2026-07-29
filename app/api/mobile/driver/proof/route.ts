@@ -47,9 +47,12 @@ export async function POST(request: Request) {
     )).limit(1);
     if (!offer) return Response.json({ error: "This unattended delivery is not ready for proof." }, { status: 409 });
     const blobToken = process.env.BLOB_READ_WRITE_TOKEN ?? process.env.VERCEL_BLOB_READ_WRITE_TOKEN;
-    if (!blobToken) return Response.json({ error: "Photo storage is not connected. Add BLOB_READ_WRITE_TOKEN to this Vercel project's Production environment." }, { status: 503 });
     const safeName = photo.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const blob = await put(`delivery-proof/${offer.id}/${safeName}`, photo, { access: "public", addRandomSuffix: true, token: blobToken });
+    const blob = await put(`delivery-proof/${offer.id}/${safeName}`, photo, {
+      access: "public",
+      addRandomSuffix: true,
+      ...(blobToken ? { token: blobToken } : {}),
+    });
     const [updated] = await db.update(routeOffers).set({
       deliveryProofUrl: blob.url,
       deliveryProofPathname: blob.pathname,
