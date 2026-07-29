@@ -904,7 +904,7 @@ function LiveRouteOffer({ offer, onRespond, onProgress, onCompleteUnattended, on
       ? { label: "I have arrived at the pantry", stage: "arrived_at_pantry" as const }
       : offer.deliveryStage === "arrived_at_pantry"
         ? {
-          label: offer.pantryServiceMode === "unattended" ? "Take photo & complete delivery" : "Delivery completed",
+          label: offer.pantryServiceMode === "unattended" ? "Take photo & complete delivery" : "Food dropped off · complete delivery",
           stage: "completed" as const,
         }
         : { label: "I have arrived at the bakery", stage: "arrived_at_bakery" as const };
@@ -1393,7 +1393,7 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
     {notification.actionRequired && !notification.acknowledgedAt && <View style={[styles.notificationActionRow, compact && styles.notificationActionRowCompact]}>
       <Pressable style={[styles.nativeNotificationButton, compact && styles.statusNotificationButton]} onPress={() => acknowledge(handoff ? "confirm-handoff" : undefined, delivery ? true : undefined)}>
-        <Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Confirm delivery" : "Acknowledge"}</Text>
+        <Text style={styles.portalStatusButtonText}>{notification.actionKey.startsWith("pickup-ready:") ? "Food is ready for pickup" : handoff ? "Confirm food was picked up" : delivery ? "Confirm food was dropped off" : "Acknowledge"}</Text>
       </Pressable>
       {delivery && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Delivery was not there?", "BakedBoston administrators will be notified so they can review the delivery.", [{ text: "Cancel", style: "cancel" }, { text: "Report missing", style: "destructive", onPress: () => acknowledge(undefined, false) }])}><Text style={styles.statusCardLink}>Delivery was not there</Text></Pressable>}
       {canReportMissing && <Pressable style={styles.notificationSecondaryButton} onPress={() => Alert.alert("Food not picked up?", "BakedBoston administrators will be notified about the pickup issue.", [{ text: "Cancel", style: "cancel" }, { text: "Report issue", style: "destructive", onPress: () => acknowledge("handoff-not-picked-up") }])}><Text style={styles.statusCardLink}>Food was not picked up</Text></Pressable>}

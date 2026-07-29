@@ -643,10 +643,10 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
       await replaceOperationalNotification({
         recipientType: "pantry", recipientId: pantry.id, eventType: "driver_arrived_at_pantry",
         threadKey: `pickup:${pickup.id}`,
-        title: offer.pantryServiceMode === "unattended" ? "Driver reached the unattended drop-off" : "Driver has arrived",
+        title: offer.pantryServiceMode === "unattended" ? "Driver reached the unattended drop-off" : "Driver has arrived at your pantry",
         body: offer.pantryServiceMode === "unattended"
-          ? `${driver.displayName} reached the drop-off with food from ${bakery.name}. No staff response is required.`
-          : `${driver.displayName} has arrived with food from ${bakery.name}.`,
+          ? `The driver reached the unattended drop-off with food from ${bakery.name}. No response is required yet; the driver must submit a drop-off photo to complete the delivery.`
+          : `The driver has arrived with food from ${bakery.name}. No confirmation is required yet. You will be asked to confirm after the driver marks the food dropped off.`,
         actionRequired: false,
         actionKey: "",
       });
@@ -692,10 +692,12 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
           recipientId: pantry.id,
           eventType: offer.pantryServiceMode === "unattended" ? "unattended_delivery_completed" : "delivery_confirmation_required",
           threadKey: `pickup:${pickup.id}`,
-          title: "Confirm this delivery arrived",
+          title: offer.pantryServiceMode === "unattended"
+            ? "Confirm the unattended delivery"
+            : "Confirm the food was dropped off",
           body: offer.pantryServiceMode === "unattended"
-            ? `The driver marked the delivery from ${bakery.name} as delivered and submitted a drop-off photo. Please confirm that the food was present whenever someone is next available to check.`
-            : `The driver marked the delivery from ${bakery.name} as delivered. Please confirm that your pantry received it.`,
+            ? `The driver completed the delivery from ${bakery.name} and submitted a drop-off photo. The delivery now appears as completed for all parties. Please confirm that the food was present whenever someone is next available to check.`
+            : `The driver marked the food from ${bakery.name} as dropped off and completed the delivery. It now appears as completed for all parties. Please confirm that your pantry received the food.`,
           actionRequired: true,
           actionKey: `confirm-delivery:${offer.id}`,
         }),
