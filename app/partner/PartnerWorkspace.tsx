@@ -51,10 +51,13 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
   const activeOneTime = oneTimeWindows.find((window) => !window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
   const pausedOneTime = oneTimeWindows.find((window) => window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
-  const todayPickup = pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+  const activeOneTimePickup = activeOneTime
+    ? pickupOccurrences.find((item) => new Date(item.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime())
+    : undefined;
+  const todayPickup = activeOneTimePickup ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);
-  const available = recurringAvailable || Boolean(activeOneTime);
+  const available = recurringAvailable || Boolean(activeOneTime && (!bakery || pickupConfirmed));
   const activity = routes.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${route.scheduledArrival}`, status: route.status }));
   const primaryContact = contacts.find((contact) => contact.isPrimary) ?? contacts[0];
   async function refreshAvailability() {
@@ -139,7 +142,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   }
 
   async function respondToPickup(status: "confirmed" | "decision_deferred" | "insufficient_food") {
-    const occurrence = pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+    const occurrence = todayPickup;
     if (!occurrence) return;
     const message = status === "confirmed"
       ? "Confirm that food will be available during this pickup window? Drivers may reserve the route after you confirm."
@@ -197,7 +200,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       {section === "overview" && <>
         <div className="statusBanner">
           <div><span className={available ? "statusLight on" : "statusLight"} /><small>{available ? "AVAILABLE NOW" : "CLOSED NOW"}</small>
-            <h2>{available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
+            <h2>{activeOneTime && bakery && !pickupConfirmed ? "This one-time pickup is awaiting confirmation." : available ? (activeOneTime ? `Open for a one-time ${bakery ? "pickup" : "receiving"} window.` : bakery ? "The confirmed pickup window is open." : "Open according to your receiving schedule.") : pausedOneTime || schedulePaused ? `${bakery ? "Pickup" : "Delivery"} availability is paused.` : bakery && scheduledOpen && !pickupConfirmed ? todayPickup?.status === "insufficient_food" ? "No pickup is available today." : "Today’s pickup window is awaiting confirmation." : (bakery ? "No pickup window is open right now." : "Closed according to your receiving schedule.")}</h2>
             <p>{activeOneTime ? `${new Date(activeOneTime.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(activeOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${bakery ? "" : ` · Latest arrival ${new Date(activeOneTime.latestArrival).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}` : pausedOneTime ? `One-time window paused · scheduled to end ${new Date(pausedOneTime.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : schedulePaused ? "The current recurring window is paused." : recurringAvailable ? bakery ? "This window opened automatically because today’s pickup was confirmed." : "Availability is based on the saved organization schedule." : bakery && pickupConfirmed ? "Pickup confirmed. This card will open automatically when the pickup window begins." : bakery ? "Confirm today’s pickup before it can open for drivers." : "You can create a one-time receiving window if the pantry can accept deliveries."}</p>
             {priorityNotification && <StatusNotification notification={priorityNotification} onAcknowledge={async (notification, handoffAction, deliveryReceived) => {
               const pickupReady = notification.actionKey.startsWith("pickup-ready:");
@@ -215,7 +218,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
             {bakery && <BakeryPickupConfirmation occurrence={todayPickup} busy={pickupBusy} onRespond={respondToPickup} showSummary={!notifications[0]} />}
           </div>
           <div className="statusActions">
-            {activeOneTime && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
+            {activeOneTime && (!bakery || pickupConfirmed) && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
             {pausedOneTime && <button onClick={() => setOneTimePaused(pausedOneTime, false)}>Resume availability</button>}
             {recurringAvailable && !activeOneTime && !pausedOneTime && <button onClick={pauseSchedule}>Pause availability</button>}
             {scheduledOpen && schedulePaused && !activeOneTime && !pausedOneTime && <button onClick={resumeSchedule}>Resume availability</button>}
