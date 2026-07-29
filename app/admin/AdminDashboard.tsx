@@ -63,6 +63,7 @@ type Route = {
   id: number; bakeryName: string; pantryName: string; driverName: string;
   scheduledArrival: string; deliveryProofUrl: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; createdAt: string;
 };
+type DriverProofPhoto = { id: number; imageUrl: string; bakeryName: string; pantryName: string; completedAt: string; offerId: number };
 type ActivityLevel = "high activity" | "regular activity" | "occasional activity" | "no recent activity";
 type AvailabilityWindow = { id: number; organizationType: PartnerKind; organizationId: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type AvailabilityPause = { id: number; organizationType: PartnerKind; organizationId: number; endsAt: string };
@@ -188,6 +189,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [availabilityPauses, setAvailabilityPauses] = useState<AvailabilityPause[]>([]);
   const [drivers, setDrivers] = useState<DriverAccount[]>([]);
   const [scheduleExceptions, setScheduleExceptions] = useState<ScheduleException[]>([]);
+  const [routeOffers, setRouteOffers] = useState<Array<{ id: number; pantryId: number; pickupOccurrenceId: number; deliveryProofUrl: string; completedAt: string | null; createdAt: string }>>([]);
   const [pickupOccurrences, setPickupOccurrences] = useState<PickupOccurrence[]>([]);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [supportReports, setSupportReports] = useState<SupportReport[]>([]);
@@ -221,6 +223,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       setDrivers(data.drivers ?? []);
       setScheduleExceptions(data.scheduleExceptions ?? []);
       setPickupOccurrences(data.pickupOccurrences ?? []);
+      setRouteOffers(data.routeOffers ?? []);
       setNotifications(data.notifications ?? []);
       setSupportReports(data.supportReports ?? []);
       setSupportReportMessages(data.supportReportMessages ?? []);
@@ -347,7 +350,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       </section>
 
       {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={!modal.record ? [] : modal.kind === "pantry" ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : bakeryAccessPhotos.filter((photo) => photo.bakeryId === modal.record!.id)} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
-      {workspaceRecord && <AdminPartnerWorkspace key={`${workspaceRecord.kind}:${workspaceRecord.record.id}:${workspaceRecord.initialSection ?? "overview"}`} initialSection={workspaceRecord.initialSection} kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} impactPhotos={workspaceRecord.kind === "pantry" ? pantryImpactPhotos.filter((photo) => photo.pantryId === workspaceRecord.record.id) : []} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
+      {workspaceRecord && <AdminPartnerWorkspace key={`${workspaceRecord.kind}:${workspaceRecord.record.id}:${workspaceRecord.initialSection ?? "overview"}`} initialSection={workspaceRecord.initialSection} kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} impactPhotos={workspaceRecord.kind === "pantry" ? pantryImpactPhotos.filter((photo) => photo.pantryId === workspaceRecord.record.id) : []} driverProofs={workspaceRecord.kind === "pantry" ? routeOffers.filter((offer) => offer.pantryId === workspaceRecord.record.id && Boolean(offer.deliveryProofUrl)).map((offer) => { const pickup = pickupOccurrences.find((item) => item.id === offer.pickupOccurrenceId); const bakery = bakeries.find((item) => item.id === pickup?.bakeryId); return { id: offer.id, offerId: offer.id, imageUrl: offer.deliveryProofUrl, bakeryName: bakery?.name ?? "Bakery", pantryName: workspaceRecord.record.name, completedAt: offer.completedAt ?? offer.createdAt }; }) : []} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
 }
@@ -1012,8 +1015,8 @@ function AdminSettings({ currentUser, administrators, invitations, onChanged, se
   </div>;
 }
 
-function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice, initialSection = "overview" }: {
-  kind: PartnerKind; record: Partner; routes: Route[]; impactPhotos: PantryImpactPhoto[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void; initialSection?: "overview" | "deliveries" | "schedule" | "profile";
+function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProofs, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice, initialSection = "overview" }: {
+  kind: PartnerKind; record: Partner; routes: Route[]; impactPhotos: PantryImpactPhoto[]; driverProofs: DriverProofPhoto[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void; initialSection?: "overview" | "deliveries" | "schedule" | "profile";
 }) {
   const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile" | "photos">(initialSection);
   const [addressStatus, setAddressStatus] = useState(record.addressValidationStatus);
@@ -1073,22 +1076,21 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, availabilit
           </div>}
         </article>
         <article><small>BUSINESS PHONE</small><strong>{record.businessPhone || "—"}</strong></article><article><small>NOTIFICATION CONTACT</small><strong>{record.notificationPhone || "—"}</strong></article><article><small>ORGANIZATIONAL CONTACTS</small>{contacts.map((contact) => <div key={contact.id}><strong>{contact.isPrimary ? "★ Primary · " : ""}{contact.name}</strong><span>{contact.email} · {contact.phone}</span></div>)}</article><button className="solidBtn" onClick={onEdit}>Edit organization profile</button></div>}
-      {section === "photos" && kind === "pantry" && <AdminPantryPhotos impactPhotos={impactPhotos} routes={routes} />}
+      {section === "photos" && kind === "pantry" && <AdminPantryPhotos impactPhotos={impactPhotos} routes={routes} driverProofs={driverProofs} />}
     </main>
   </section></div>;
 }
 
-function AdminPantryPhotos({ impactPhotos, routes }: { impactPhotos: PantryImpactPhoto[]; routes: Route[] }) {
+function AdminPantryPhotos({ impactPhotos, routes, driverProofs }: { impactPhotos: PantryImpactPhoto[]; routes: Route[]; driverProofs: DriverProofPhoto[] }) {
   const detailsFor = (routeId: number, fallback: string) => {
     const route = routes.find((item) => item.id === routeId);
     return route ? `${route.bakeryName} · ${new Date(route.scheduledArrival || route.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : fallback;
   };
-  const proofRoutes = routes.filter((route) => Boolean(route.deliveryProofUrl));
   return <section className="adminPartnerPhotos">
     <div className="panelTitle"><div><span>PANTRY IMPACT</span><h2>Photos shared by the pantry</h2><p>These photos were submitted with permission for BakedBoston promotional use. Pantry patrons are not shown.</p></div></div>
-    {impactPhotos.length ? <div className="adminPhotoGallery">{impactPhotos.map((photo) => <article key={photo.id}><img src={photo.imageUrl} alt={photo.caption || "Pantry impact submission"} /><div><small>{detailsFor(photo.rescueRouteId, new Date(photo.createdAt).toLocaleString())}</small><strong>{photo.caption || "No caption added"}</strong></div></article>)}</div> : <Empty title="No pantry impact photos yet" body="Completed-delivery photos shared by this pantry will appear here." />}
+    {impactPhotos.length ? <div className="adminPhotoGallery">{impactPhotos.map((photo) => <article key={photo.id}><img src={photo.imageUrl} alt={photo.caption || "Pantry impact submission"} /><div><small>{detailsFor(photo.rescueRouteId, new Date(photo.createdAt).toLocaleString())}</small><strong>{photo.caption || "No caption added"}</strong><a className="adminPhotoDownload" href={`${photo.imageUrl}?download=1`} target="_blank" rel="noreferrer">Download photo</a></div></article>)}</div> : <Empty title="No pantry impact photos yet" body="Completed-delivery photos shared by this pantry will appear here." />}
     <div className="panelTitle adminProofHeading"><div><span>DRIVER DROP-OFF EVIDENCE</span><h2>Proof photos from deliveries</h2><p>Drivers’ required drop-off photos are visible here with their associated delivery.</p></div></div>
-    {proofRoutes.length ? <div className="adminPhotoGallery">{proofRoutes.map((route) => <article key={route.id}><img src={route.deliveryProofUrl} alt={`Driver proof for delivery from ${route.bakeryName}`} /><div><small>{detailsFor(route.id, route.createdAt)}</small><strong>{route.bakeryName} → {route.pantryName}</strong></div></article>)}</div> : <Empty title="No driver proof photos yet" body="Proof images appear once a driver completes a delivery with a photo." />}
+    {driverProofs.length ? <div className="adminPhotoGallery">{driverProofs.map((proof) => <article key={proof.id}><img src={proof.imageUrl} alt={`Driver proof for delivery from ${proof.bakeryName}`} /><div><small>{proof.bakeryName} · {new Date(proof.completedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small><strong>{proof.bakeryName} → {proof.pantryName}</strong><a className="adminPhotoDownload" href={`${proof.imageUrl}?download=1`} target="_blank" rel="noreferrer">Download photo</a></div></article>)}</div> : <Empty title="No driver proof photos yet" body="Proof images appear once a driver completes a delivery with a photo." />}
   </section>;
 }
 
