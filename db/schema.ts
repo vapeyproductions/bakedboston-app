@@ -67,6 +67,19 @@ export const pantryAccessPhotos = pgTable("pantry_access_photos", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// These are intentionally separate from access photos: they are optional,
+// consented storytelling assets rather than directions for drivers.
+export const pantryImpactPhotos = pgTable("pantry_impact_photos", {
+  id: serial("id").primaryKey(),
+  pantryId: integer("pantry_id").notNull(),
+  rescueRouteId: integer("rescue_route_id").notNull(),
+  imageUrl: text("image_url").notNull(),
+  pathname: text("pathname").notNull(),
+  caption: text("caption").notNull().default(""),
+  socialConsent: boolean("social_consent").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const availabilityWindows = pgTable("availability_windows", {
   id: serial("id").primaryKey(),
   organizationType: text("organization_type", { enum: ["bakery", "pantry"] }).notNull(),

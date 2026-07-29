@@ -169,7 +169,7 @@ function pantryMatchesAvailability(pantry: Pick<Pantry, "openTime" | "closeTime"
 }
 
 export default function AdminDashboard({ user }: { user: { name: string; email: string; isMaster: boolean } }) {
-  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "drivers" | "map" | "routes" | "inbox" | "reports & support" | "change log" | "settings">("overview");
+  const [tab, setTab] = useState<"overview" | "bakeries" | "pantries" | "accounts" | "drivers" | "address verification" | "map" | "routes" | "inbox" | "reports & support" | "change log" | "settings">("overview");
   const [bakeries, setBakeries] = useState<Bakery[]>([]);
   const [pantries, setPantries] = useState<Pantry[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -192,7 +192,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
   const [inboxMessages, setInboxMessages] = useState<AdminInboxMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<{ kind: PartnerKind; record?: Partner } | null>(null);
-  const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner } | null>(null);
+  const [workspaceRecord, setWorkspaceRecord] = useState<{ kind: PartnerKind; record: Partner; initialSection?: "overview" | "deliveries" | "schedule" | "profile" } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
@@ -234,6 +234,13 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
 
   const completed = routes.filter((route) => route.status === "completed").length;
   const activeRoutes = routes.filter((route) => route.status !== "completed").length;
+  const addressChecks = useMemo(() => {
+    const registered = new Set(partnerAccounts.filter((account) => account.active).map((account) => `${account.organizationType}:${account.organizationId}`));
+    return [
+      ...bakeries.map((record) => ({ kind: "bakery" as const, record })),
+      ...pantries.map((record) => ({ kind: "pantry" as const, record })),
+    ].filter(({ kind, record }) => registered.has(`${kind}:${record.id}`) && record.addressValidationStatus !== "validated");
+  }, [bakeries, pantries, partnerAccounts]);
 
   const averagePriority = useMemo(() => {
     if (!pantries.length) return "—";
@@ -286,14 +293,15 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
         <Link className="adminBrand" href="/"><span>B</span><strong>BakedBoston</strong></Link>
         <p className="workspaceLabel">ADMIN WORKSPACE</p>
         <nav>
-          {(["overview", "bakeries", "pantries", "accounts", "drivers", "map", "routes", "inbox", "reports & support", "change log", "settings"] as const).map((item) => (
+          {(["overview", "bakeries", "pantries", "accounts", "drivers", "address verification", "map", "routes", "inbox", "reports & support", "change log", "settings"] as const).map((item) => (
             <button className={tab === item ? "selected" : ""} key={item} onClick={() => setTab(item)}>
-              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "drivers" ? "D" : item === "map" ? "⌖" : item === "inbox" ? "✉" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
+              <i>{item === "overview" ? "⌂" : item === "bakeries" ? "B" : item === "pantries" ? "P" : item === "accounts" ? "A" : item === "drivers" ? "D" : item === "address verification" ? "⌖" : item === "map" ? "⌖" : item === "inbox" ? "✉" : item === "reports & support" ? "!" : item === "change log" ? "≡" : item === "settings" ? "⚙" : "↗"}</i>
               {item}
               {item === "bakeries" && <small>{bakeries.length}</small>}
               {item === "pantries" && <small>{pantries.length}</small>}
               {item === "accounts" && <small>{partnerAccounts.length}</small>}
               {item === "drivers" && <small>{drivers.length}</small>}
+              {item === "address verification" && addressChecks.length > 0 && <small>{addressChecks.length}</small>}
               {item === "inbox" && inboxMessages.some((message) => message.status === "unread") && <small>{inboxMessages.filter((message) => message.status === "unread").length}</small>}
               {item === "reports & support" && <small>{supportReports.filter((report) => report.status === "submitted").length}</small>}
             </button>
@@ -323,6 +331,7 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
             {tab === "pantries" && <PartnerTable type="pantry" records={pantries} accounts={partnerAccounts} routes={routes} invitations={partnerInvitations} onChanged={refresh} setNotice={setNotice} onAdd={() => setModal({ kind: "pantry" })} onEdit={(record) => setModal({ kind: "pantry", record })} onView={(record) => setWorkspaceRecord({ kind: "pantry", record })} onDelete={deleteRecord} deletingId={deletingId} />}
             {tab === "accounts" && <PartnerAccountsWorkspace accounts={partnerAccounts} bakeries={bakeries} pantries={pantries} contacts={organizationContacts} routes={routes} onChanged={refresh} setNotice={setNotice} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "drivers" && <DriversWorkspace drivers={drivers} onChanged={refresh} setNotice={setNotice} />}
+            {tab === "address verification" && <AddressVerificationWorkspace checks={addressChecks} accounts={partnerAccounts} onView={(kind, record) => setWorkspaceRecord({ kind, record, initialSection: "profile" })} />}
             {tab === "map" && <MapWorkspace bakeries={bakeries} pantries={pantries} accounts={partnerAccounts} routes={routes} onView={(kind, record) => setWorkspaceRecord({ kind, record })} />}
             {tab === "routes" && <RoutesTable routes={routes} />}
             {tab === "inbox" && <InboxWorkspace messages={inboxMessages} reports={supportReports} onChanged={refresh} />}
@@ -334,9 +343,20 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
       </section>
 
       {modal && <RecordModal kind={modal.kind} record={modal.record} contacts={modal.record ? organizationContacts.filter((contact) => contact.organizationType === modal.kind && contact.organizationId === modal.record!.id) : []} photos={!modal.record ? [] : modal.kind === "pantry" ? pantryAccessPhotos.filter((photo) => photo.pantryId === modal.record!.id) : bakeryAccessPhotos.filter((photo) => photo.bakeryId === modal.record!.id)} saving={saving} onClose={() => setModal(null)} onSave={saveRecord} onChanged={refresh} setNotice={setNotice} />}
-      {workspaceRecord && <AdminPartnerWorkspace kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
+      {workspaceRecord && <AdminPartnerWorkspace key={`${workspaceRecord.kind}:${workspaceRecord.record.id}:${workspaceRecord.initialSection ?? "overview"}`} initialSection={workspaceRecord.initialSection} kind={workspaceRecord.kind} record={workspaceRecord.record} routes={routes.filter((route) => workspaceRecord.kind === "pantry" ? route.pantryName === workspaceRecord.record.name : route.bakeryName === workspaceRecord.record.name)} availability={availabilityWindows.filter((window) => window.organizationType === workspaceRecord.kind && window.organizationId === workspaceRecord.record.id)} pauses={availabilityPauses.filter((pause) => pause.organizationType === workspaceRecord.kind && pause.organizationId === workspaceRecord.record.id)} scheduleExceptions={scheduleExceptions.filter((exception) => exception.organizationType === workspaceRecord.kind && exception.organizationId === workspaceRecord.record.id)} contacts={organizationContacts.filter((contact) => contact.organizationType === workspaceRecord.kind && contact.organizationId === workspaceRecord.record.id)} pickupOccurrences={pickupOccurrences.filter((pickup) => workspaceRecord.kind === "bakery" && pickup.bakeryId === workspaceRecord.record.id)} notifications={notifications.filter((notification) => notification.recipientType === workspaceRecord.kind && notification.recipientId === workspaceRecord.record.id)} onChanged={refresh} setNotice={setNotice} onClose={() => setWorkspaceRecord(null)} onEdit={() => { setModal(workspaceRecord); setWorkspaceRecord(null); }} />}
     </main>
   );
+}
+
+function AddressVerificationWorkspace({ checks, accounts, onView }: { checks: Array<{ kind: PartnerKind; record: Partner }>; accounts: PartnerAccount[]; onView: (kind: PartnerKind, record: Partner) => void }) {
+  return <section className="addressVerificationWorkspace">
+    <div className="sectionLead"><span>ADDRESS VERIFICATION</span><h2>Locations needing attention</h2><p>Only registered partner locations appear here. Confirm Google’s standardized address when one is available; locations awaiting validation will be checked automatically.</p></div>
+    {!checks.length ? <div className="adminEmpty"><strong>All registered locations are verified.</strong><p>New registered bakery and pantry addresses will appear here only if they need review.</p></div> : <div className="tablePanel addressVerificationTable"><table><thead><tr><th>Organization</th><th>Type</th><th>Entered address</th><th>Verification status</th><th>Action</th></tr></thead><tbody>{checks.map(({ kind, record }) => {
+      const account = accounts.find((candidate) => candidate.organizationType === kind && candidate.organizationId === record.id);
+      const review = record.addressValidationStatus === "needs_review";
+      return <tr key={`${kind}:${record.id}`}><td><strong>{record.name}</strong><small>{account?.accountEmail ?? "Registered account"}</small></td><td><span className="typePill">{kind}</span></td><td><strong>{record.address}</strong>{review && record.formattedAddress && <small>Google: {record.formattedAddress}</small>}</td><td><span className={`addressCheckPill ${record.addressValidationStatus}`}>{review ? "Review Google match" : "Awaiting validation"}</span><small>{review ? "A standardized address is ready to review." : "The next address-validation sync will check this location."}</small></td><td><button className={review ? "solidBtn" : "outlineBtn"} onClick={() => onView(kind, record)}>{review ? "Review address" : "View profile"}</button></td></tr>;
+    })}</tbody></table></div>}
+  </section>;
 }
 
 function InboxWorkspace({ messages, reports, onChanged }: { messages: AdminInboxMessage[]; reports: SupportReport[]; onChanged: () => Promise<void> }) {
@@ -988,10 +1008,10 @@ function AdminSettings({ currentUser, administrators, invitations, onChanged, se
   </div>;
 }
 
-function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice }: {
-  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void;
+function AdminPartnerWorkspace({ kind, record, routes, availability, pauses, scheduleExceptions, contacts, pickupOccurrences, notifications, onClose, onEdit, onChanged, setNotice, initialSection = "overview" }: {
+  kind: PartnerKind; record: Partner; routes: Route[]; availability: AvailabilityWindow[]; pauses: AvailabilityPause[]; scheduleExceptions: ScheduleException[]; contacts: OrganizationContact[]; pickupOccurrences: PickupOccurrence[]; notifications: InAppNotification[]; onClose: () => void; onEdit: () => void; onChanged: () => Promise<void>; setNotice: (message: string) => void; initialSection?: "overview" | "deliveries" | "schedule" | "profile";
 }) {
-  const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">("overview");
+  const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile">(initialSection);
   const [addressStatus, setAddressStatus] = useState(record.addressValidationStatus);
   const [displayAddress, setDisplayAddress] = useState(record.address);
   const [confirmingAddress, setConfirmingAddress] = useState(false);

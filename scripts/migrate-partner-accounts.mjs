@@ -54,6 +54,18 @@ if (!databaseUrl) {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS pantry_impact_photos (
+      id serial PRIMARY KEY,
+      pantry_id integer NOT NULL,
+      rescue_route_id integer NOT NULL,
+      image_url text NOT NULL,
+      pathname text NOT NULL,
+      caption text DEFAULT '' NOT NULL,
+      social_consent boolean DEFAULT false NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS availability_windows (
       id serial PRIMARY KEY,
       organization_type text NOT NULL,

@@ -21,6 +21,7 @@ type Account = {
 type Contact = { id: number; name: string; email: string; phone: string; isPrimary: boolean };
 type AccessPhoto = { id: number; imageUrl: string; pathname: string; caption: string };
 type Route = { id: number; bakeryName: string; pantryName: string; driverName: string; scheduledArrival: string; status: "reserved" | "ongoing" | "completed" | "cancelled"; deliveryProofUrl?: string; createdAt: string | Date };
+type ImpactPhoto = { id: number; rescueRouteId: number; imageUrl: string; caption: string; socialConsent: boolean; createdAt: string | Date };
 type OneTimeWindow = { id: number; startsAt: string; endsAt: string; latestArrival: string; serviceMode: "staffed" | "unattended"; paused: boolean };
 type AvailabilityPause = { id: number; endsAt: string };
 type ScheduleException = { id: number; exceptionDate: string };
@@ -31,8 +32,8 @@ type PickupOccurrence = {
 };
 type PartnerNotification = { id: number; eventType: string; threadKey: string; title: string; body: string; actionRequired: boolean; actionKey: string; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
 
-export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [] }: {
-  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
+export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [], impactPhotos = [] }: {
+  kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[]; impactPhotos?: ImpactPhoto[];
 }) {
   const bakery = kind === "bakery";
   const [section, setSection] = useState<"overview" | "schedule" | "activity" | "profile" | "report">("overview");
@@ -46,6 +47,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const [pickupBusy, setPickupBusy] = useState(false);
   const [notifications, setNotifications] = useState<PartnerNotification[]>([]);
   const [routeRows, setRouteRows] = useState<Route[]>(routes);
+  const [impactPhotoRows, setImpactPhotoRows] = useState<ImpactPhoto[]>(impactPhotos);
   const [windowDraft, setWindowDraft] = useState({ date: "", starts: "", ends: "", latest: "", serviceMode: "staffed" as "staffed" | "unattended" });
   const scheduledOpen = organizationIsOpen(kind, organization, new Date()) && !scheduleExceptions.some((exception) => exception.exceptionDate === localDate(new Date()));
   const schedulePaused = availabilityPauses.some((pause) => new Date(pause.endsAt) > new Date());
@@ -265,7 +267,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
       </>}
 
       {section === "schedule" && <ScheduleEditor kind={kind} organization={organization} onSaved={prototypeAction} oneTimeWindows={oneTimeWindows} scheduleExceptions={scheduleExceptions} onWindowsChanged={refreshAvailability} onAddOneTime={() => showWindowDialog(false)} />}
-      {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} /></div>}
+      {section === "activity" && <div className="activityPage"><div className="sectionIntro"><span className="panelKicker">DELIVERY HISTORY</span><h2>{bakery ? "Your pickups" : "Your deliveries"}</h2><p>Reserved, ongoing, and completed deliveries will appear here automatically.</p></div><ActivityCard activity={activity} />{!bakery && <ImpactPhotoShare routes={routeRows} photos={impactPhotoRows} onUploaded={(photo) => setImpactPhotoRows((current) => [photo, ...current])} onSaved={prototypeAction} />}</div>}
       {section === "profile" && <ProfileEditor kind={kind} organization={organization} account={account} contacts={contacts} photos={photos} onSaved={(message) => prototypeAction(message)} />}
       {section === "report" && <ReportProblemWeb />}
     </section>
@@ -445,6 +447,30 @@ function ActivityCard({ activity, onAll }: { activity: Array<{ title: string; de
     <div className="panelHeading"><div><span className="panelKicker">RECENT ACTIVITY</span><h2>Delivery updates</h2></div>{onAll && <button onClick={onAll}>View all</button>}</div>
     {!activity.length ? <div className="emptyActivity"><strong>No deliveries yet</strong><p>Real delivery activity will appear here when routes are reserved or delivered.</p></div> : activity.map((item) => <div className="activityRow" key={`${item.title}-${item.detail}`}><span className={item.status === "completed" ? "activityDot complete" : "activityDot"} /><div><strong>{item.title}</strong><small>{item.detail}</small>{item.photoUrl && <img className="activityProofPhoto" src={item.photoUrl} alt="Delivery drop-off evidence" />}</div><b>{item.status === "completed" ? "delivered" : item.status}</b></div>)}
   </article>;
+}
+
+function ImpactPhotoShare({ routes, photos, onUploaded, onSaved }: { routes: Route[]; photos: ImpactPhoto[]; onUploaded: (photo: ImpactPhoto) => void; onSaved: (message: string) => void }) {
+  const completed = routes.filter((route) => route.status === "completed");
+  const [selectedRouteId, setSelectedRouteId] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [caption, setCaption] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [sending, setSending] = useState(false);
+  async function submit() {
+    if (!photo || !selectedRouteId || !consent) return;
+    setSending(true);
+    const form = new FormData();
+    form.set("rescueRouteId", selectedRouteId); form.set("photo", photo); form.set("caption", caption); form.set("socialConsent", "true");
+    const response = await fetch("/api/pantry-impact-photos", { method: "POST", body: form });
+    const data = await response.json().catch(() => null);
+    setSending(false);
+    if (response.ok) { setPhoto(null); setCaption(""); setConsent(false); setSelectedRouteId(""); if (data?.record) onUploaded(data.record); onSaved("Thank you for sharing this delivery’s impact."); }
+    else onSaved(data?.error ?? "Could not upload the impact photo.");
+  }
+  return <section className="impactSharePanel"><span className="panelKicker">SHARE THE IMPACT</span><h2>Show what arrived.</h2><p>After a completed delivery, you may share a photo of the food at your pantry. Please do not include pantry patrons in photos.</p>
+    {!completed.length ? <small>Complete a delivery to share an impact photo.</small> : <div className="impactShareForm"><label>Completed delivery<select value={selectedRouteId} onChange={(event) => setSelectedRouteId(event.target.value)}><option value="">Choose a delivery</option>{completed.map((route) => <option key={route.id} value={route.id}>{route.bakeryName} · {formatPartnerDateTime(route.scheduledArrival)}</option>)}</select></label><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files?.[0] ?? null)} /></label><label>Caption <small>Optional</small><input value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Example: Today’s bakery delivery on the pantry shelves" /></label><label className="impactConsent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> <span>I confirm this photo contains no pantry patrons, and I give BakedBoston permission to use it in social media and promotional materials.</span></label><button type="button" className="confirmAvailability" disabled={!selectedRouteId || !photo || !consent || sending} onClick={submit}>{sending ? "Sharing…" : "Share impact photo"}</button></div>}
+    {photos.length > 0 && <div className="impactPhotoGrid">{photos.map((item) => <figure key={item.id}><img src={item.imageUrl} alt={item.caption || "Pantry delivery impact"} /><figcaption>{item.caption || "Shared pantry impact photo"}</figcaption></figure>)}</div>}
+  </section>;
 }
 
 function formatPartnerDateTime(value: string) {

@@ -12,6 +12,7 @@ import {
   organizationContacts,
   pantries,
   pantryAccessPhotos,
+  pantryImpactPhotos,
   partnerAccounts,
   rescueRoutes,
   routeOffers,
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
     : (await db.select().from(pantries).where(eq(pantries.id, account.organizationId)).limit(1))[0];
   if (!organization) return Response.json({ error: "Organization unavailable." }, { status: 404 });
 
-  const [contacts, windows, pauses, exceptions, routes, photos, pickupOccurrences, notifications] = await Promise.all([
+  const [contacts, windows, pauses, exceptions, routes, photos, impactPhotos, pickupOccurrences, notifications] = await Promise.all([
     db.select().from(organizationContacts).where(and(
       eq(organizationContacts.organizationType, account.organizationType),
       eq(organizationContacts.organizationId, account.organizationId),
@@ -70,6 +71,9 @@ export async function GET(request: Request) {
     account.organizationType === "bakery"
       ? db.select().from(bakeryAccessPhotos).where(eq(bakeryAccessPhotos.bakeryId, organization.id)).orderBy(desc(bakeryAccessPhotos.createdAt))
       : db.select().from(pantryAccessPhotos).where(eq(pantryAccessPhotos.pantryId, organization.id)).orderBy(desc(pantryAccessPhotos.createdAt)),
+    account.organizationType === "pantry"
+      ? db.select().from(pantryImpactPhotos).where(eq(pantryImpactPhotos.pantryId, organization.id)).orderBy(desc(pantryImpactPhotos.createdAt))
+      : Promise.resolve([]),
     account.organizationType === "bakery"
       ? db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, organization.id)).orderBy(desc(bakeryPickupOccurrences.pickupWindowStartsAt))
       : Promise.resolve([]),
@@ -111,6 +115,7 @@ export async function GET(request: Request) {
     scheduleExceptions: exceptions,
     routes,
     photos,
+    impactPhotos,
     pickupOccurrences,
     notifications,
     nextArrival: nextArrival?.toISOString() ?? null,

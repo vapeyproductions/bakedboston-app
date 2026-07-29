@@ -34,7 +34,7 @@ type IdentityVerificationResponse = { status: DriverProfile["verificationStatus"
 type DriverRideRequest = { id: number; serviceDate: string; earliestStart: string; latestFinish: string; startZip: string; endZip: string; maximumExtraMinutes: number | null; status: "active" | "paused" | "matched" | "expired" | "cancelled" };
 type DriverDestination = { name: string; address: string; dropoffInstructions: string; photos: Array<{ id: number; imageUrl: string; caption: string }> };
 type DriverRouteOffer = {
-  id: number; status: "queued" | "offered" | "accepted" | "declined" | "expired" | "withdrawn" | "cancelled";
+  id: number; pickupOccurrenceId: number; status: "queued" | "offered" | "accepted" | "declined" | "expired" | "withdrawn" | "cancelled";
   deliveryStage: "reserved" | "en_route_to_bakery" | "arrived_at_bakery" | "picked_up" | "en_route_to_pantry" | "arrived_at_pantry" | "completed";
   expiresAt: string | null; estimatedBakeryArrival: string; estimatedPantryArrival: string;
   departureWindowStartsAt: string | null; departureWindowEndsAt: string | null;
@@ -67,6 +67,7 @@ type WorkspaceData = {
   scheduleExceptions: Array<{ id: number; exceptionDate: string }>;
   routes: MobileRoute[];
   photos: Array<{ id: number; imageUrl: string; caption: string }>;
+  impactPhotos: Array<{ id: number; rescueRouteId: number; imageUrl: string; caption: string; socialConsent: boolean; createdAt: string }>;
   pickupOccurrences: PickupOccurrence[];
   notifications: DriverNotification[];
   nextArrival: string | null;
@@ -1506,8 +1507,55 @@ function ActivityPage({ workspace, bakery, rightInset }: { workspace: WorkspaceD
       <Text style={styles.portalPanelKicker}>DELIVERY HISTORY</Text>
       <Text style={styles.portalFeatureBody}>Reserved, ongoing, and completed deliveries are synchronized with the BakedBoston web portal.</Text>
       <RouteList routes={workspace.routes} bakery={bakery} />
+      {!bakery && <PantryImpactShareMobile workspace={workspace} />}
     </View>
   </ScrollView>;
+}
+
+function PantryImpactShareMobile({ workspace }: { workspace: WorkspaceData }) {
+  const completed = workspace.routes.filter((route) => route.status === "completed");
+  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
+  const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [caption, setCaption] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function choosePhoto(source: "camera" | "library") {
+    const permission = source === "camera" ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return setNotice(source === "camera" ? "Camera permission is required to take a photo." : "Photo-library permission is required to choose a photo.");
+    const result = source === "camera" ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.8 }) : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
+    if (!result.canceled) setPhoto(result.assets[0]);
+  }
+  async function share() {
+    if (!selectedRouteId || !photo || !consent) return setNotice("Choose a completed delivery, photo, and consent before sharing.");
+    setBusy(true); setNotice("");
+    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    const form = new FormData();
+    form.append("rescueRouteId", String(selectedRouteId));
+    form.append("photo", { uri: photo.uri, name: photo.fileName ?? `impact-photo-${Date.now()}.jpg`, type: photo.mimeType ?? "image/jpeg" } as unknown as Blob);
+    form.append("caption", caption); form.append("socialConsent", "true");
+    const response = await fetch(`${API_URL}/api/mobile/pantry-impact-photos`, { method: "POST", headers: { Authorization: `Bearer ${token ?? ""}` }, body: form });
+    const data = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (response.ok) { setPhoto(null); setCaption(""); setConsent(false); setSelectedRouteId(null); setNotice("Thank you for sharing this delivery’s impact."); }
+    else setNotice(data.error ?? "Could not upload the impact photo.");
+  }
+  return <View style={styles.impactShareMobile}>
+    <Text style={styles.portalPanelKicker}>SHARE THE IMPACT</Text>
+    <Text style={styles.connectedTitle}>Show what arrived.</Text>
+    <Text style={styles.connectedBody}>After a completed delivery, share a photo of the bakery food at your pantry. Photos with pantry patrons are not allowed.</Text>
+    {!completed.length ? <Text style={styles.profileHelp}>Complete a delivery to share an impact photo.</Text> : <>
+      <Text style={styles.mobileReportLabel}>COMPLETED DELIVERY</Text>
+      <View style={styles.impactRouteChoices}>{completed.map((route) => <Pressable key={route.id} style={[styles.impactRouteChoice, selectedRouteId === route.id && styles.impactRouteChoiceSelected]} onPress={() => setSelectedRouteId(route.id)}><Text style={[styles.impactRouteText, selectedRouteId === route.id && styles.impactRouteTextSelected]}>{route.bakeryName} · {formatMobileDateTime(route.scheduledArrival)}</Text></Pressable>)}</View>
+      {photo && <Image source={{ uri: photo.uri }} style={styles.impactPhotoPreview} />}
+      <View style={styles.photoSourceButtons}><Pressable style={styles.photoSourceButton} onPress={() => void choosePhoto("camera")}><Text style={styles.calendarAddButtonText}>Take photo</Text></Pressable><Pressable style={styles.photoSourceButton} onPress={() => void choosePhoto("library")}><Text style={styles.calendarAddButtonText}>Choose photo</Text></Pressable></View>
+      <EditorField label="Caption (optional)" value={caption} onChangeText={setCaption} />
+      <Pressable style={styles.impactConsentMobile} onPress={() => setConsent((value) => !value)}><View style={[styles.impactConsentBox, consent && styles.impactConsentBoxChecked]}><Text style={styles.impactConsentCheck}>{consent ? "✓" : ""}</Text></View><Text style={styles.impactConsentText}>I confirm this photo contains no pantry patrons, and I give BakedBoston permission to use it in social media and promotional materials.</Text></Pressable>
+      <PrimaryButton label={busy ? "Sharing…" : "Share impact photo"} dark onPress={() => void share()} />
+    </>}
+    {notice ? <Text style={styles.calendarNotice}>{notice}</Text> : null}
+    {workspace.impactPhotos.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.accessPhotoList}>{workspace.impactPhotos.map((item) => <View style={styles.accessPhotoCard} key={item.id}><Image source={{ uri: item.imageUrl }} style={styles.accessPhotoImage} /><Text style={styles.accessPhotoCaption} numberOfLines={2}>{item.caption || "Shared pantry impact"}</Text></View>)}</ScrollView>}
+  </View>;
 }
 
 type NativeScheduleRow = { recurrence: "weekly" | "monthly"; day: string; ordinal: number | null; open: string; close: string; latestArrival: string; serviceMode: "staffed" | "unattended"; businessOpen: string; businessClose: string; readyTime: string; pickupDeadline: string };
@@ -2359,5 +2407,17 @@ const styles = StyleSheet.create({
   pending: { alignItems: "center", paddingTop: 40 },
   pendingIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.mint, alignItems: "center", justifyContent: "center", marginBottom: 24 },
   pendingIconText: { color: colors.forest, fontSize: 30, fontWeight: "900" },
+  impactShareMobile: { marginTop: 22, paddingTop: 22, borderTopWidth: 1, borderTopColor: colors.border },
+  impactRouteChoices: { gap: 8, marginBottom: 14 },
+  impactRouteChoice: { borderWidth: 1, borderColor: colors.border, borderRadius: 9, padding: 12, backgroundColor: colors.paper },
+  impactRouteChoiceSelected: { borderColor: colors.forest, backgroundColor: colors.mint },
+  impactRouteText: { color: colors.forest, fontSize: 11, fontWeight: "800" },
+  impactRouteTextSelected: { color: colors.forest },
+  impactPhotoPreview: { width: "100%", height: 190, marginBottom: 12, borderRadius: 10, backgroundColor: colors.mint },
+  impactConsentMobile: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 14, marginBottom: 6 },
+  impactConsentBox: { width: 22, height: 22, borderWidth: 1, borderColor: colors.border, borderRadius: 5, alignItems: "center", justifyContent: "center", backgroundColor: colors.paper },
+  impactConsentBoxChecked: { backgroundColor: colors.forest, borderColor: colors.forest },
+  impactConsentCheck: { color: colors.white, fontWeight: "900" },
+  impactConsentText: { flex: 1, color: colors.sage, fontSize: 10, lineHeight: 15 },
   centerText: { textAlign: "center" },
 });
