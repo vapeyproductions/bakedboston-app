@@ -116,7 +116,7 @@ async function notify(driverId: number, eventType: string, title: string, body: 
     eventType,
     title,
     body,
-    actionRequired: true,
+    actionRequired: false,
     actionKey: eventType,
   });
 }

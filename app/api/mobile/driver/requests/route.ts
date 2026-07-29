@@ -97,6 +97,14 @@ export async function GET(request: Request) {
     pantryIds.length ? db.select().from(pantryAccessPhotos) : Promise.resolve([]),
   ]);
   const visibleNotifications = notifications.filter((notification) => {
+    if ([
+      "route_reserved",
+      "route_reconfirmed",
+      "departure_window_soon",
+      "departure_window_open",
+      "departure_window_closing",
+      "departure_window_ended",
+    ].includes(notification.eventType)) return false;
     const offeredRouteId = notification.actionKey.match(/^route-offer:(\d+)$/)?.[1];
     if (!offeredRouteId) return true;
     return offers.some((offer) => offer.id === Number(offeredRouteId) && offer.status === "offered");
@@ -644,6 +652,22 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
         deliveryProofUrl: offer.deliveryProofUrl,
         deliveryProofPathname: offer.deliveryProofPathname,
       }).where(eq(rescueRoutes.id, route.id));
+      await db.update(inAppNotifications).set({
+        readAt: now,
+        acknowledgedAt: now,
+        actionRequired: false,
+      }).where(and(
+        eq(inAppNotifications.recipientType, "driver"),
+        eq(inAppNotifications.recipientId, driver.id),
+        inArray(inAppNotifications.eventType, [
+          "route_reserved",
+          "route_reconfirmed",
+          "departure_window_soon",
+          "departure_window_open",
+          "departure_window_closing",
+          "departure_window_ended",
+        ]),
+      ));
       await Promise.all([
         replaceOperationalNotification({
           recipientType: "bakery",

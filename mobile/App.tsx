@@ -873,7 +873,6 @@ function ReservationStateNotice({ offer }: { offer: DriverRouteOffer }) {
   if (offer.deliveryStage !== "reserved") return null;
   const open = Boolean(offer.departureWindowStartsAt && new Date(offer.departureWindowStartsAt) <= new Date());
   return <View style={styles.driverNotificationCard}>
-    <Text style={styles.authEyebrow}>{open ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
     <Text style={styles.connectedTitle}>{open ? "You can begin your delivery" : "Route reserved"}</Text>
     <Text style={styles.connectedBody}>{open
       ? `Your recommended departure window is open${offer.departureWindowEndsAt ? `. Try to leave by ${formatMobileTime(offer.departureWindowEndsAt)}` : ""}.`
