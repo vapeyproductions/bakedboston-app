@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
 import { getDb } from "../db";
 import { bakeries, bakeryPickupOccurrences, scheduleExceptions } from "../db/schema";
 import { replaceOperationalNotification } from "./operational-notifications";
@@ -38,10 +38,17 @@ export async function processBakeryCommitmentReminders() {
   const now = new Date();
   await materializeTodayPickupOccurrences(now);
   const occurrences = await db.select().from(bakeryPickupOccurrences).where(and(
-    inArray(bakeryPickupOccurrences.status, ["awaiting_confirmation", "decision_deferred"]),
-    gt(bakeryPickupOccurrences.pickupWindowStartsAt, now),
-  ));
+    inArray(bakeryPickupOccurrences.status, ["awaiting_confirmation", "decision_deferred", "confirmed", "reserved"]),
+    gt(bakeryPickupOccurrences.pickupDeadline, now),
+  )).orderBy(asc(bakeryPickupOccurrences.pickupWindowStartsAt));
+  const bakeriesWithEarlierWindow = new Set<number>();
   for (const occurrence of occurrences) {
+    if (bakeriesWithEarlierWindow.has(occurrence.bakeryId)) continue;
+    bakeriesWithEarlierWindow.add(occurrence.bakeryId);
+    // A confirmed, reserved, or already-open earlier window keeps later windows
+    // out of the commitment flow until that earlier occurrence is resolved.
+    if (!["awaiting_confirmation", "decision_deferred"].includes(occurrence.status)) continue;
+    if (occurrence.pickupWindowStartsAt <= now) continue;
     const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, occurrence.bakeryId)).limit(1);
     if (!bakery) continue;
     const due = occurrence.commitmentReminderDueAt ?? firstCommitmentReminder(bakery, occurrence.serviceDate, occurrence.pickupWindowStartsAt);
@@ -67,10 +74,19 @@ export async function processBakeryCommitmentReminders() {
       recipientId: bakery.id,
       eventType: "pickup_commitment_reminder",
       threadKey: `pickup:${occurrence.id}`,
-      title: "Will food be available for today’s pickup?",
-      body: `Confirm when you know whether this pickup window will have food available. Choose “Don’t know yet” to be reminded again in ${reminderInterval}.`,
+      title: `Confirm food availability for ${pickupWindowLabel(occurrence.pickupWindowStartsAt, occurrence.pickupDeadline)}`,
+      body: `This confirmation applies to the ${pickupWindowLabel(occurrence.pickupWindowStartsAt, occurrence.pickupDeadline)} pickup window. Choose “Don’t know yet” to be reminded again in ${reminderInterval}.`,
     });
   }
+}
+
+function pickupWindowLabel(startsAt: Date, endsAt: Date) {
+  const format = (value: Date) => value.toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${format(startsAt)}–${format(endsAt)}`;
 }
 
 function thresholdAtOrBelow(minutesUntilPickup: number) {

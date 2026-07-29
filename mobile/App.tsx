@@ -46,7 +46,7 @@ type DriverRouteOffer = {
   pickup: PickupOccurrence | null;
   bakery: DriverDestination | null; pantry: DriverDestination | null;
 };
-type DriverNotification = { id: number; title: string; body: string; actionRequired: boolean; actionKey: string; acknowledgedAt: string | null; createdAt: string };
+type DriverNotification = { id: number; eventType: string; threadKey: string; title: string; body: string; actionRequired: boolean; actionKey: string; acknowledgedAt: string | null; createdAt: string };
 type BrowseRoute = {
   id: string; pickupId: number; pantryId: number; bakeryName: string; pantryName: string;
   departureWindowStartsAt: string; departureWindowEndsAt: string;
@@ -1238,17 +1238,35 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const pausedOneTime = workspace.availabilityWindows.find((window) => window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
-  const activeOneTimePickup = activeOneTime
-    ? workspace.pickupOccurrences.find((occurrence) => new Date(occurrence.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime())
+  const priorityNotification = workspace.notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
+    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt);
+  const reminderPickupId = priorityNotification?.eventType === "pickup_commitment_reminder"
+    ? Number(priorityNotification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0)
+    : 0;
+  const reminderPickup = reminderPickupId
+    ? workspace.pickupOccurrences.find((occurrence) => occurrence.id === reminderPickupId)
     : undefined;
-  const todayPickup = activeOneTimePickup ?? workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
+  const chronologicalOpenPickups = [...workspace.pickupOccurrences]
+    .filter((occurrence) =>
+      new Date(occurrence.pickupDeadline) > now
+      && !["fulfilled", "cancelled", "insufficient_food"].includes(occurrence.status),
+    )
+    .sort((a, b) => new Date(a.pickupWindowStartsAt).getTime() - new Date(b.pickupWindowStartsAt).getTime());
+  const activeOneTimePickup = activeOneTime
+    ? workspace.pickupOccurrences.find((occurrence) =>
+      new Date(occurrence.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime()
+      && !["fulfilled", "cancelled"].includes(occurrence.status),
+    )
+    : undefined;
+  const todayPickup = activeOneTimePickup
+    ?? reminderPickup
+    ?? chronologicalOpenPickups[0]
+    ?? workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const pickupFulfilled = todayPickup?.status === "fulfilled";
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime && pickupConfirmed) || (scheduledBakeryOpen && pickupConfirmed));
-  const priorityNotification = workspace.notifications.find((notification) => notification.actionRequired && !notification.acknowledgedAt)
-    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt);
   async function changeAvailability(action: "pause" | "resume" | "pause-one-time" | "resume-one-time") {
     if ((action === "pause-one-time" || action === "resume-one-time") && (activeOneTime || pausedOneTime)) {
       const window = activeOneTime ?? pausedOneTime!;
@@ -1360,6 +1378,7 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
   const unavailable = ["insufficient_food", "cancelled"].includes(occurrence.status);
   return <View style={styles.nativePickupStatusControls}>
     {showSummary && <><Text style={styles.portalPanelKicker}>TODAY’S PICKUP COMMITMENT</Text><Text style={styles.statusNotificationTitle}>{fulfilled ? "Today’s food was picked up." : occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text><Text style={styles.statusNotificationBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {fulfilled ? "This bakery is no longer available for matching today." : confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text></>}
+    {!showSummary && !fulfilled && <View style={styles.pickupWindowBeingConfirmed}><Text style={styles.portalPanelKicker}>WINDOW BEING CONFIRMED</Text><Text style={styles.pickupWindowBeingConfirmedText}>{formatMobileDate(occurrence.pickupWindowStartsAt)} · {formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)}</Text></View>}
     {!fulfilled && occurrence.status !== "reserved" && <View style={styles.nativePickupActions}>
       {!confirmed && <Pressable disabled={busy} style={[styles.nativePickupChoice, styles.nativeConfirmPickup]} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>{unavailable ? "Change to food available" : "Food will be available"}</Text></Pressable>}
       {confirmed && <Pressable disabled={busy} style={styles.nativePickupChoice} onPress={() => respond("insufficient_food")}><Text style={styles.statusCardLink}>Change to not enough food</Text></Pressable>}
@@ -2131,6 +2150,8 @@ const styles = StyleSheet.create({
   nativePickupConfirmed: { backgroundColor: "#E8F4EA", borderColor: "#9FC7A8" },
   nativePickupUnavailable: { backgroundColor: colors.paper, borderColor: colors.border },
   nativePickupStatusControls: { marginTop: 15, paddingTop: 14, borderTopWidth: 1, borderTopColor: "#FFFFFF24" },
+  pickupWindowBeingConfirmed: { marginBottom: 11 },
+  pickupWindowBeingConfirmedText: { marginTop: 4, color: colors.white, fontSize: 10, lineHeight: 15, fontWeight: "900" },
   nativePickupActions: { marginTop: 13, flexDirection: "row", alignItems: "stretch", flexWrap: "wrap", gap: 9 },
   nativePickupChoice: { minHeight: 40, minWidth: 128, flexGrow: 1, flexBasis: 128, paddingHorizontal: 13, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "#FFFFFF38", alignItems: "center", justifyContent: "center" },
   nativeConfirmPickup: { backgroundColor: colors.forest },

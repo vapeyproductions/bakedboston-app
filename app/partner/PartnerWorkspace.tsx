@@ -29,7 +29,7 @@ type PickupOccurrence = {
   status: "scheduled" | "awaiting_confirmation" | "confirmed" | "decision_deferred" | "insufficient_food" | "reserved" | "fulfilled" | "cancelled";
   confirmedAt: string | null;
 };
-type PartnerNotification = { id: number; title: string; body: string; actionRequired: boolean; actionKey: string; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
+type PartnerNotification = { id: number; eventType: string; threadKey: string; title: string; body: string; actionRequired: boolean; actionKey: string; readAt: string | null; acknowledgedAt: string | null; createdAt: string };
 
 export default function PartnerWorkspace({ kind, organization, account, contacts, photos = [], routes = [] }: {
   kind: Kind; organization: Organization; account: Account; contacts: Contact[]; photos?: AccessPhoto[]; routes?: Route[];
@@ -54,9 +54,27 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const activeOneTime = oneTimeWindows.find((window) => !window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
   const pausedOneTime = oneTimeWindows.find((window) => window.paused && new Date(window.startsAt) <= new Date() && new Date(window.endsAt) > new Date());
   const activeOneTimePickup = activeOneTime
-    ? pickupOccurrences.find((item) => new Date(item.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime())
+    ? pickupOccurrences.find((item) =>
+      new Date(item.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime()
+      && !["fulfilled", "cancelled"].includes(item.status),
+    )
     : undefined;
-  const todayPickup = activeOneTimePickup ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+  const reminderPickupId = priorityNotification?.eventType === "pickup_commitment_reminder"
+    ? Number(priorityNotification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0)
+    : 0;
+  const reminderPickup = reminderPickupId
+    ? pickupOccurrences.find((item) => item.id === reminderPickupId)
+    : undefined;
+  const chronologicalOpenPickups = [...pickupOccurrences]
+    .filter((item) =>
+      new Date(item.pickupDeadline) > new Date()
+      && !["fulfilled", "cancelled", "insufficient_food"].includes(item.status),
+    )
+    .sort((a, b) => new Date(a.pickupWindowStartsAt).getTime() - new Date(b.pickupWindowStartsAt).getTime());
+  const todayPickup = activeOneTimePickup
+    ?? reminderPickup
+    ?? chronologicalOpenPickups[0]
+    ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
   const pickupFulfilled = todayPickup?.status === "fulfilled";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed);
@@ -285,6 +303,7 @@ function BakeryPickupConfirmation({ occurrence, busy, onRespond, showSummary }: 
   const unavailable = occurrence.status === "insufficient_food" || occurrence.status === "cancelled";
   return <section className={`statusCommitment ${showSummary ? "" : "controlsOnly"}`}>
     {showSummary && <><strong>{fulfilled ? "Today’s food was picked up." : occurrence.status === "reserved" ? "A driver has reserved this pickup." : confirmed ? "Food availability confirmed." : unavailable ? "Marked unavailable today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</strong><span>{formatOccurrenceWindow(occurrence)}</span></>}
+    {!showSummary && !fulfilled && <><small>WINDOW BEING CONFIRMED</small><strong>{new Date(occurrence.pickupWindowStartsAt).toLocaleDateString([], { month: "short", day: "numeric" })} · {formatOccurrenceWindow(occurrence)}</strong></>}
     {!fulfilled && occurrence.status !== "reserved" && <div className="pickupConfirmationActions">
       {!confirmed && <button disabled={busy} className="confirmPickup" onClick={() => onRespond("confirmed")}>{unavailable ? "Change to food available" : "Food will be available"}</button>}
       {confirmed && <button disabled={busy} onClick={() => onRespond("insufficient_food")}>Change to not enough food</button>}
