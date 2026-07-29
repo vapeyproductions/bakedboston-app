@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Route = {
   id: number;
@@ -35,11 +35,14 @@ export default function Home() {
   const [priority, setPriority] = useState<"balanced" | "carbon" | "speed">("balanced");
   const [optimized, setOptimized] = useState(true);
   const [claimed, setClaimed] = useState<number[]>([]);
+  const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0 });
+
+  useEffect(() => { void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); }); }, []);
 
   const score = useMemo(() => {
-    if (priority === "carbon") return { miles: 6.6, co2: 19.1, served: 3 };
-    if (priority === "speed") return { miles: 7.9, co2: 16.8, served: 3 };
-    return { miles: 7.3, co2: 17.6, served: 3 };
+    if (priority === "carbon") return { miles: 2.9, served: 3 };
+    if (priority === "speed") return { miles: 3.5, served: 3 };
+    return { miles: 3.2, served: 3 };
   }, [priority]);
 
   const runOptimizer = () => {
@@ -60,9 +63,6 @@ export default function Home() {
           <a href="#model">The model</a>
           <a href="/partners">Partner portal</a>
         </div>
-        <button className="navCta" onClick={() => document.getElementById("routes")?.scrollIntoView({ behavior: "smooth" })}>
-          Find a rescue <span>→</span>
-        </button>
       </nav>
 
       <section className="hero" id="top">
@@ -71,19 +71,19 @@ export default function Home() {
           <h1>Good food.<br /><em>Better routes.</em><br />Zero waste.</h1>
           <p>We match bakery surplus with nearby food pantries—and give volunteer drivers the smartest route to get it there fresh.</p>
           <div className="heroActions">
-            <button className="primary" onClick={() => document.getElementById("routes")?.scrollIntoView({ behavior: "smooth" })}>Drive a rescue <span>↗</span></button>
+            <button className="primary" onClick={() => document.getElementById("routes")?.scrollIntoView({ behavior: "smooth" })}>Volunteer to drive <span>↗</span></button>
             <button className="textButton" onClick={() => document.getElementById("model")?.scrollIntoView({ behavior: "smooth" })}>See how routing works <span>↓</span></button>
           </div>
           <div className="trustRow">
             <div className="avatars"><span>JM</span><span>AK</span><span>SR</span><span>+42</span></div>
-            <p><strong>45 neighbors</strong><br />ready to drive this week</p>
+            <p><strong>{network.drivers} neighbors</strong><br />ready to drive this week</p>
           </div>
         </div>
 
         <div className="mapCard" aria-label="Optimized rescue route map">
           <div className="mapTop">
             <span className="live"><i /> LIVE NETWORK</span>
-            <span>Sat, Jul 25 · Brooklyn</span>
+            <span>Sat, Jul 25 · Boston</span>
           </div>
           <div className="mapGrid">
             <div className="waterShape" />
@@ -100,27 +100,37 @@ export default function Home() {
             <div className="driverCar">🚗<span>YOU</span></div>
           </div>
           <div className="routeSummary">
-            <div><small>OPTIMIZED LOOP</small><strong>{score.miles} mi <span>·</span> 56 min</strong></div>
-            <div className="summaryImpact"><strong>87 lb</strong><small>food rescued</small></div>
-            <div className="summaryImpact"><strong>{score.co2} lb</strong><small>CO₂ avoided</small></div>
+            <div><small>OPTIMIZED LOOP</small><strong>{score.miles} mi <span>·</span> 30 min</strong></div>
+            <div className="summaryImpact"><strong>{network.bakeries}</strong><small>registered bakeries</small></div>
+            <div className="summaryImpact"><strong>{network.pantries}</strong><small>registered pantries</small></div>
           </div>
         </div>
       </section>
 
       <section className="impactBar" id="impact">
-        <div><strong>1,284</strong><span>pounds rescued this month</span></div>
-        <div><strong>1,070</strong><span>meals shared</span></div>
-        <div><strong>286</strong><span>miles optimized away</span></div>
-        <div><strong>742</strong><span>lb CO₂e avoided</span></div>
+        <div><strong>{network.completedThisWeek}</strong><span>deliveries completed this week</span></div>
+        <div><strong>{network.completedTotal}</strong><span>deliveries completed since BakedBoston began</span></div>
+        <div><strong>{network.bakeries}</strong><span>registered bakeries</span></div>
+        <div><strong>{network.pantries}</strong><span>registered pantries</span></div>
       </section>
 
       <section className="routesSection" id="routes">
         <div className="sectionHeading">
           <div>
-            <span className="kicker">TODAY’S RESCUES</span>
-            <h2>Three stops. One smart loop.</h2>
+            <span className="kicker">VOLUNTEER TO DRIVE</span>
+            <h2>One app. A meaningful trip.</h2>
           </div>
-          <p>Every match considers freshness, pantry demand, driver capacity, and emissions—not just distance.</p>
+          <p>Driver participation happens in the BakedBoston mobile app, so you can choose a route when it fits your day.</p>
+        </div>
+        <div className="driverRoadmap">
+          <div className="roadmapSteps">
+            <div><span>1</span><b>✍️ Sign up</b><p>Create your driver profile.</p></div>
+            <div><span>2</span><b>🪪 Verify ID</b><p>A secure check that takes about two minutes.</p></div>
+            <div><span>3</span><b>📍 Choose a route</b><p>Select a nearby order now, or reserve one for a preferred route and time.</p></div>
+            <div><span>4</span><b>🥖 Pick up</b><p>Drive to the bakery and collect the food.</p></div>
+            <div><span>5</span><b>🥫 Drop off</b><p>Bring it to the pantry and complete the delivery.</p></div>
+          </div>
+          <aside className="appQr"><div className="qrPlaceholder" aria-label="Scan to download BakedBoston">▦<span>▦</span><i>▦</i></div><strong>Scan to download<br />the BakedBoston app</strong><small>Driver routes are mobile-only.</small></aside>
         </div>
         <div className="routeLayout">
           <div className="routeList">
@@ -164,7 +174,7 @@ export default function Home() {
         <div className="howIntro"><span className="kicker">HOW IT WORKS</span><h2>From surplus<br />to supper.</h2><p>A simple act, coordinated intelligently.</p></div>
         <div className="steps">
           <div><span>01</span><div className="stepIcon">🥖</div><h3>Bakeries post surplus</h3><p>Food type, quantity, and safe pickup window are added in under a minute.</p></div>
-          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>Our model balances urgency, demand, distance, capacity, and carbon.</p></div>
+          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>Our model balances urgency, distance, availability, and pantry priority.</p></div>
           <div><span>03</span><div className="stepIcon">🚙</div><h3>Neighbors drive the loop</h3><p>Volunteers claim a route and deliver food while it’s still fresh.</p></div>
         </div>
       </section>
@@ -175,9 +185,10 @@ export default function Home() {
           <h2>Less waste is<br />a solvable problem.</h2>
         </div>
         <div className="modelCopy">
-          <p>BakedBoston formulates each rescue window as a capacitated vehicle routing problem with time windows and perishability constraints.</p>
+          <p>BakedBoston uses a mixed-integer optimization model to match one confirmed bakery pickup with a feasible pantry receiving window and a volunteer driver’s time, origin, and preferred destination. Candidate routes are screened against real travel time, pickup and latest-arrival deadlines, pantry availability, and whether a bakery has already committed its single daily pickup.</p>
           <div className="formula">min <b>Σ</b> <i>cᵢⱼxᵢⱼ + λCO₂ + μwaste</i></div>
-          <ul><li>Mixed-integer optimization</li><li>Dynamic demand matching</li><li>Carbon-aware objective</li><li>Explainable route scoring</li></ul>
+          <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li><li>Explainable, carbon-aware scoring</li></ul>
+          <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
         </div>
       </section>
 
