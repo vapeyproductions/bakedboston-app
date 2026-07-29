@@ -6,6 +6,7 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -422,6 +423,52 @@ function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onA
   </>;
 }
 
+function BirthDateField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const maximumDate = new Date();
+  maximumDate.setFullYear(maximumDate.getFullYear() - 18);
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T12:00:00`)
+    : maximumDate;
+  const displayValue = value
+    ? selectedDate.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })
+    : "Select your birthday";
+
+  function selectDate(event: DateTimePickerEvent, date?: Date) {
+    if (Platform.OS === "android") setOpen(false);
+    if (event.type !== "set" || !date) return;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    onChange(`${year}-${month}-${day}`);
+  }
+
+  return <View style={styles.birthDateGroup}>
+    <Text style={styles.fieldLabel}>DATE OF BIRTH</Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Date of birth, ${displayValue}`}
+      style={styles.birthDateButton}
+      onPress={() => setOpen(true)}
+    >
+      <Text style={[styles.birthDateValue, !value && styles.birthDatePlaceholder]}>{displayValue}</Text>
+      <Text style={styles.birthDateIcon}>▣</Text>
+    </Pressable>
+    <Text style={styles.birthDateHelp}>Drivers must be at least 18 years old.</Text>
+    {open && Platform.OS === "android" && <DateTimePicker value={selectedDate} mode="date" maximumDate={maximumDate} minimumDate={new Date(1900, 0, 1)} onChange={selectDate} />}
+    {open && Platform.OS === "ios" && <Modal transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <View style={styles.datePickerBackdrop}>
+        <View style={styles.datePickerCard}>
+          <Text style={styles.authEyebrow}>DATE OF BIRTH</Text>
+          <Text style={styles.datePickerTitle}>Choose your birthday</Text>
+          <DateTimePicker value={selectedDate} mode="date" display="spinner" maximumDate={maximumDate} minimumDate={new Date(1900, 0, 1)} onChange={selectDate} />
+          <Pressable style={styles.datePickerDone} onPress={() => setOpen(false)}><Text style={styles.driverReserveButtonText}>Done</Text></Pressable>
+        </View>
+      </View>
+    </Modal>}
+  </View>;
+}
+
 function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
   const [agreed, setAgreed] = useState(false);
   const [form, setForm] = useState({ displayName: "", email: "", phone: "", homeAddress: "", homeZip: "", dateOfBirth: "", password: "" }); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
@@ -435,7 +482,7 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
     <Field label="Mobile number" value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} placeholder="(617) 555-0123" keyboardType="phone-pad" />
     <Field label="Home address" value={form.homeAddress} onChangeText={(homeAddress) => setForm({ ...form, homeAddress })} placeholder="Street, city, state" textContentType="fullStreetAddress" />
     <Field label="Home ZIP code" value={form.homeZip} onChangeText={(homeZip) => setForm({ ...form, homeZip })} placeholder="02118" keyboardType="number-pad" />
-    <Field label="Date of birth" value={form.dateOfBirth} onChangeText={(dateOfBirth) => setForm({ ...form, dateOfBirth })} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" />
+    <BirthDateField value={form.dateOfBirth} onChange={(dateOfBirth) => setForm({ ...form, dateOfBirth })} />
     <Field
       label="Create password"
       value={form.password}
@@ -454,7 +501,7 @@ function DriverRegistration({ onAuthenticated }: { onAuthenticated: (data: { tok
     <View style={styles.legalLinks}><Pressable onPress={() => Linking.openURL("https://www.baked-boston.com/terms")}><Text style={styles.linkText}>Terms of Use</Text></Pressable><Pressable onPress={() => Linking.openURL("https://www.baked-boston.com/privacy")}><Text style={styles.linkText}>Privacy Policy</Text></Pressable></View>
     <View style={styles.verificationPreview}><Text style={styles.verificationPreviewTitle}>Driver review required</Text><Text style={styles.verificationPreviewBody}>After you create your profile, BakedBoston will review your driver information before you can reserve a delivery. Your account will show as pending until that review is complete.</Text></View>
     {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    <PrimaryButton label={busy ? "Creating profile…" : "Create driver profile"} disabled={!agreed || busy} onPress={register} />
+    <PrimaryButton label={busy ? "Creating profile…" : "Create driver profile"} disabled={!agreed || busy || !form.dateOfBirth || !form.displayName || !form.email || !form.password} onPress={register} />
   </>;
 }
 
@@ -511,7 +558,7 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
   return <DriverPortal session={session} onSignOut={onSignOut} />;
 }
 
-type DriverSection = "home" | "search" | "routes" | "profile" | "report";
+type DriverSection = "home" | "search" | "routes" | "impact" | "profile" | "report";
 
 function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [section, setSection] = useState<DriverSection>("home");
@@ -699,6 +746,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
           <Text style={styles.driverAccountEmail} numberOfLines={1}>{driverEmail}</Text>
           <View style={styles.driverApprovalRow}><View style={[styles.verificationStatusDot, verificationStatus === "verified" && styles.verificationStatusDotVerified]} /><Text style={styles.driverHeaderStatusText}>{verificationLabel}</Text></View>
           <Pressable style={styles.driverAccountMenuItem} onPress={() => { setSection("profile"); setAccountMenuOpen(false); }}><Text style={styles.driverAccountMenuText}>View profile</Text></Pressable>
+          <Pressable style={styles.driverAccountMenuItem} onPress={() => { setSection("impact"); setAccountMenuOpen(false); }}><Text style={styles.driverAccountMenuText}>My impact & badges</Text></Pressable>
           <Pressable style={styles.driverAccountMenuItem} onPress={() => { setSection("report"); setAccountMenuOpen(false); }}><Text style={styles.driverAccountMenuText}>Report problem</Text></Pressable>
           <Pressable style={styles.driverAccountMenuItem} onPress={signOutFromMenu}><Text style={styles.driverLogoutText}>Log out</Text></Pressable>
         </View>}
@@ -710,6 +758,7 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
       {section === "home" && <><DriverHome displayName={profile?.displayName ?? session.displayName} verificationStatus={verificationStatus} verificationBusy={verificationBusy} onVerify={beginIdentityVerification} onRefreshVerification={refreshIdentityVerification} onSearch={() => setSection("search")} />{driverNotifications.slice(0, 3).map((notification) => <DriverNotificationCard notification={notification} key={notification.id} />)}{browseRoutes.map((route) => <BrowseRouteCard route={route} onReserve={() => reserveBrowseRoute(route)} key={route.id} />)}{routeOffers.filter((offer) => offer.status === "offered").map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}</>}
       {section === "search" && <View><Text style={styles.authEyebrow}>PLAN A DELIVERY</Text><Text style={styles.driverPageTitle}>Search for a route</Text><Text style={styles.authBody}>Choose when you can drive. Starting and destination ZIP codes are optional preferences, not strict limits. If no confirmed pickup exists yet, BakedBoston will notify you when one matches.</Text><View style={styles.driverSearchCard}><Field label="Date" value={search.date} onChangeText={(date) => setSearch({ ...search, date })} placeholder="YYYY-MM-DD" /><View style={styles.driverSearchTimeRow}><TimeEditorField label="Earliest start" value={search.earliest} onChange={(earliest) => setSearch({ ...search, earliest })} /><TimeEditorField label="Latest finish" value={search.latest} onChange={(latest) => setSearch({ ...search, latest })} /></View><Field label="Preferred starting ZIP (optional)" value={search.startZip} onChangeText={(startZip) => setSearch({ ...search, startZip })} placeholder="Use current location" keyboardType="number-pad" /><Field label="Preferred destination ZIP (optional)" value={search.endZip} onChangeText={(endZip) => setSearch({ ...search, endZip })} placeholder="Anywhere is okay" keyboardType="number-pad" /><Pressable style={styles.locationPreferenceButton} onPress={() => Alert.alert("Current location", "Location permission is used to recommend nearby routes. You can use a ZIP code instead.")}><Text style={styles.locationPreferenceText}>⌖ Use my current location</Text></Pressable><PrimaryButton label="Save ride request & find matches" dark onPress={saveRideRequest} /></View>{searched && <Text style={styles.calendarNotice}>Ride request saved. We’ll notify you when a confirmed pickup matches.</Text>}<DriverRideRequestList requests={rideRequests} /></View>}
       {section === "routes" && <View><Text style={styles.authEyebrow}>DELIVERY ACTIVITY</Text><Text style={styles.driverPageTitle}>My routes</Text>{routeOffers.filter((offer) => ["offered", "accepted"].includes(offer.status)).map((offer) => <LiveRouteOffer offer={offer} onRespond={respondToOffer} onProgress={progressRoute} onCancel={cancelRoute} onConfirm={confirmReservedRoute} key={offer.id} />)}{!routeOffers.some((offer) => ["offered", "accepted"].includes(offer.status)) && <View style={styles.driverEmptyCard}><Text style={styles.connectedTitle}>No routes yet</Text><Text style={styles.connectedBody}>Reserved, active, and completed deliveries will appear here.</Text><Pressable style={styles.portalFeatureButton} onPress={() => setSection("search")}><Text style={styles.portalFeatureButtonText}>Search for a route</Text></Pressable></View>}</View>}
+      {section === "impact" && <DriverImpactPage offers={routeOffers} />}
       {section === "profile" && profile && <DriverProfilePage profile={profile} notice={profileNotice} onChange={setProfile} onSave={async () => { setProfileNotice(""); try { const updated = await saveDriverProfile(profile); setProfile(updated); setProfileNotice("Profile saved."); } catch (reason) { setProfileNotice(reason instanceof Error ? reason.message : "Could not save profile."); } }} onSignOut={onSignOut} onDelete={async () => { try { await deleteDriverAccount(); await SecureStore.deleteItemAsync(TOKEN_KEY); onSignOut(); } catch (reason) { Alert.alert("Account not deleted", reason instanceof Error ? reason.message : "Please try again."); } }} />}
       {section === "report" && <ReportProblemMobile />}
     </ScrollView>
@@ -756,6 +805,41 @@ function DriverRideRequestList({ requests }: { requests: DriverRideRequest[] }) 
     <Text style={styles.connectedBody}>{request.startZip ? `Start near ${request.startZip}` : "Any starting area"} · {request.endZip ? `End near ${request.endZip}` : "Any destination"}</Text>
     <Text style={styles.driverRouteReason}>We’ll evaluate this request whenever a bakery confirms a compatible pickup.</Text>
   </View>)}</View>;
+}
+
+function DriverImpactPage({ offers }: { offers: DriverRouteOffer[] }) {
+  const completed = offers.filter((offer) => offer.deliveryStage === "completed");
+  const bakeryCounts = completed.reduce<Record<string, number>>((counts, offer) => {
+    if (offer.bakery?.name) counts[offer.bakery.name] = (counts[offer.bakery.name] ?? 0) + 1;
+    return counts;
+  }, {});
+  const pantryCounts = completed.reduce<Record<string, number>>((counts, offer) => {
+    if (offer.pantry?.name) counts[offer.pantry.name] = (counts[offer.pantry.name] ?? 0) + 1;
+    return counts;
+  }, {});
+  const maxBakeryDeliveries = Math.max(0, ...Object.values(bakeryCounts));
+  const maxPantryDeliveries = Math.max(0, ...Object.values(pantryCounts));
+  const badges = [
+    { icon: "↗", title: "First delivery", detail: "Complete your first BakedBoston delivery.", earned: completed.length >= 1 },
+    { icon: "5", title: "Five deliveries", detail: "Complete five community deliveries.", earned: completed.length >= 5 },
+    { icon: "10", title: "Ten deliveries", detail: "Complete ten community deliveries.", earned: completed.length >= 10 },
+    { icon: "🥖", title: "Bakery regular", detail: "Complete five pickups from the same bakery.", earned: maxBakeryDeliveries >= 5 },
+    { icon: "🥫", title: "Pantry neighbor", detail: "Complete five deliveries to the same pantry.", earned: maxPantryDeliveries >= 5 },
+  ];
+  return <View>
+    <Text style={styles.authEyebrow}>YOUR CONTRIBUTION</Text>
+    <Text style={styles.driverPageTitle}>My impact</Text>
+    <Text style={styles.authBody}>Your completed deliveries and earned milestones appear here.</Text>
+    <View style={styles.impactSummary}>
+      <View style={styles.impactMetric}><Text style={styles.impactMetricValue}>{completed.length}</Text><Text style={styles.impactMetricLabel}>Completed deliveries</Text></View>
+      <View style={styles.impactMetric}><Text style={styles.impactMetricValue}>{badges.filter((badge) => badge.earned).length}</Text><Text style={styles.impactMetricLabel}>Badges earned</Text></View>
+    </View>
+    <Text style={styles.impactSectionTitle}>Badges</Text>
+    <View style={styles.badgeGrid}>{badges.map((badge) => <View key={badge.title} style={[styles.badgeCard, !badge.earned && styles.badgeCardLocked]}>
+      <View style={[styles.badgeIcon, !badge.earned && styles.badgeIconLocked]}><Text style={styles.badgeIconText}>{badge.earned ? badge.icon : "○"}</Text></View>
+      <View style={styles.badgeCopy}><Text style={styles.badgeTitle}>{badge.title}</Text><Text style={styles.badgeDetail}>{badge.earned ? "Earned" : badge.detail}</Text></View>
+    </View>)}</View>
+  </View>;
 }
 
 function LiveRouteOffer({ offer, onRespond, onProgress, onCancel, onConfirm }: {
@@ -1957,6 +2041,30 @@ const styles = StyleSheet.create({
   driverEmptyCard: { minHeight: 210, marginTop: 18, padding: 22, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, alignItems: "flex-start", justifyContent: "center" },
   driverProfileCard: { marginTop: 15, marginBottom: 20, padding: 17, borderRadius: 13, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border },
   privateProfileNote: { color: colors.sage, fontSize: 9, lineHeight: 14, marginBottom: 12 },
+  birthDateGroup: { marginBottom: 13 },
+  birthDateButton: { minHeight: 49, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: colors.border, borderRadius: 9, backgroundColor: colors.paper },
+  birthDateValue: { color: colors.forest, fontSize: 12, fontWeight: "800" },
+  birthDatePlaceholder: { color: colors.sage, fontWeight: "600" },
+  birthDateIcon: { color: colors.forestSoft, fontSize: 16 },
+  birthDateHelp: { marginTop: 6, color: colors.sage, fontSize: 8, lineHeight: 12 },
+  datePickerBackdrop: { flex: 1, padding: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#092D24AA" },
+  datePickerCard: { width: "100%", maxWidth: 410, padding: 20, borderRadius: 16, backgroundColor: colors.paper },
+  datePickerTitle: { marginTop: 5, color: colors.forest, fontSize: 22, fontWeight: "900" },
+  datePickerDone: { minHeight: 44, marginTop: 8, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.forest },
+  impactSummary: { marginTop: 18, flexDirection: "row", gap: 10 },
+  impactMetric: { flex: 1, minHeight: 112, padding: 17, justifyContent: "center", borderRadius: 13, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.paper },
+  impactMetricValue: { color: colors.forest, fontSize: 30, lineHeight: 34, fontWeight: "900" },
+  impactMetricLabel: { marginTop: 6, color: colors.sage, fontSize: 9, lineHeight: 13, fontWeight: "800" },
+  impactSectionTitle: { marginTop: 25, marginBottom: 11, color: colors.forest, fontSize: 18, fontWeight: "900" },
+  badgeGrid: { gap: 10 },
+  badgeCard: { minHeight: 84, padding: 14, flexDirection: "row", alignItems: "center", gap: 13, borderRadius: 13, borderWidth: 1, borderColor: "#9FC7A8", backgroundColor: "#E8F4EA" },
+  badgeCardLocked: { borderColor: colors.border, backgroundColor: colors.paper, opacity: 0.72 },
+  badgeIcon: { width: 50, height: 50, alignItems: "center", justifyContent: "center", borderRadius: 25, backgroundColor: colors.forest },
+  badgeIconLocked: { backgroundColor: colors.mint },
+  badgeIconText: { color: colors.white, fontSize: 18, fontWeight: "900" },
+  badgeCopy: { flex: 1 },
+  badgeTitle: { color: colors.forest, fontSize: 13, fontWeight: "900" },
+  badgeDetail: { marginTop: 4, color: colors.sage, fontSize: 9, lineHeight: 13 },
   connectedCard: { marginTop: 12, padding: 20, borderRadius: 14, backgroundColor: colors.mint, borderWidth: 1, borderColor: colors.border },
   connectedTitle: { color: colors.forest, fontWeight: "900", fontSize: 17, marginBottom: 8 },
   connectedBody: { color: colors.forestSoft, marginTop: 4 },
