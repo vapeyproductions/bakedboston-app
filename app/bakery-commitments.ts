@@ -19,12 +19,18 @@ export function firstCommitmentReminder(bakery: typeof bakeries.$inferSelect, se
 
 export function nextCommitmentReminder(pickupStartsAt: Date, from = new Date()) {
   const minutesUntilPickup = (pickupStartsAt.getTime() - from.getTime()) / 60_000;
-  if (minutesUntilPickup <= 15) return new Date(from.getTime() + 5 * 60_000);
-  if (minutesUntilPickup <= 60) return new Date(from.getTime() + 10 * 60_000);
-  return new Date(Math.min(
-    from.getTime() + 60 * 60_000,
-    pickupStartsAt.getTime() - 60 * 60_000,
-  ));
+  const nextThreshold = nextThresholdBelow(minutesUntilPickup);
+  return nextThreshold === null
+    ? pickupStartsAt
+    : new Date(pickupStartsAt.getTime() - nextThreshold * 60_000);
+}
+
+export function firstSpontaneousCommitmentReminder(pickupStartsAt: Date, createdAt = new Date()) {
+  const minutesUntilPickup = (pickupStartsAt.getTime() - createdAt.getTime()) / 60_000;
+  const threshold = thresholdAtOrBelow(minutesUntilPickup);
+  return threshold === null
+    ? createdAt
+    : new Date(pickupStartsAt.getTime() - threshold * 60_000);
 }
 
 export async function processBakeryCommitmentReminders() {
@@ -33,7 +39,7 @@ export async function processBakeryCommitmentReminders() {
   await materializeTodayPickupOccurrences(now);
   const occurrences = await db.select().from(bakeryPickupOccurrences).where(and(
     inArray(bakeryPickupOccurrences.status, ["awaiting_confirmation", "decision_deferred"]),
-    gt(bakeryPickupOccurrences.pickupDeadline, now),
+    gt(bakeryPickupOccurrences.pickupWindowStartsAt, now),
   ));
   for (const occurrence of occurrences) {
     const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, occurrence.bakeryId)).limit(1);
@@ -65,6 +71,16 @@ export async function processBakeryCommitmentReminders() {
       body: `Confirm when you know whether this pickup window will have food available. Choose “Don’t know yet” to be reminded again in ${reminderInterval}.`,
     });
   }
+}
+
+function thresholdAtOrBelow(minutesUntilPickup: number) {
+  if (minutesUntilPickup >= 60) return Math.floor(minutesUntilPickup / 60) * 60;
+  return [50, 40, 30, 20, 15, 10, 5].find((threshold) => threshold <= minutesUntilPickup + 0.1) ?? null;
+}
+
+function nextThresholdBelow(minutesUntilPickup: number) {
+  if (minutesUntilPickup > 60) return Math.max(60, (Math.ceil(minutesUntilPickup / 60) - 1) * 60);
+  return [50, 40, 30, 20, 15, 10, 5].find((threshold) => threshold < minutesUntilPickup - 0.1) ?? null;
 }
 
 async function materializeTodayPickupOccurrences(now: Date) {

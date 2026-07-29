@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { availabilityWindows, bakeries, bakeryPickupOccurrences } from "../../../../db/schema";
+import { availabilityWindows, bakeryPickupOccurrences } from "../../../../db/schema";
 import { getAdministrator } from "../../../admin-auth";
 import { writeAudit } from "../../../audit";
-import { firstCommitmentReminder } from "../../../bakery-commitments";
+import { firstSpontaneousCommitmentReminder } from "../../../bakery-commitments";
 
 export async function POST(request: Request) {
   const admin = await getAdministrator();
@@ -20,13 +20,12 @@ export async function POST(request: Request) {
     const db = getDb();
     const [record] = await db.insert(availabilityWindows).values({ organizationType, organizationId, startsAt, endsAt, latestArrival, serviceMode, paused: false }).returning();
     if (organizationType === "bakery") {
-      const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, organizationId)).limit(1);
       await db.insert(bakeryPickupOccurrences).values({
         bakeryId: organizationId,
         serviceDate: easternDate(startsAt),
         pickupWindowStartsAt: startsAt,
         pickupDeadline: endsAt,
-        commitmentReminderDueAt: bakery ? firstCommitmentReminder(bakery, easternDate(startsAt), startsAt) : new Date(Math.min(Date.now(), startsAt.getTime())),
+        commitmentReminderDueAt: firstSpontaneousCommitmentReminder(startsAt),
       }).onConflictDoNothing();
     }
     await writeAudit({ actorType: "admin", actorId: admin.id, actorName: admin.displayName, action: "created one-time availability window", entityType: organizationType, entityId: organizationId, entityName: "", details: `${startsAt.toISOString()}–${endsAt.toISOString()}` });
@@ -50,8 +49,7 @@ export async function PATCH(request: Request) {
     validateWindow(startsAt, endsAt, latestArrival);
     const [record] = await db.update(availabilityWindows).set({ startsAt, endsAt, latestArrival, serviceMode, paused: Boolean(body.paused) }).where(eq(availabilityWindows.id, id)).returning();
     if (existing.organizationType === "bakery") {
-      const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, existing.organizationId)).limit(1);
-      const commitmentReminderDueAt = bakery ? firstCommitmentReminder(bakery, easternDate(startsAt), startsAt) : new Date(Math.min(Date.now(), startsAt.getTime()));
+      const commitmentReminderDueAt = firstSpontaneousCommitmentReminder(startsAt);
       const [updated] = await db.update(bakeryPickupOccurrences).set({
         serviceDate: easternDate(startsAt),
         pickupWindowStartsAt: startsAt,
