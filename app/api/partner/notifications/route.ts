@@ -33,11 +33,16 @@ export async function GET() {
       ? db.select().from(rescueRoutes).where(eq(rescueRoutes.bakeryName, recipient.name)).orderBy(desc(rescueRoutes.createdAt))
       : db.select().from(rescueRoutes).where(eq(rescueRoutes.pantryName, recipient.name)).orderBy(desc(rescueRoutes.createdAt)),
   ]);
-  const liveOffers = recipient.type === "pantry"
-    ? await db.select().from(routeOffers).where(and(eq(routeOffers.pantryId, recipient.id), eq(routeOffers.status, "accepted")))
+  const pickupIds = recipient.type === "bakery"
+    ? (await db.select({ id: bakeryPickupOccurrences.id }).from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, recipient.id))).map((pickup) => pickup.id)
     : [];
+  const liveOffers = recipient.type === "bakery"
+    ? pickupIds.length
+      ? await db.select().from(routeOffers).where(and(inArray(routeOffers.pickupOccurrenceId, pickupIds), eq(routeOffers.status, "accepted")))
+      : []
+    : await db.select().from(routeOffers).where(and(eq(routeOffers.pantryId, recipient.id), eq(routeOffers.status, "accepted")));
   const deliveryInProgress = liveOffers.some((offer) => !["reserved", "completed"].includes(offer.deliveryStage));
-  return Response.json({ notifications, routes: deliveryInProgress ? routes.map((route) => route.status === "reserved" ? { ...route, status: "ongoing" } : route) : routes });
+  return Response.json({ notifications, routes: deliveryInProgress ? routes.map((route, index) => index === 0 && ["reserved", "completed"].includes(route.status) ? { ...route, status: "ongoing" } : route) : routes });
 }
 
 export async function PATCH(request: Request) {

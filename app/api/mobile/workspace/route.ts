@@ -117,7 +117,7 @@ export async function GET(request: Request) {
     // offer stage to keep availability controls locked even for routes created
     // before the route-record status update was introduced.
     routes: acceptedOffers.some((offer) => !["reserved", "completed"].includes(offer.deliveryStage))
-      ? routes.map((route) => route.status === "reserved" ? { ...route, status: "ongoing" as const } : route)
+      ? routes.map((route, index) => index === 0 && ["reserved", "completed"].includes(route.status) ? { ...route, status: "ongoing" as const } : route)
       : routes,
     photos,
     impactPhotos,
