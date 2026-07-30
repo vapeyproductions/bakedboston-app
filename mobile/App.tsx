@@ -1273,6 +1273,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const completed = workspace.routes.filter((route) => route.status === "completed");
   const now = new Date();
   const thisMonth = workspace.routes.filter((route) => {
+    if (route.status === "cancelled") return false;
     const date = new Date(route.createdAt);
     return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
   });
