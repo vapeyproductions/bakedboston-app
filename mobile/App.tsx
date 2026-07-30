@@ -1296,8 +1296,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     && new Date(occurrence.pickupWindowStartsAt) <= now
     && new Date(occurrence.pickupDeadline) > now,
   );
-  const todayPickup = activeOneTimePickup
-    ?? currentTimedPickup
+  const activeOrCurrentPickup = activeOneTimePickup ?? currentTimedPickup;
+  const todayPickup = activeOrCurrentPickup
     ?? chronologicalOpenPickups[0];
   const hasActiveRoute = workspace.routes.some((route) => route.status === "reserved" || route.status === "ongoing");
   const notificationAppliesToCurrentPickup = (notification: DriverNotification) => {
@@ -1314,8 +1314,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     ?? workspace.notifications.find((notification) => !notification.acknowledgedAt && notificationStillRelevant(notification) && notificationAppliesToCurrentPickup(notification));
   const pantryConfirmationNeeded = !bakery && workspace.notifications.some((notification) =>
     notification.actionKey.startsWith("pantry-open:") && notification.actionRequired && !notification.acknowledgedAt);
-  const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
-  const pickupFulfilled = todayPickup?.status === "fulfilled";
+  const pickupConfirmed = activeOrCurrentPickup?.status === "confirmed" || activeOrCurrentPickup?.status === "reserved";
+  const pickupFulfilled = activeOrCurrentPickup?.status === "fulfilled";
   const scheduledBakeryOpen = bakery && mobileBakeryWindowIsOpen(workspace, now)
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime && pickupConfirmed) || (scheduledBakeryOpen && pickupConfirmed));
@@ -1352,7 +1352,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
               : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`
                 : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
           {priorityNotification && <PartnerMobileNotificationCard notification={priorityNotification} onChanged={onChanged} compact />}
-          {bakery && <NativePickupConfirmation occurrence={todayPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
+          {bakery && <NativePickupConfirmation occurrence={priorityNotification ? todayPickup : activeOrCurrentPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
         </View>
         {!landscape && <View style={[styles.portalStatusActions, styles.portalStatusActionsMobile]}>
           {activeOneTime && (!bakery || pickupConfirmed) && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
