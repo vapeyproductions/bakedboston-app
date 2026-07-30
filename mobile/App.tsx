@@ -199,9 +199,10 @@ export default function App() {
 function WelcomeScreen({ onChoose, onLearn }: { onChoose: (role: Role) => void; onLearn: () => void }) {
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
+  useEffect(() => { void ScreenOrientation.unlockAsync().catch(() => undefined); }, []);
   return (
     <SafeAreaView style={[styles.welcomeSafe, isLandscape && styles.welcomeSafeLandscape]} edges={["top", "bottom"]}>
-      <ScrollView contentContainerStyle={[styles.welcomeScroll, isLandscape && styles.welcomeScrollLandscape]} showsVerticalScrollIndicator={false}>
+      <ScrollView key={isLandscape ? "welcome-landscape" : "welcome-portrait"} contentContainerStyle={[styles.welcomeScroll, isLandscape && styles.welcomeScrollLandscape]} showsVerticalScrollIndicator={false}>
         <View style={[styles.brandRow, isLandscape && styles.brandRowLandscape]}>
           <View style={styles.brandMark}><Text style={styles.brandLetter}>B</Text></View>
           <Text style={styles.brandNameLight}>BakedBoston</Text>
@@ -276,12 +277,14 @@ const learnSlides = [
 function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateDriver: () => void }) {
   const [step, setStep] = useState(0);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
   const isProcess = step === learnSlides.length;
   const slide = isProcess ? null : learnSlides[step];
 
   return (
     <SafeAreaView style={styles.learnSafe} edges={["top", "bottom"]}>
-      <View style={styles.learnHeader}>
+      <View style={[styles.learnHeader, landscape && styles.learnHeaderLandscape]}>
         <Pressable accessibilityRole="button" onPress={onBack} style={styles.learnHeaderBack}>
           <Text style={styles.learnHeaderBackText}>‹</Text>
         </Pressable>
@@ -292,31 +295,31 @@ function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateD
         <View style={styles.learnHeaderSpacer} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.learnScroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.learnCard}>
+      <ScrollView contentContainerStyle={[styles.learnScroll, landscape && styles.learnScrollLandscape]} showsVerticalScrollIndicator={false} scrollEnabled={!landscape}>
+        <View style={[styles.learnCard, landscape && styles.learnCardLandscape]}>
           {slide ? (
             <>
-              <View style={styles.learnIconBubble}><Text style={styles.learnIcon}>{slide.icon}</Text></View>
-              <Text style={styles.learnKicker}>{slide.kicker}</Text>
-              {"stat" in slide && <Text style={styles.learnStat}>{slide.stat}</Text>}
-              <Text style={styles.learnTitle}>{slide.title}</Text>
-              <Text style={styles.learnBody}>{slide.body}</Text>
+              <View style={[styles.learnIconBubble, landscape && styles.learnIconBubbleLandscape]}><Text style={[styles.learnIcon, landscape && styles.learnIconLandscape]}>{slide.icon}</Text></View>
+              <Text style={[styles.learnKicker, landscape && styles.learnKickerLandscape]}>{slide.kicker}</Text>
+              {"stat" in slide && <Text style={[styles.learnStat, landscape && styles.learnStatLandscape]}>{slide.stat}</Text>}
+              <Text style={[styles.learnTitle, landscape && styles.learnTitleLandscape]}>{slide.title}</Text>
+              <Text style={[styles.learnBody, landscape && styles.learnBodyLandscape]}>{slide.body}</Text>
             </>
           ) : (
             <>
-              <Text style={styles.learnKicker}>HOW IT WORKS</Text>
-              <Text style={styles.learnTitle}>Choose a route. Make the delivery.</Text>
-              <View style={styles.learnProcess}>
+              <Text style={[styles.learnKicker, landscape && styles.learnKickerLandscape]}>HOW IT WORKS</Text>
+              <Text style={[styles.learnTitle, landscape && styles.learnTitleLandscape]}>Choose a route. Make the delivery.</Text>
+              <View style={[styles.learnProcess, landscape && styles.learnProcessLandscape]}>
                 {[
                   ["1", "Choose", "Pick a nearby route now or search for one that fits a future trip."],
                   ["2", "Pick up", "Drive to the bakery and collect the available food."],
                   ["3", "Drop off", "Bring it to the pantry. That’s it."],
                 ].map(([number, title, body]) => (
-                  <View key={number} style={styles.learnProcessRow}>
-                    <View style={styles.learnNumber}><Text style={styles.learnNumberText}>{number}</Text></View>
+                  <View key={number} style={[styles.learnProcessRow, landscape && styles.learnProcessRowLandscape]}>
+                    <View style={[styles.learnNumber, landscape && styles.learnNumberLandscape]}><Text style={[styles.learnNumberText, landscape && styles.learnNumberTextLandscape]}>{number}</Text></View>
                     <View style={styles.learnProcessCopy}>
-                      <Text style={styles.learnProcessTitle}>{title}</Text>
-                      <Text style={styles.learnProcessBody}>{body}</Text>
+                      <Text style={[styles.learnProcessTitle, landscape && styles.learnProcessTitleLandscape]}>{title}</Text>
+                      <Text style={[styles.learnProcessBody, landscape && styles.learnProcessBodyLandscape]}>{body}</Text>
                     </View>
                   </View>
                 ))}
@@ -325,7 +328,7 @@ function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateD
           )}
         </View>
 
-        <View style={styles.learnDots}>
+        <View style={[styles.learnDots, landscape && styles.learnDotsLandscape]}>
           {Array.from({ length: learnSlides.length + 1 }, (_, index) => index).map((index) => (
             <View key={index} style={[styles.learnDot, index === step && styles.learnDotActive]} />
           ))}
@@ -333,10 +336,10 @@ function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateD
 
         {isProcess ? (
           <>
-            <Pressable accessibilityRole="button" onPress={onCreateDriver} style={styles.learnPrimaryButton}>
+            <Pressable accessibilityRole="button" onPress={onCreateDriver} style={[styles.learnPrimaryButton, landscape && styles.learnPrimaryButtonLandscape]}>
               <Text style={styles.learnPrimaryButtonText}>Create a driver account</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={onBack} style={styles.learnSecondaryButton}>
+            <Pressable accessibilityRole="button" onPress={onBack} style={[styles.learnSecondaryButton, landscape && styles.learnSecondaryButtonLandscape]}>
               <Text style={styles.learnSecondaryButtonText}>Back</Text>
             </Pressable>
             <Pressable accessibilityRole="button" onPress={() => setSourcesOpen(true)}>
@@ -344,7 +347,7 @@ function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateD
             </Pressable>
           </>
         ) : (
-          <Pressable accessibilityRole="button" onPress={() => setStep((current) => current + 1)} style={styles.learnPrimaryButton}>
+          <Pressable accessibilityRole="button" onPress={() => setStep((current) => current + 1)} style={[styles.learnPrimaryButton, landscape && styles.learnPrimaryButtonLandscape]}>
             <Text style={styles.learnPrimaryButtonText}>Next</Text>
           </Pressable>
         )}
@@ -388,6 +391,8 @@ function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateD
 }
 
 function AuthFrame({ children, onBack, role }: { children: React.ReactNode; onBack: () => void; role: Role | null }) {
+  const { width, height } = useWindowDimensions();
+  if (role === "driver" && width > height) return <DriverPortraitOnly />;
   return (
     <SafeAreaView style={styles.authSafe} edges={["top", "bottom"]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -405,6 +410,17 @@ function AuthFrame({ children, onBack, role }: { children: React.ReactNode; onBa
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+function DriverPortraitOnly() {
+  return <SafeAreaView style={styles.driverPortraitSafe} edges={["top", "bottom"]}>
+    <View style={styles.driverPortraitCard}>
+      <Text style={styles.driverPortraitIcon}>↻</Text>
+      <Text style={styles.driverPortraitKicker}>DRIVER APP</Text>
+      <Text style={styles.driverPortraitTitle}>Turn your phone upright.</Text>
+      <Text style={styles.driverPortraitBody}>BakedBoston’s driver tools are designed for portrait view while you’re finding and completing a delivery. Your home screen will load as soon as you rotate your phone vertically.</Text>
+    </View>
+  </SafeAreaView>;
 }
 
 function DriverAccess({ onCreate, onAuthenticated }: { onCreate: () => void; onAuthenticated: (data: { token: string; session: Session }) => Promise<void> }) {
@@ -569,7 +585,12 @@ function PortalHome({ session, onSignOut }: { session: Session; onSignOut: () =>
   if (session.role === "bakery" || session.role === "pantry") {
     return <PartnerPortal session={session} onSignOut={onSignOut} />;
   }
-  return <DriverPortal session={session} onSignOut={onSignOut} />;
+  return <DriverPortraitGate><DriverPortal session={session} onSignOut={onSignOut} /></DriverPortraitGate>;
+}
+
+function DriverPortraitGate({ children }: { children: React.ReactNode }) {
+  const { width, height } = useWindowDimensions();
+  return width > height ? <DriverPortraitOnly /> : <>{children}</>;
 }
 
 type DriverSection = "home" | "search" | "routes" | "impact" | "profile" | "report";
@@ -588,7 +609,6 @@ function DriverPortal({ session, onSignOut }: { session: Session; onSignOut: () 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
   useEffect(() => {
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => undefined);
     let timer: ReturnType<typeof setInterval> | undefined;
     void registerForPushNotifications().catch(() => undefined);
     loadDriverProfile().then(setProfile).catch(() => setError("Could not load the driver profile."));
@@ -2331,6 +2351,12 @@ const styles = StyleSheet.create({
   identityActionButton: { minHeight: 44, marginTop: 15, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.forest },
   identityPrivacyNote: { marginTop: 10, color: colors.sage, fontSize: 8, lineHeight: 12 },
   errorText: { color: "#A34436", fontWeight: "700", marginBottom: 10 },
+  driverPortraitSafe: { flex: 1, padding: 24, alignItems: "center", justifyContent: "center", backgroundColor: colors.forest },
+  driverPortraitCard: { width: "100%", maxWidth: 520, padding: 28, alignItems: "center", borderRadius: 22, backgroundColor: colors.cream },
+  driverPortraitIcon: { color: colors.coral, fontSize: 44, lineHeight: 48, fontWeight: "900" },
+  driverPortraitKicker: { marginTop: 10, color: colors.coral, fontSize: 8, letterSpacing: 1.7, fontWeight: "900" },
+  driverPortraitTitle: { marginTop: 7, color: colors.forest, fontSize: 25, lineHeight: 29, fontWeight: "900", textAlign: "center" },
+  driverPortraitBody: { maxWidth: 410, marginTop: 10, color: colors.sage, fontSize: 11, lineHeight: 16, textAlign: "center" },
   welcomeScroll: { flexGrow: 1, paddingTop: 14 },
   welcomeScrollLandscape: { minHeight: "100%", paddingTop: 10, paddingBottom: 12 },
   brandRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, gap: 10 },
@@ -2377,32 +2403,50 @@ const styles = StyleSheet.create({
   securityNoteLandscape: { fontSize: 7, lineHeight: 10, marginHorizontal: 6, marginTop: 2 },
   learnSafe: { flex: 1, backgroundColor: colors.forest },
   learnHeader: { minHeight: 64, paddingHorizontal: 18, flexDirection: "row", alignItems: "center" },
+  learnHeaderLandscape: { minHeight: 45, paddingHorizontal: 28 },
   learnHeaderBack: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.forestSoft },
   learnHeaderBackText: { color: colors.white, fontSize: 31, lineHeight: 32, marginTop: -3 },
   learnBrand: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   learnBrandText: { color: colors.white, fontSize: 16, fontWeight: "900" },
   learnHeaderSpacer: { width: 40 },
   learnScroll: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 22, paddingTop: 20, paddingBottom: 28 },
+  learnScrollLandscape: { flexGrow: 1, paddingHorizontal: 80, paddingTop: 5, paddingBottom: 8 },
   learnCard: { width: "100%", maxWidth: 560, minHeight: 390, alignSelf: "center", justifyContent: "center", padding: 28, borderRadius: 26, backgroundColor: colors.cream },
+  learnCardLandscape: { maxWidth: 680, minHeight: 0, paddingHorizontal: 27, paddingVertical: 16, borderRadius: 18 },
   learnIconBubble: { width: 68, height: 68, marginBottom: 22, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.mint },
+  learnIconBubbleLandscape: { width: 38, height: 38, marginBottom: 7, borderRadius: 12 },
   learnIcon: { fontSize: 32 },
+  learnIconLandscape: { fontSize: 19 },
   learnKicker: { color: colors.coral, fontSize: 9, letterSpacing: 1.7, fontWeight: "900", marginBottom: 10 },
+  learnKickerLandscape: { fontSize: 7, letterSpacing: 1.25, marginBottom: 4 },
   learnStat: { color: colors.forest, fontSize: 64, lineHeight: 68, fontWeight: "900", letterSpacing: -2.5 },
+  learnStatLandscape: { fontSize: 38, lineHeight: 41, letterSpacing: -1.4 },
   learnTitle: { maxWidth: 430, color: colors.forest, fontSize: 30, lineHeight: 35, fontWeight: "900", letterSpacing: -0.8 },
+  learnTitleLandscape: { maxWidth: 570, fontSize: 20, lineHeight: 24, letterSpacing: -0.45 },
   learnBody: { maxWidth: 430, marginTop: 15, color: colors.sage, fontSize: 14, lineHeight: 21 },
+  learnBodyLandscape: { maxWidth: 600, marginTop: 7, fontSize: 10, lineHeight: 14 },
   learnProcess: { marginTop: 25, gap: 18 },
+  learnProcessLandscape: { marginTop: 10, gap: 7 },
   learnProcessRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
+  learnProcessRowLandscape: { gap: 9 },
   learnNumber: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: colors.coral },
+  learnNumberLandscape: { width: 24, height: 24, borderRadius: 12 },
   learnNumberText: { color: colors.white, fontSize: 13, fontWeight: "900" },
+  learnNumberTextLandscape: { fontSize: 9 },
   learnProcessCopy: { flex: 1, paddingTop: 1 },
   learnProcessTitle: { color: colors.forest, fontSize: 15, fontWeight: "900" },
+  learnProcessTitleLandscape: { fontSize: 11 },
   learnProcessBody: { marginTop: 3, color: colors.sage, fontSize: 11, lineHeight: 16 },
+  learnProcessBodyLandscape: { marginTop: 1, fontSize: 8, lineHeight: 11 },
   learnDots: { marginVertical: 20, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  learnDotsLandscape: { marginVertical: 8 },
   learnDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.forestSoft },
   learnDotActive: { width: 23, backgroundColor: colors.yellow },
   learnPrimaryButton: { width: "100%", maxWidth: 560, minHeight: 52, alignSelf: "center", alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.coral },
+  learnPrimaryButtonLandscape: { maxWidth: 680, minHeight: 38, borderRadius: 9 },
   learnPrimaryButtonText: { color: colors.white, fontSize: 12, fontWeight: "900" },
   learnSecondaryButton: { width: "100%", maxWidth: 560, minHeight: 48, marginTop: 10, alignSelf: "center", alignItems: "center", justifyContent: "center", borderRadius: 12, borderWidth: 1, borderColor: colors.forestSoft },
+  learnSecondaryButtonLandscape: { maxWidth: 680, minHeight: 34, marginTop: 6, borderRadius: 9 },
   learnSecondaryButtonText: { color: colors.white, fontSize: 11, fontWeight: "900" },
   learnSourceLink: { marginTop: 17, color: "#A9C2B5", textAlign: "center", fontSize: 9, textDecorationLine: "underline" },
   sourceModalBackdrop: { flex: 1, padding: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#0C241BCF" },
