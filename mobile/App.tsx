@@ -1300,7 +1300,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     if (notification.eventType === "pickup_confirmed") {
       const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
       const occurrence = workspace.pickupOccurrences.find((item) => item.id === pickupId);
-      return Boolean(occurrence && new Date(occurrence.pickupDeadline) > now);
+      return Boolean(occurrence && occurrence.status !== "reserved" && new Date(occurrence.pickupDeadline) > now);
     }
     if (notification.eventType !== "pickup_commitment_reminder") return true;
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);

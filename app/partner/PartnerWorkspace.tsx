@@ -76,7 +76,9 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     if (notification.eventType === "pickup_confirmed") {
       const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
       const occurrence = pickupOccurrences.find((item) => item.id === pickupId);
-      return Boolean(occurrence && new Date(occurrence.pickupDeadline) > new Date());
+      // Once a driver reserves the pickup, the reservation state replaces the
+      // earlier availability-confirmed update.
+      return Boolean(occurrence && occurrence.status !== "reserved" && new Date(occurrence.pickupDeadline) > new Date());
     }
     if (notification.eventType !== "pickup_commitment_reminder") return true;
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
