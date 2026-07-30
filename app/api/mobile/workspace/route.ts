@@ -113,7 +113,12 @@ export async function GET(request: Request) {
     availabilityWindows: windows,
     availabilityPauses: pauses,
     scheduleExceptions: exceptions,
-    routes,
+    // The companion route record is a display/history record. Use the live
+    // offer stage to keep availability controls locked even for routes created
+    // before the route-record status update was introduced.
+    routes: acceptedOffers.some((offer) => !["reserved", "completed"].includes(offer.deliveryStage))
+      ? routes.map((route) => route.status === "reserved" ? { ...route, status: "ongoing" as const } : route)
+      : routes,
     photos,
     impactPhotos,
     pickupOccurrences,

@@ -1,6 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { bakeries, inAppNotifications, pantries, partnerAccounts, rescueRoutes, routeOffers } from "../../../../db/schema";
+import { bakeries, bakeryPickupOccurrences, inAppNotifications, pantries, partnerAccounts, rescueRoutes, routeOffers } from "../../../../db/schema";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { markPickupReady } from "../../../pickup-readiness";
 import { recordBakeryHandoff } from "../../../bakery-handoffs";
@@ -33,7 +33,11 @@ export async function GET() {
       ? db.select().from(rescueRoutes).where(eq(rescueRoutes.bakeryName, recipient.name)).orderBy(desc(rescueRoutes.createdAt))
       : db.select().from(rescueRoutes).where(eq(rescueRoutes.pantryName, recipient.name)).orderBy(desc(rescueRoutes.createdAt)),
   ]);
-  return Response.json({ notifications, routes });
+  const liveOffers = recipient.type === "pantry"
+    ? await db.select().from(routeOffers).where(and(eq(routeOffers.pantryId, recipient.id), eq(routeOffers.status, "accepted")))
+    : [];
+  const deliveryInProgress = liveOffers.some((offer) => !["reserved", "completed"].includes(offer.deliveryStage));
+  return Response.json({ notifications, routes: deliveryInProgress ? routes.map((route) => route.status === "reserved" ? { ...route, status: "ongoing" } : route) : routes });
 }
 
 export async function PATCH(request: Request) {
