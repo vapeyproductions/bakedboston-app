@@ -269,13 +269,18 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
   const db = getDb();
   const now = new Date();
   const horizon = new Date(now.getTime() + 2 * 60 * 60_000);
+  let optimizerRoutes: ReturnType<typeof optimizedBrowseRoutes> = [];
   if (driverLocation) {
     const optimized = await requestOptimizedRoutes({
       earliestStart: now,
       latestFinish: horizon,
       startLocation: driverLocation,
     });
-    if (optimized !== null) return optimizedBrowseRoutes(optimized);
+    // The optimizer is the preferred source for traffic-aware ranking, but its
+    // network snapshot can briefly lag a just-confirmed one-time window. Keep
+    // the app's live database matcher as a fallback instead of showing no
+    // available routes during that gap.
+    if (optimized !== null) optimizerRoutes = optimizedBrowseRoutes(optimized);
   }
   const [pickups, bakeryRows, pantryRows, accounts, pantryWindows, pantryConfirmations] = await Promise.all([
     db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.status, "confirmed")),
@@ -339,7 +344,11 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
   for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
     if (!bestByPickup.has(candidate.pickupId)) bestByPickup.set(candidate.pickupId, candidate);
   }
-  return [...bestByPickup.values()].sort((a, b) => b.score - a.score).slice(0, 6);
+  const liveRoutes = [...bestByPickup.values()].sort((a, b) => b.score - a.score);
+  const routesByPickup = new Map<number, (typeof liveRoutes)[number] | (typeof optimizerRoutes)[number]>();
+  for (const route of liveRoutes) routesByPickup.set(route.pickupId, route);
+  for (const route of optimizerRoutes) if (!routesByPickup.has(route.pickupId)) routesByPickup.set(route.pickupId, route);
+  return [...routesByPickup.values()].slice(0, 6);
 }
 
 function optimizedBrowseRoutes(routes: OptimizedRoute[]) {
