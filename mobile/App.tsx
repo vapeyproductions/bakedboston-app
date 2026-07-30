@@ -1278,8 +1278,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   );
   const todayPickup = activeOneTimePickup
     ?? currentTimedPickup
-    ?? chronologicalOpenPickups[0]
-    ?? workspace.pickupOccurrences.find((occurrence) => occurrence.serviceDate === localDateString(now));
+    ?? chronologicalOpenPickups[0];
   const hasActiveRoute = workspace.routes.some((route) => route.status === "reserved" || route.status === "ongoing");
   const notificationAppliesToCurrentPickup = (notification: DriverNotification) => {
     if (hasActiveRoute && notification.eventType === "delivery_completed") return false;
@@ -1287,9 +1286,12 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
     return pickupId > 0 && pickupId === todayPickup?.id;
   };
+  const notificationStillRelevant = (notification: DriverNotification) =>
+    notification.eventType !== "delivery_completed"
+    || now.getTime() - new Date(notification.createdAt).getTime() < 2 * 60 * 60_000;
   const priorityNotification = workspace.notifications.find((notification) =>
-    notification.actionRequired && !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification))
-    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification));
+    notification.actionRequired && !notification.acknowledgedAt && notificationStillRelevant(notification) && notificationAppliesToCurrentPickup(notification))
+    ?? workspace.notifications.find((notification) => !notification.acknowledgedAt && notificationStillRelevant(notification) && notificationAppliesToCurrentPickup(notification));
   const pantryConfirmationNeeded = !bakery && workspace.notifications.some((notification) =>
     notification.actionKey.startsWith("pantry-open:") && notification.actionRequired && !notification.acknowledgedAt);
   const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
@@ -1450,8 +1452,12 @@ function PartnerMobileNotificationCard({ notification, onChanged, compact = fals
   const pantryOpening = notification.actionKey.startsWith("pantry-open:");
   const arrivedAt = Number(notification.actionKey.split(":")[2] ?? 0);
   const canReportMissing = handoff && arrivedAt > 0 && Date.now() - arrivedAt >= 15 * 60_000;
-  return <View style={compact ? styles.statusNotificationMobile : styles.driverNotificationCard}>
-    <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
+  const dismissibleUpdate = notification.eventType === "delivery_completed" && !notification.actionRequired;
+  return <View style={[compact ? styles.statusNotificationMobile : styles.driverNotificationCard, dismissibleUpdate && styles.dismissibleNotification]}>
+    <View style={styles.notificationTitleRow}>
+      <Text style={compact ? styles.portalPanelKicker : styles.authEyebrow}>{notification.actionRequired ? "ACTION REQUIRED" : "DELIVERY UPDATE"}</Text>
+      {dismissibleUpdate && !notification.acknowledgedAt && <Pressable accessibilityRole="button" accessibilityLabel="Dismiss delivery update" hitSlop={10} onPress={() => acknowledge()} style={styles.notificationDismiss}><Text style={styles.notificationDismissText}>×</Text></Pressable>}
+    </View>
     <Text style={compact ? styles.statusNotificationTitle : styles.connectedTitle}>{notification.title}</Text>
     <Text style={compact ? styles.statusNotificationBody : styles.connectedBody}>{notification.body}</Text>
     {notification.actionRequired && !notification.acknowledgedAt && <View style={[styles.notificationActionRow, compact && styles.notificationActionRowCompact]}>
@@ -2254,6 +2260,10 @@ const styles = StyleSheet.create({
   driverNotificationCard: { marginTop: 12, padding: 17, borderRadius: 12, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
   nativeNotificationButton: { alignSelf: "flex-start", marginTop: 12, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.forest },
   nativeAcknowledged: { marginTop: 10, color: colors.forestSoft, fontSize: 9, fontWeight: "900" },
+  dismissibleNotification: { position: "relative" },
+  notificationTitleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  notificationDismiss: { width: 26, height: 26, marginTop: -5, alignItems: "center", justifyContent: "center", borderRadius: 13, borderWidth: 1, borderColor: "#FFFFFF38" },
+  notificationDismissText: { color: colors.white, fontSize: 20, lineHeight: 21, fontWeight: "500" },
   nativePickupConfirmation: { marginBottom: 14, padding: 18, borderRadius: 13, backgroundColor: "#FFF5D8", borderWidth: 1, borderColor: "#E7CA77" },
   nativePickupConfirmed: { backgroundColor: "#E8F4EA", borderColor: "#9FC7A8" },
   nativePickupUnavailable: { backgroundColor: colors.paper, borderColor: colors.border },
