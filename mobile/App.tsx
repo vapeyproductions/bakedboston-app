@@ -197,43 +197,47 @@ export default function App() {
 }
 
 function WelcomeScreen({ onChoose, onLearn }: { onChoose: (role: Role) => void; onLearn: () => void }) {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
   return (
-    <SafeAreaView style={styles.welcomeSafe} edges={["top", "bottom"]}>
-      <ScrollView contentContainerStyle={styles.welcomeScroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.brandRow}>
+    <SafeAreaView style={[styles.welcomeSafe, isLandscape && styles.welcomeSafeLandscape]} edges={["top", "bottom"]}>
+      <ScrollView contentContainerStyle={[styles.welcomeScroll, isLandscape && styles.welcomeScrollLandscape]} showsVerticalScrollIndicator={false}>
+        <View style={[styles.brandRow, isLandscape && styles.brandRowLandscape]}>
           <View style={styles.brandMark}><Text style={styles.brandLetter}>B</Text></View>
           <Text style={styles.brandNameLight}>BakedBoston</Text>
         </View>
 
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Good food should{"\n"}go somewhere good.</Text>
-          <Text style={styles.heroBody}>Join Boston’s community-powered network connecting bakery surplus with neighborhood food pantries.</Text>
-          <Pressable accessibilityRole="button" onPress={onLearn} style={styles.learnButton}>
-            <Text style={styles.learnButtonText}>See how BakedBoston works</Text>
-            <Text style={styles.learnButtonArrow}>›</Text>
-          </Pressable>
-        </View>
+        <View style={[styles.welcomeLanding, isLandscape && styles.welcomeLandingLandscape]}>
+          <View style={[styles.hero, isLandscape && styles.heroLandscape]}>
+            <Text style={[styles.heroTitle, isLandscape && styles.heroTitleLandscape]}>Good food should{"\n"}go somewhere good.</Text>
+            <Text style={[styles.heroBody, isLandscape && styles.heroBodyLandscape]}>Join Boston’s community-powered network connecting bakery surplus with neighborhood food pantries.</Text>
+            <Pressable accessibilityRole="button" onPress={onLearn} style={[styles.learnButton, isLandscape && styles.learnButtonLandscape]}>
+              <Text style={styles.learnButtonText}>See how BakedBoston works</Text>
+              <Text style={styles.learnButtonArrow}>›</Text>
+            </Pressable>
+          </View>
 
-        <View style={styles.roleSheet}>
-          <Text style={styles.sheetEyebrow}>GET STARTED</Text>
-          <Text style={styles.sheetTitle}>How are you helping today?</Text>
-          {(Object.keys(roleCopy) as Role[]).map((role) => {
-            const copy = roleCopy[role];
-            return (
-              <Pressable key={role} accessibilityRole="button" onPress={() => onChoose(role)}
-                style={({ pressed }) => [styles.roleCard, pressed && styles.roleCardPressed]}>
-                <View style={[styles.roleIcon, role === "driver" && styles.driverIcon, role === "pantry" && styles.pantryIcon]}>
-                  <Text style={styles.roleIconText}>{copy.icon}</Text>
-                </View>
-                <View style={styles.roleText}>
-                  <Text style={styles.roleTitle}>{copy.title}</Text>
-                  <Text style={styles.roleDescription}>{copy.description}</Text>
-                </View>
-                <Text style={styles.chevron}>›</Text>
-              </Pressable>
-            );
-          })}
-          <Text style={styles.securityNote}>Partner accounts are connected to organizations approved by BakedBoston.</Text>
+          <View style={[styles.roleSheet, isLandscape && styles.roleSheetLandscape]}>
+            <Text style={[styles.sheetEyebrow, isLandscape && styles.sheetEyebrowLandscape]}>GET STARTED</Text>
+            <Text style={[styles.sheetTitle, isLandscape && styles.sheetTitleLandscape]}>How are you helping today?</Text>
+            {(Object.keys(roleCopy) as Role[]).map((role) => {
+              const copy = roleCopy[role];
+              return (
+                <Pressable key={role} accessibilityRole="button" onPress={() => onChoose(role)}
+                  style={({ pressed }) => [styles.roleCard, isLandscape && styles.roleCardLandscape, pressed && styles.roleCardPressed]}>
+                  <View style={[styles.roleIcon, isLandscape && styles.roleIconLandscape, role === "driver" && styles.driverIcon, role === "pantry" && styles.pantryIcon]}>
+                    <Text style={[styles.roleIconText, isLandscape && styles.roleIconTextLandscape]}>{copy.icon}</Text>
+                  </View>
+                  <View style={[styles.roleText, isLandscape && styles.roleTextLandscape]}>
+                    <Text style={[styles.roleTitle, isLandscape && styles.roleTitleLandscape]}>{copy.title}</Text>
+                    <Text style={[styles.roleDescription, isLandscape && styles.roleDescriptionLandscape]}>{copy.description}</Text>
+                  </View>
+                  <Text style={[styles.chevron, isLandscape && styles.chevronLandscape]}>›</Text>
+                </Pressable>
+              );
+            })}
+            <Text style={[styles.securityNote, isLandscape && styles.securityNoteLandscape]}>Partner accounts are connected to organizations approved by BakedBoston.</Text>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -260,6 +264,12 @@ const learnSlides = [
     kicker: "THE CONNECTION",
     title: "A short drive closes the gap.",
     body: "BakedBoston connects an available bakery pickup with a nearby pantry and a community driver.",
+  },
+  {
+    icon: "⌘",
+    kicker: "THE OPTIMIZATION MODEL",
+    title: "Each recommended route is a feasible match.",
+    body: "A mixed-integer optimization model evaluates bakery, pantry, and driver combinations. It minimizes travel while respecting pickup windows, arrival deadlines, and driver preferences—then gives added weight to pantries with fewer recent deliveries.",
   },
 ] as const;
 
@@ -316,7 +326,7 @@ function LearnScreen({ onBack, onCreateDriver }: { onBack: () => void; onCreateD
         </View>
 
         <View style={styles.learnDots}>
-          {[0, 1, 2, 3].map((index) => (
+          {Array.from({ length: learnSlides.length + 1 }, (_, index) => index).map((index) => (
             <View key={index} style={[styles.learnDot, index === step && styles.learnDotActive]} />
           ))}
         </View>
@@ -2160,6 +2170,7 @@ const styles = StyleSheet.create({
   portalFeatureButton: { alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 18, borderRadius: 8, backgroundColor: colors.forest, alignItems: "center", justifyContent: "center", marginTop: 25 },
   portalFeatureButtonText: { color: colors.white, fontSize: 10, fontWeight: "900" },
   welcomeSafe: { flex: 1, backgroundColor: colors.forest },
+  welcomeSafeLandscape: { backgroundColor: colors.forest },
   workspaceSafe: { flex: 1, backgroundColor: colors.cream },
   workspaceHeader: { zIndex: 100, minHeight: 64, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.paper },
   workspaceBrand: { flex: 1, color: colors.forest, fontWeight: "900", fontSize: 18 },
@@ -2311,30 +2322,49 @@ const styles = StyleSheet.create({
   identityPrivacyNote: { marginTop: 10, color: colors.sage, fontSize: 8, lineHeight: 12 },
   errorText: { color: "#A34436", fontWeight: "700", marginBottom: 10 },
   welcomeScroll: { flexGrow: 1, paddingTop: 14 },
+  welcomeScrollLandscape: { minHeight: "100%", paddingTop: 10, paddingBottom: 12 },
   brandRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 24, gap: 10 },
+  brandRowLandscape: { paddingHorizontal: 30 },
   brandMark: { width: 38, height: 38, borderRadius: 19, borderBottomLeftRadius: 6, backgroundColor: colors.coral, alignItems: "center", justifyContent: "center" },
   brandLetter: { color: colors.white, fontSize: 19, fontWeight: "900" },
   brandNameLight: { color: colors.white, fontSize: 20, fontWeight: "800", letterSpacing: -0.6 },
+  welcomeLanding: { flexGrow: 1 },
+  welcomeLandingLandscape: { flex: 1, flexDirection: "row", alignItems: "stretch", paddingHorizontal: 30, paddingTop: 12, gap: 0 },
   hero: { paddingHorizontal: 25, paddingTop: 54, paddingBottom: 45 },
+  heroLandscape: { flex: 1, minWidth: 0, justifyContent: "center", paddingHorizontal: 38, paddingVertical: 26, borderTopLeftRadius: 28, borderBottomLeftRadius: 28, backgroundColor: "#123B2A" },
   heroTitle: { color: colors.white, fontSize: 42, lineHeight: 46, letterSpacing: -1.4, fontWeight: "700" },
+  heroTitleLandscape: { fontSize: 35, lineHeight: 39, letterSpacing: -1 },
   heroBody: { color: "#B7CBC0", fontSize: 15, lineHeight: 23, marginTop: 18, maxWidth: 350 },
+  heroBodyLandscape: { maxWidth: 355, marginTop: 12, fontSize: 12, lineHeight: 17 },
   learnButton: { alignSelf: "flex-start", minHeight: 46, marginTop: 25, paddingHorizontal: 17, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 23, borderWidth: 1, borderColor: "#7EA08F", backgroundColor: "#FFFFFF0D" },
+  learnButtonLandscape: { minHeight: 39, marginTop: 16, paddingHorizontal: 14 },
   learnButtonText: { color: colors.white, fontSize: 11, fontWeight: "900" },
   learnButtonArrow: { color: colors.yellow, fontSize: 24, lineHeight: 24 },
   roleSheet: { backgroundColor: colors.cream, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 20, paddingTop: 28, paddingBottom: 28, flexGrow: 1 },
+  roleSheetLandscape: { flex: 1, flexGrow: 0, minWidth: 0, maxWidth: 470, paddingHorizontal: 27, paddingTop: 19, paddingBottom: 13, borderTopLeftRadius: 0, borderTopRightRadius: 28, borderBottomRightRadius: 28 },
   sheetEyebrow: { color: colors.coral, fontSize: 9, letterSpacing: 1.6, fontWeight: "900" },
+  sheetEyebrowLandscape: { fontSize: 8 },
   sheetTitle: { color: colors.forest, fontSize: 27, fontWeight: "700", marginTop: 6, marginBottom: 18, letterSpacing: -0.7 },
+  sheetTitleLandscape: { fontSize: 22, marginTop: 3, marginBottom: 10 },
   roleCard: { flexDirection: "row", alignItems: "center", backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 14, marginBottom: 10 },
+  roleCardLandscape: { minHeight: 54, padding: 8, marginBottom: 6, borderRadius: 11 },
   roleCardPressed: { transform: [{ scale: 0.985 }], backgroundColor: colors.mint },
   roleIcon: { width: 48, height: 48, borderRadius: 15, backgroundColor: colors.yellow, alignItems: "center", justifyContent: "center" },
+  roleIconLandscape: { width: 36, height: 36, borderRadius: 11 },
   driverIcon: { backgroundColor: colors.coral },
   pantryIcon: { backgroundColor: colors.mint },
   roleIconText: { fontSize: 22, color: colors.white, fontWeight: "900" },
+  roleIconTextLandscape: { fontSize: 16 },
   roleText: { flex: 1, marginLeft: 13 },
+  roleTextLandscape: { marginLeft: 9 },
   roleTitle: { color: colors.forest, fontSize: 15, fontWeight: "800" },
+  roleTitleLandscape: { fontSize: 12 },
   roleDescription: { color: colors.sage, fontSize: 11, lineHeight: 16, marginTop: 4, paddingRight: 4 },
+  roleDescriptionLandscape: { fontSize: 8, lineHeight: 11, marginTop: 1 },
   chevron: { color: colors.forestSoft, fontSize: 28, fontWeight: "300" },
+  chevronLandscape: { fontSize: 22 },
   securityNote: { color: colors.sage, textAlign: "center", fontSize: 9, lineHeight: 14, marginHorizontal: 20, marginTop: 8 },
+  securityNoteLandscape: { fontSize: 7, lineHeight: 10, marginHorizontal: 6, marginTop: 2 },
   learnSafe: { flex: 1, backgroundColor: colors.forest },
   learnHeader: { minHeight: 64, paddingHorizontal: 18, flexDirection: "row", alignItems: "center" },
   learnHeaderBack: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, borderWidth: 1, borderColor: colors.forestSoft },
