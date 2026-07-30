@@ -165,13 +165,13 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     else prototypeAction(data?.error ?? "Could not create this availability window.");
   }
   async function setOneTimePaused(availabilityWindow: OneTimeWindow, paused: boolean) {
-    if (paused && bakery && hasStartedRoute) return prototypeAction("This pickup is already in progress and can no longer be paused.");
+    if (paused && hasStartedRoute) return prototypeAction(`${bakery ? "This pickup" : "A delivery"} is already in progress and availability can no longer be paused.`);
     if (paused && bakery && hasReservedRoute && !window.confirm("Pausing availability will cancel the reserved route because the driver has not started traveling yet. Continue?")) return;
     const response = await fetch("/api/partner/availability", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: availabilityWindow.id, paused }) });
     if (response.ok) setOneTimeWindows((current) => current.map((item) => item.id === availabilityWindow.id ? { ...item, paused } : item));
   }
   async function pauseSchedule() {
-    if (bakery && hasStartedRoute) return prototypeAction("This pickup is already in progress and can no longer be paused.");
+    if (hasStartedRoute) return prototypeAction(`${bakery ? "This pickup" : "A delivery"} is already in progress and availability can no longer be paused.`);
     if (bakery && hasReservedRoute && !window.confirm("Pausing availability will cancel the reserved route because the driver has not started traveling yet. Continue?")) return;
     const endsAt = scheduledAvailabilityEnd(kind, organization, new Date());
     const response = await fetch("/api/partner/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "pause", endsAt }) });

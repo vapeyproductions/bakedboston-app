@@ -1320,8 +1320,8 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime && pickupConfirmed) || (scheduledBakeryOpen && pickupConfirmed));
   async function changeAvailability(action: "pause" | "resume" | "pause-one-time" | "resume-one-time") {
-    if ((action === "pause" || action === "pause-one-time") && bakery && hasStartedRoute) {
-      Alert.alert("Pickup already in progress", "Availability can no longer be paused after the driver begins traveling.");
+    if ((action === "pause" || action === "pause-one-time") && hasStartedRoute) {
+      Alert.alert(bakery ? "Pickup already in progress" : "Delivery already in progress", "Availability can no longer be paused after the driver begins traveling.");
       return;
     }
     if ((action === "pause" || action === "pause-one-time") && bakery && hasReservedRoute) {

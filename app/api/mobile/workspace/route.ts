@@ -149,6 +149,12 @@ export async function POST(request: Request) {
             await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(inArray(bakeryPickupOccurrences.id, reserved.map((offer) => offer.pickupOccurrenceId)));
           }
         }
+      } else {
+        const active = await db.select({ id: routeOffers.id }).from(routeOffers).where(and(
+          eq(routeOffers.pantryId, account.organizationId), eq(routeOffers.status, "accepted"),
+          inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+        )).limit(1);
+        if (active[0]) throw new Error("A delivery is in progress, so availability can no longer be paused.");
       }
       const endsAt = validDateTime(body.endsAt, "Pause end time");
       const [record] = await db.insert(availabilityPauses).values({
@@ -291,6 +297,13 @@ export async function PATCH(request: Request) {
             await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(eq(bakeryPickupOccurrences.id, pickup.id));
           }
         }
+      }
+      if (Boolean(body.paused) && account.organizationType === "pantry") {
+        const active = await db.select({ id: routeOffers.id }).from(routeOffers).where(and(
+          eq(routeOffers.pantryId, account.organizationId), eq(routeOffers.status, "accepted"),
+          inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+        )).limit(1);
+        if (active[0]) throw new Error("A delivery is in progress, so availability can no longer be paused.");
       }
       const [record] = await db.update(availabilityWindows).set({ paused: Boolean(body.paused) }).where(eq(availabilityWindows.id, id)).returning();
       await audit(account, body.paused ? "paused one-time availability window" : "resumed one-time availability window", String(id));

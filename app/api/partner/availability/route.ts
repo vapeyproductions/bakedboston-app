@@ -39,6 +39,7 @@ export async function POST(request: Request) {
   const db = getDb();
   if (body.mode === "pause") {
     if (current.organizationType === "bakery") await cancelUnstartedBakeryReservations(current.organizationId);
+    else await assertPantryHasNoDeliveryInProgress(current.organizationId);
     const endsAt = validDate(body.endsAt, "Pause end time");
     const [record] = await db.insert(availabilityPauses).values({ organizationType: current.organizationType, organizationId: current.organizationId, endsAt }).returning();
     await audit(current, "paused scheduled availability", endsAt.toISOString());
@@ -76,6 +77,7 @@ export async function PATCH(request: Request) {
       const [pickup] = await db.select().from(bakeryPickupOccurrences).where(and(eq(bakeryPickupOccurrences.bakeryId, current.organizationId), eq(bakeryPickupOccurrences.pickupWindowStartsAt, window.startsAt))).limit(1);
       if (pickup) await cancelUnstartedBakeryReservations(current.organizationId, pickup.id);
     }
+    if (body.paused && current.organizationType === "pantry") await assertPantryHasNoDeliveryInProgress(current.organizationId);
     const [record] = await db.update(availabilityWindows).set({ paused: body.paused }).where(eq(availabilityWindows.id, id)).returning();
     await audit(current, body.paused ? "paused one-time availability window" : "resumed one-time availability window", String(id));
     return Response.json({ record });
@@ -167,4 +169,12 @@ async function cancelUnstartedBakeryReservations(bakeryId: number, onlyPickupId?
   const now = new Date();
   await db.update(routeOffers).set({ status: "cancelled", respondedAt: now }).where(inArray(routeOffers.id, reserved.map((offer) => offer.id)));
   await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(inArray(bakeryPickupOccurrences.id, reserved.map((offer) => offer.pickupOccurrenceId)));
+}
+
+async function assertPantryHasNoDeliveryInProgress(pantryId: number) {
+  const active = await getDb().select({ id: routeOffers.id }).from(routeOffers).where(and(
+    eq(routeOffers.pantryId, pantryId), eq(routeOffers.status, "accepted"),
+    inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+  )).limit(1);
+  if (active[0]) throw new Error("A delivery is in progress, so availability can no longer be paused.");
 }
