@@ -70,13 +70,16 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     && new Date(item.pickupWindowStartsAt) <= new Date()
     && new Date(item.pickupDeadline) > new Date(),
   );
-  const todayPickup = activeOneTimePickup
-    ?? currentTimedPickup
-    ?? chronologicalOpenPickups[0]
-    ?? pickupOccurrences.find((item) => item.serviceDate === localDate(new Date()));
+  const activeOrCurrentPickup = activeOneTimePickup ?? currentTimedPickup;
+  const todayPickup = activeOrCurrentPickup ?? chronologicalOpenPickups[0];
   const hasActiveRoute = routeRows.some((route) => route.status === "reserved" || route.status === "ongoing");
   const notificationAppliesToCurrentPickup = (notification: PartnerNotification) => {
     if (hasActiveRoute && notification.eventType === "delivery_completed") return false;
+    if (notification.eventType === "pickup_confirmed") {
+      const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
+      const occurrence = pickupOccurrences.find((item) => item.id === pickupId);
+      return Boolean(occurrence && new Date(occurrence.pickupDeadline) > new Date());
+    }
     if (notification.eventType !== "pickup_commitment_reminder") return true;
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
     return pickupId > 0 && pickupId === todayPickup?.id;
@@ -86,8 +89,8 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
     ?? notifications.find((notification) => !notification.acknowledgedAt && notificationAppliesToCurrentPickup(notification));
   const pantryConfirmationNeeded = !bakery && notifications.some((notification) =>
     notification.actionKey.startsWith("pantry-open:") && notification.actionRequired && !notification.acknowledgedAt);
-  const pickupConfirmed = todayPickup?.status === "confirmed" || todayPickup?.status === "reserved";
-  const pickupFulfilled = todayPickup?.status === "fulfilled";
+  const pickupConfirmed = activeOrCurrentPickup?.status === "confirmed" || activeOrCurrentPickup?.status === "reserved";
+  const pickupFulfilled = activeOrCurrentPickup?.status === "fulfilled";
   const recurringAvailable = scheduledOpen && !schedulePaused && (!bakery || pickupConfirmed) && !pantryConfirmationNeeded;
   const available = recurringAvailable || Boolean(activeOneTime && (!bakery || pickupConfirmed) && !pantryConfirmationNeeded);
   const activity = routeRows.map((route) => ({ title: bakery ? `Delivery to ${route.pantryName}` : `Delivery from ${route.bakeryName}`, detail: `${route.driverName} · ${formatPartnerDateTime(route.scheduledArrival)}`, status: route.status, photoUrl: route.deliveryProofUrl }));
@@ -253,7 +256,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
                   : { id: notification.id, acknowledge: true }) });
               if (response.ok) setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString(), acknowledgedAt: new Date().toISOString() } : item));
             }} />}
-            {bakery && <BakeryPickupConfirmation occurrence={todayPickup} busy={pickupBusy} onRespond={respondToPickup} showSummary={!notifications[0]} />}
+            {bakery && <BakeryPickupConfirmation occurrence={priorityNotification ? todayPickup : activeOrCurrentPickup} busy={pickupBusy} onRespond={respondToPickup} showSummary={!priorityNotification} />}
           </div>
           <div className="statusActions">
             {activeOneTime && (!bakery || pickupConfirmed) && <button onClick={() => setOneTimePaused(activeOneTime, true)}>Pause availability</button>}
