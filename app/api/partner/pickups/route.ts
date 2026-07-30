@@ -101,10 +101,8 @@ export async function PATCH(request: Request) {
         recipientId: current.bakery.id,
         eventType: "pickup_confirmed",
         threadKey: `pickup:${occurrence.id}`,
-        title: "Today’s pickup is confirmed",
-        body: matching.matchedRequests
-          ? `${matching.matchedRequests} saved driver request${matching.matchedRequests === 1 ? "" : "s"} matched this pickup.`
-          : "You confirmed that food will be available during this pickup window. Drivers can now reserve a route that includes it.",
+        title: "Pickup window confirmed",
+        body: `Pickup window from ${pickupWindowDescription(occurrence.pickupWindowStartsAt, occurrence.pickupDeadline)} is confirmed.`,
       });
     } else {
       await db.update(routeOffers).set({ status: "withdrawn", respondedAt: new Date() }).where(and(

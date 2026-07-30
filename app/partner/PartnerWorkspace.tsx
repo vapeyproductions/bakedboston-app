@@ -75,9 +75,11 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   const hasActiveRoute = routeRows.some((route) => route.status === "reserved" || route.status === "ongoing");
   const notificationAppliesToCurrentPickup = (notification: PartnerNotification) => {
     if (hasActiveRoute && notification.eventType === "delivery_completed") return false;
-    // The status card itself communicates a confirmed pickup. Keeping this as a
-    // second persistent notification is redundant and can outlive its window.
-    if (notification.eventType === "pickup_confirmed") return false;
+    if (notification.eventType === "pickup_confirmed") {
+      const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
+      const occurrence = pickupOccurrences.find((item) => item.id === pickupId);
+      return Boolean(occurrence && new Date(occurrence.pickupDeadline) > new Date());
+    }
     if (notification.eventType !== "pickup_commitment_reminder") return true;
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
     return pickupId > 0 && pickupId === todayPickup?.id;

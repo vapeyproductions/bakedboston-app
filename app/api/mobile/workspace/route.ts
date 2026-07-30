@@ -238,9 +238,9 @@ export async function PATCH(request: Request) {
         recipientId: account.organizationId,
         eventType: status === "confirmed" ? "pickup_confirmed" : status === "insufficient_food" ? "pickup_unavailable" : "pickup_decision_deferred",
         threadKey: `pickup:${record.id}`,
-        title: status === "confirmed" ? "Today’s pickup is confirmed" : status === "insufficient_food" ? "No pickup planned today" : "Pickup decision postponed",
+        title: status === "confirmed" ? "Pickup window confirmed" : status === "insufficient_food" ? "No pickup planned today" : "Pickup decision postponed",
         body: status === "confirmed"
-          ? "You confirmed that food will be available during this pickup window. Drivers can now reserve a route that includes it."
+          ? `Pickup window from ${pickupWindowDescription(record.pickupWindowStartsAt, record.pickupDeadline)} is confirmed.`
           : status === "insufficient_food"
             ? "You marked today’s pickup unavailable. You can change this decision from the availability card."
             : "This pickup is not available to drivers until food availability is confirmed.",
