@@ -587,6 +587,17 @@ async function progressRoute(driver: typeof driverAccounts.$inferSelect, offerId
     db.select().from(pantries).where(eq(pantries.id, offer.pantryId)).limit(1),
   ]);
   if (bakery && pantry) {
+    // Partner workspaces read the lightweight route record. Mark it ongoing at
+    // the same moment the driver starts traveling, not only after pickup.
+    if (nextStage === "en_route_to_bakery") {
+      const [activeRoute] = await db.select().from(rescueRoutes).where(and(
+        eq(rescueRoutes.bakeryName, bakery.name),
+        eq(rescueRoutes.pantryName, pantry.name),
+        eq(rescueRoutes.driverName, driver.displayName),
+        eq(rescueRoutes.status, "reserved"),
+      )).limit(1);
+      if (activeRoute) await db.update(rescueRoutes).set({ status: "ongoing" }).where(eq(rescueRoutes.id, activeRoute.id));
+    }
     let pantryEta = offer.estimatedPantryArrival;
     if (nextStage === "picked_up" && bakery.latitude !== null && bakery.longitude !== null && pantry.latitude !== null && pantry.longitude !== null) {
       const trafficMinutes = await trafficAwareDriveMinutes(
