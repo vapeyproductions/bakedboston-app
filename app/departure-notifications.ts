@@ -87,8 +87,8 @@ async function recalculateFeasibility(
   ]);
   if (toBakery === null || toPantry === null) return "unavailable" as const;
   const bakeryArrival = new Date(Date.now() + toBakery * 60_000);
-  const pantryArrival = new Date(bakeryArrival.getTime() + (15 + toPantry) * 60_000);
-  const completion = new Date(pantryArrival.getTime() + 15 * 60_000);
+  const pantryArrival = new Date(bakeryArrival.getTime() + (5 + toPantry) * 60_000);
+  const completion = new Date(pantryArrival.getTime() + 5 * 60_000);
   return bakeryArrival <= pickup.pickupDeadline && pantryAcceptsAt(pantry, pantryArrival) && completion <= request.latestFinish
     ? "feasible" as const
     : "infeasible" as const;

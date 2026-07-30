@@ -53,8 +53,8 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
     return eligiblePantries.flatMap((pantry) => {
       const miles = milesBetween(bakeryLatitude, bakeryLongitude, pantry.latitude!, pantry.longitude!);
       const driveMinutes = Math.max(5, Math.ceil((miles / 25) * 60));
-      const pantryArrival = new Date(bakeryArrival.getTime() + (15 + driveMinutes) * 60_000);
-      const completion = new Date(pantryArrival.getTime() + 15 * 60_000);
+      const pantryArrival = new Date(bakeryArrival.getTime() + (5 + driveMinutes) * 60_000);
+      const completion = new Date(pantryArrival.getTime() + 5 * 60_000);
       const pantryServiceMode = confirmedPantryServiceModeAt(pantry, pantryArrival, pantryWindows, pantryConfirmations);
       if (completion > request.latestFinish || !pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);

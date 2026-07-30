@@ -241,7 +241,7 @@ async function reserveBrowseRoute(driver: typeof driverAccounts.$inferSelect, pi
     driverId: driver.id,
     serviceDate: candidate.serviceDate,
     earliestStart: new Date(candidate.departureWindowStartsAt),
-    latestFinish: new Date(new Date(candidate.estimatedPantryArrival).getTime() + 15 * 60_000),
+    latestFinish: new Date(new Date(candidate.estimatedPantryArrival).getTime() + 5 * 60_000),
     startZip: "",
     endZip: "",
     maximumExtraMinutes: null,
@@ -317,7 +317,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
       if (!registeredPantries.has(pantry.id) || pantry.addressValidationStatus !== "validated" || pantry.latitude === null || pantry.longitude === null) return [];
       const routeMiles = milesBetween(bakery.latitude!, bakery.longitude!, pantry.latitude, pantry.longitude);
       const routeMinutes = Math.max(5, Math.ceil(routeMiles / 25 * 60));
-      const pantryArrival = new Date(bakeryArrival.getTime() + (15 + routeMinutes) * 60_000);
+      const pantryArrival = new Date(bakeryArrival.getTime() + (5 + routeMinutes) * 60_000);
       const pantryServiceMode = confirmedPantryServiceModeAt(pantry, pantryArrival, pantryWindows, pantryConfirmations);
       if (!pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
