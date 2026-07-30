@@ -76,6 +76,7 @@ export async function PATCH(request: Request) {
       eq(bakeryPickupOccurrences.bakeryId, current.bakery.id),
     )).limit(1);
     if (!existing) return Response.json({ error: "Pickup occurrence not found." }, { status: 404 });
+    if (new Date(existing.pickupDeadline) <= new Date()) return Response.json({ error: "This pickup window has ended." }, { status: 409 });
     const earliest = await earliestUnresolvedPickup(current.bakery.id);
     if (earliest && earliest.id !== existing.id) {
       return Response.json({
@@ -85,6 +86,11 @@ export async function PATCH(request: Request) {
     if (existing.status === "reserved" && status !== "cancelled") {
       return Response.json({ error: "This pickup is already reserved." }, { status: 409 });
     }
+    const activeOffer = await db.select({ id: routeOffers.id }).from(routeOffers).where(and(
+      eq(routeOffers.pickupOccurrenceId, existing.id), eq(routeOffers.status, "accepted"),
+      inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+    )).limit(1);
+    if (activeOffer[0]) return Response.json({ error: "The driver has started this delivery, so food availability can no longer be changed." }, { status: 409 });
     const [occurrence] = await db.update(bakeryPickupOccurrences).set({
       status: status as "confirmed" | "decision_deferred" | "insufficient_food" | "cancelled",
       confirmedAt: status === "confirmed" ? new Date() : null,

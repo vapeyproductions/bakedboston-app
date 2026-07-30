@@ -1279,12 +1279,6 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const activeOneTime = workspace.availabilityWindows.find((window) => !window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const pausedOneTime = workspace.availabilityWindows.find((window) => window.paused && new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const paused = workspace.availabilityPauses.some((pause) => new Date(pause.endsAt) > now);
-  const chronologicalOpenPickups = [...workspace.pickupOccurrences]
-    .filter((occurrence) =>
-      new Date(occurrence.pickupDeadline) > now
-      && !["fulfilled", "cancelled", "insufficient_food"].includes(occurrence.status),
-    )
-    .sort((a, b) => new Date(a.pickupWindowStartsAt).getTime() - new Date(b.pickupWindowStartsAt).getTime());
   const activeOneTimePickup = activeOneTime
     ? workspace.pickupOccurrences.find((occurrence) =>
       new Date(occurrence.pickupWindowStartsAt).getTime() === new Date(activeOneTime.startsAt).getTime()
@@ -1297,9 +1291,10 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     && new Date(occurrence.pickupDeadline) > now,
   );
   const activeOrCurrentPickup = activeOneTimePickup ?? currentTimedPickup;
-  const todayPickup = activeOrCurrentPickup
-    ?? chronologicalOpenPickups[0];
-  const hasActiveRoute = workspace.routes.some((route) => route.status === "reserved" || route.status === "ongoing");
+  const todayPickup = activeOrCurrentPickup;
+  const hasReservedRoute = workspace.routes.some((route) => route.status === "reserved");
+  const hasStartedRoute = workspace.routes.some((route) => route.status === "ongoing");
+  const hasActiveRoute = hasReservedRoute || hasStartedRoute;
   const notificationAppliesToCurrentPickup = (notification: DriverNotification) => {
     if (hasActiveRoute && notification.eventType === "delivery_completed") return false;
     if (notification.eventType === "pickup_confirmed") {
@@ -1325,6 +1320,18 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
     && !workspace.scheduleExceptions.some((exception) => exception.exceptionDate === localDateString(now));
   const bakeryAvailable = bakery && !paused && (Boolean(activeOneTime && pickupConfirmed) || (scheduledBakeryOpen && pickupConfirmed));
   async function changeAvailability(action: "pause" | "resume" | "pause-one-time" | "resume-one-time") {
+    if ((action === "pause" || action === "pause-one-time") && bakery && hasStartedRoute) {
+      Alert.alert("Pickup already in progress", "Availability can no longer be paused after the driver begins traveling.");
+      return;
+    }
+    if ((action === "pause" || action === "pause-one-time") && bakery && hasReservedRoute) {
+      const proceed = await new Promise<boolean>((resolve) => Alert.alert(
+        "Cancel reserved route?",
+        "Pausing availability will cancel the reservation because the driver has not started traveling yet.",
+        [{ text: "Keep available", style: "cancel", onPress: () => resolve(false) }, { text: "Pause and cancel", style: "destructive", onPress: () => resolve(true) }],
+      ));
+      if (!proceed) return;
+    }
     if ((action === "pause-one-time" || action === "resume-one-time") && (activeOneTime || pausedOneTime)) {
       const window = activeOneTime ?? pausedOneTime!;
       await workspaceRequest("PATCH", { action: "set-one-time-paused", id: window.id, paused: action === "pause-one-time" });
@@ -1343,10 +1350,10 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
           <View style={styles.portalStatusHeaderRow}>
             <View style={styles.portalStatusLabel}><View style={[styles.portalStatusDot, paused && styles.portalStatusDotPaused]} /><Text style={styles.portalStatusLabelText}>{bakery ? pickupFulfilled ? "PICKUP COMPLETE" : paused ? "PICKUP AVAILABILITY PAUSED" : activeOneTime && !pickupConfirmed ? "AWAITING PICKUP CONFIRMATION" : activeOneTime ? "ONE-TIME PICKUP OPEN" : bakeryAvailable ? "PICKUP WINDOW OPEN" : pickupConfirmed ? "PICKUP CONFIRMED" : scheduledBakeryOpen ? "AWAITING PICKUP CONFIRMATION" : "PICKUP WINDOW CLOSED" : paused ? "AVAILABILITY PAUSED" : activeOneTime ? "ONE-TIME WINDOW OPEN" : "SCHEDULE CONNECTED"}</Text></View>
             {landscape && <View style={styles.portalStatusHeaderActions}>
-              {activeOneTime && (!bakery || pickupConfirmed) && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusHeaderActionText}>Pause availability</Text></Pressable>}
+              {activeOneTime && (!bakery || pickupConfirmed) && !hasStartedRoute && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusHeaderActionText}>Pause availability</Text></Pressable>}
               {pausedOneTime && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("resume-one-time")}><Text style={styles.portalStatusHeaderActionText}>Resume availability</Text></Pressable>}
               {!activeOneTime && !pausedOneTime && paused && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("resume")}><Text style={styles.portalStatusHeaderActionText}>Resume availability</Text></Pressable>}
-              {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusHeaderActionText}>Pause availability</Text></Pressable>}
+              {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && !hasStartedRoute && <Pressable style={styles.portalStatusHeaderPrimary} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusHeaderActionText}>Pause availability</Text></Pressable>}
               <Pressable style={styles.portalStatusHeaderLink} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusHeaderActionText}>{bakery ? "Pickup schedule →" : "Receiving schedule →"}</Text></Pressable>
             </View>}
           </View>
@@ -1357,13 +1364,13 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
               : bakery ? bakeryAvailable ? "This window opened automatically because today’s pickup was confirmed." : pickupConfirmed && todayPickup ? `Confirmed for ${formatMobileTime(todayPickup.pickupWindowStartsAt)}–${formatMobileTime(todayPickup.pickupDeadline)}. This card will open when the window begins.` : scheduledBakeryOpen ? "Confirm today’s pickup before it can be offered to drivers." : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`
                 : `Recurring days: ${workspace.organization.recurringDays || "No recurring schedule"}`}</Text>
           {priorityNotification && <PartnerMobileNotificationCard notification={priorityNotification} onChanged={onChanged} compact />}
-          {bakery && <NativePickupConfirmation occurrence={priorityNotification ? todayPickup : activeOrCurrentPickup} onChanged={onChanged} showSummary={!priorityNotification} />}
+          {bakery && <NativePickupConfirmation occurrence={activeOrCurrentPickup} onChanged={onChanged} showSummary />}
         </View>
         {!landscape && <View style={[styles.portalStatusActions, styles.portalStatusActionsMobile]}>
-          {activeOneTime && (!bakery || pickupConfirmed) && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
+          {activeOneTime && (!bakery || pickupConfirmed) && !hasStartedRoute && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause-one-time")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
           {pausedOneTime && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume-one-time")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
           {!activeOneTime && !pausedOneTime && paused && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("resume")}><Text style={styles.portalStatusButtonText}>Resume availability</Text></Pressable>}
-          {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
+          {!activeOneTime && !pausedOneTime && !paused && bakeryAvailable && !hasStartedRoute && <Pressable style={styles.portalStatusButton} onPress={() => changeAvailability("pause")}><Text style={styles.portalStatusButtonText}>Pause availability</Text></Pressable>}
           <Pressable style={styles.portalStatusSecondaryButton} onPress={() => onNavigate("schedule")}><Text style={styles.portalStatusButtonText}>{bakery ? "View pickup schedule" : "View receiving schedule"}</Text></Pressable>
         </View>}
       </View>
@@ -1431,6 +1438,14 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
       ));
       if (!accepted) return;
     }
+    if (status === "insufficient_food" && occurrence.status === "confirmed") {
+      const accepted = await new Promise<boolean>((resolve) => Alert.alert(
+        "Change food availability?",
+        "This removes the pickup from driver matching. Continue only if there is not enough food for this window.",
+        [{ text: "Keep confirmed", style: "cancel", onPress: () => resolve(false) }, { text: "Mark unavailable", style: "destructive", onPress: () => resolve(true) }],
+      ));
+      if (!accepted) return;
+    }
     setBusy(true);
     const { response, data } = await workspaceRequest("PATCH", { action: "update-pickup-occurrence", id: occurrence.id, status });
     setBusy(false);
@@ -1443,7 +1458,7 @@ function NativePickupConfirmation({ occurrence, onChanged, showSummary }: { occu
   const fulfilled = occurrence.status === "fulfilled";
   const unavailable = ["insufficient_food", "cancelled"].includes(occurrence.status);
   return <View style={styles.nativePickupStatusControls}>
-    {showSummary && <><Text style={styles.portalPanelKicker}>TODAY’S PICKUP COMMITMENT</Text><Text style={styles.statusNotificationTitle}>{fulfilled ? "Today’s food was picked up." : occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Will food be available?"}</Text><Text style={styles.statusNotificationBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {fulfilled ? "This bakery is no longer available for matching today." : confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text></>}
+    {showSummary && <><Text style={styles.portalPanelKicker}>TODAY’S PICKUP COMMITMENT</Text><Text style={styles.statusNotificationTitle}>{fulfilled ? "Today’s food was picked up." : occurrence.status === "reserved" ? "A driver reserved this pickup." : confirmed ? "Pickup window confirmed." : unavailable ? "No pickup today." : occurrence.status === "decision_deferred" ? "Decision postponed." : "Confirm food availability for this pickup."}</Text><Text style={styles.statusNotificationBody}>{formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)} · {fulfilled ? "This bakery is no longer available for matching today." : confirmed ? "Available for advance matching." : "Confirming allows drivers to reserve this pickup."}</Text></>}
     {!showSummary && !fulfilled && <View style={styles.pickupWindowBeingConfirmed}><Text style={styles.portalPanelKicker}>WINDOW BEING CONFIRMED</Text><Text style={styles.pickupWindowBeingConfirmedText}>{formatMobileDate(occurrence.pickupWindowStartsAt)} · {formatMobileTime(occurrence.pickupWindowStartsAt)}–{formatMobileTime(occurrence.pickupDeadline)}</Text></View>}
     {!fulfilled && occurrence.status !== "reserved" && <View style={styles.nativePickupActions}>
       {!confirmed && <Pressable disabled={busy} style={[styles.nativePickupChoice, styles.nativeConfirmPickup]} onPress={() => respond("confirmed")}><Text style={styles.portalStatusButtonText}>{unavailable ? "Change to food available" : "Food will be available"}</Text></Pressable>}

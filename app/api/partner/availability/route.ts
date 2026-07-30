@@ -1,6 +1,6 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { availabilityPauses, availabilityWindows, bakeryPickupOccurrences, partnerAccounts } from "../../../../db/schema";
+import { availabilityPauses, availabilityWindows, bakeryPickupOccurrences, partnerAccounts, routeOffers } from "../../../../db/schema";
 import { writeAudit } from "../../../audit";
 import { getPartnerAccountId } from "../../../partner-auth";
 import { firstSpontaneousCommitmentReminder } from "../../../bakery-commitments";
@@ -38,6 +38,7 @@ export async function POST(request: Request) {
   const body = await request.json() as Record<string, unknown>;
   const db = getDb();
   if (body.mode === "pause") {
+    if (current.organizationType === "bakery") await cancelUnstartedBakeryReservations(current.organizationId);
     const endsAt = validDate(body.endsAt, "Pause end time");
     const [record] = await db.insert(availabilityPauses).values({ organizationType: current.organizationType, organizationId: current.organizationId, endsAt }).returning();
     await audit(current, "paused scheduled availability", endsAt.toISOString());
@@ -71,6 +72,10 @@ export async function PATCH(request: Request) {
   const [window] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
   if (!window || window.organizationType !== current.organizationType || window.organizationId !== current.organizationId) return Response.json({ error: "Availability window not found." }, { status: 404 });
   if (typeof body.paused === "boolean") {
+    if (body.paused && current.organizationType === "bakery") {
+      const [pickup] = await db.select().from(bakeryPickupOccurrences).where(and(eq(bakeryPickupOccurrences.bakeryId, current.organizationId), eq(bakeryPickupOccurrences.pickupWindowStartsAt, window.startsAt))).limit(1);
+      if (pickup) await cancelUnstartedBakeryReservations(current.organizationId, pickup.id);
+    }
     const [record] = await db.update(availabilityWindows).set({ paused: body.paused }).where(eq(availabilityWindows.id, id)).returning();
     await audit(current, body.paused ? "paused one-time availability window" : "resumed one-time availability window", String(id));
     return Response.json({ record });
@@ -142,3 +147,24 @@ function easternDate(value: Date) {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 async function audit(current: NonNullable<Awaited<ReturnType<typeof account>>>, action: string, details: string) { await writeAudit({ actorType: "partner", actorId: current.id, actorName: current.accountEmail, action, entityType: current.organizationType, entityId: current.organizationId, entityName: current.accountEmail, details }); }
+
+async function cancelUnstartedBakeryReservations(bakeryId: number, onlyPickupId?: number) {
+  const db = getDb();
+  const pickups = onlyPickupId
+    ? [{ id: onlyPickupId }]
+    : await db.select({ id: bakeryPickupOccurrences.id }).from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.bakeryId, bakeryId));
+  const pickupIds = pickups.map((pickup) => pickup.id);
+  if (!pickupIds.length) return;
+  const active = await db.select({ id: routeOffers.id }).from(routeOffers).where(and(
+    inArray(routeOffers.pickupOccurrenceId, pickupIds), eq(routeOffers.status, "accepted"),
+    inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+  )).limit(1);
+  if (active[0]) throw new Error("This pickup is already in progress and can no longer be paused.");
+  const reserved = await db.select({ id: routeOffers.id, pickupOccurrenceId: routeOffers.pickupOccurrenceId }).from(routeOffers).where(and(
+    inArray(routeOffers.pickupOccurrenceId, pickupIds), eq(routeOffers.status, "accepted"), eq(routeOffers.deliveryStage, "reserved"),
+  ));
+  if (!reserved.length) return;
+  const now = new Date();
+  await db.update(routeOffers).set({ status: "cancelled", respondedAt: now }).where(inArray(routeOffers.id, reserved.map((offer) => offer.id)));
+  await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(inArray(bakeryPickupOccurrences.id, reserved.map((offer) => offer.pickupOccurrenceId)));
+}

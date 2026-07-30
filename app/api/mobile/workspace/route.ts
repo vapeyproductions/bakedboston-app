@@ -129,6 +129,27 @@ export async function POST(request: Request) {
     const body = await request.json() as Record<string, unknown>;
     const db = getDb();
     if (body.action === "pause-availability") {
+      if (account.organizationType === "bakery") {
+        const pickups = await db.select({ id: bakeryPickupOccurrences.id }).from(bakeryPickupOccurrences)
+          .where(eq(bakeryPickupOccurrences.bakeryId, account.organizationId));
+        const pickupIds = pickups.map((pickup) => pickup.id);
+        if (pickupIds.length) {
+          const active = await db.select().from(routeOffers).where(and(
+            inArray(routeOffers.pickupOccurrenceId, pickupIds),
+            eq(routeOffers.status, "accepted"),
+            inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+          ));
+          if (active.length) throw new Error("This pickup is already in progress and can no longer be paused.");
+          const reserved = await db.select().from(routeOffers).where(and(
+            inArray(routeOffers.pickupOccurrenceId, pickupIds), eq(routeOffers.status, "accepted"), eq(routeOffers.deliveryStage, "reserved"),
+          ));
+          if (reserved.length) {
+            const now = new Date();
+            await db.update(routeOffers).set({ status: "cancelled", respondedAt: now }).where(inArray(routeOffers.id, reserved.map((offer) => offer.id)));
+            await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(inArray(bakeryPickupOccurrences.id, reserved.map((offer) => offer.pickupOccurrenceId)));
+          }
+        }
+      }
       const endsAt = validDateTime(body.endsAt, "Pause end time");
       const [record] = await db.insert(availabilityPauses).values({
         organizationType: account.organizationType,
@@ -211,12 +232,18 @@ export async function PATCH(request: Request) {
         eq(bakeryPickupOccurrences.bakeryId, account.organizationId),
       )).limit(1);
       if (!existing) throw new Error("Pickup occurrence not found.");
+      if (new Date(existing.pickupDeadline) <= new Date()) throw new Error("This pickup window has ended.");
       const earliest = await earliestUnresolvedPickup(account.organizationId);
       if (earliest && earliest.id !== existing.id) {
         return Response.json({
           error: `Please finish the earlier ${pickupWindowDescription(earliest.pickupWindowStartsAt, earliest.pickupDeadline)} pickup window before updating this one.`,
         }, { status: 409 });
       }
+      const activeOffer = await db.select({ id: routeOffers.id }).from(routeOffers).where(and(
+        eq(routeOffers.pickupOccurrenceId, existing.id), eq(routeOffers.status, "accepted"),
+        inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]),
+      )).limit(1);
+      if (activeOffer[0]) throw new Error("The driver has started this delivery, so food availability can no longer be changed.");
       const [record] = await db.update(bakeryPickupOccurrences).set({
         status: status as "confirmed" | "decision_deferred" | "insufficient_food",
         confirmedAt: status === "confirmed" ? new Date() : null,
@@ -252,6 +279,19 @@ export async function PATCH(request: Request) {
       const id = Number(body.id);
       const [window] = await db.select().from(availabilityWindows).where(eq(availabilityWindows.id, id)).limit(1);
       if (!window || window.organizationType !== account.organizationType || window.organizationId !== account.organizationId) throw new Error("Availability window not found.");
+      if (Boolean(body.paused) && account.organizationType === "bakery") {
+        const [pickup] = await db.select().from(bakeryPickupOccurrences).where(and(eq(bakeryPickupOccurrences.bakeryId, account.organizationId), eq(bakeryPickupOccurrences.pickupWindowStartsAt, window.startsAt))).limit(1);
+        if (pickup) {
+          const active = await db.select().from(routeOffers).where(and(eq(routeOffers.pickupOccurrenceId, pickup.id), eq(routeOffers.status, "accepted"), inArray(routeOffers.deliveryStage, ["en_route_to_bakery", "arrived_at_bakery", "picked_up", "en_route_to_pantry", "arrived_at_pantry"]))).limit(1);
+          if (active[0]) throw new Error("This pickup is already in progress and can no longer be paused.");
+          const reserved = await db.select({ id: routeOffers.id }).from(routeOffers).where(and(eq(routeOffers.pickupOccurrenceId, pickup.id), eq(routeOffers.status, "accepted"), eq(routeOffers.deliveryStage, "reserved")));
+          if (reserved.length) {
+            const now = new Date();
+            await db.update(routeOffers).set({ status: "cancelled", respondedAt: now }).where(inArray(routeOffers.id, reserved.map((offer) => offer.id)));
+            await db.update(bakeryPickupOccurrences).set({ status: "confirmed", updatedAt: now }).where(eq(bakeryPickupOccurrences.id, pickup.id));
+          }
+        }
+      }
       const [record] = await db.update(availabilityWindows).set({ paused: Boolean(body.paused) }).where(eq(availabilityWindows.id, id)).returning();
       await audit(account, body.paused ? "paused one-time availability window" : "resumed one-time availability window", String(id));
       return Response.json({ record });
