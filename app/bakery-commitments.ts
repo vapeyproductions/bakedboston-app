@@ -37,16 +37,18 @@ export async function processBakeryCommitmentReminders() {
   const db = getDb();
   const now = new Date();
   await materializeTodayPickupOccurrences(now);
-  const occurrences = await db.select().from(bakeryPickupOccurrences).where(and(
-    inArray(bakeryPickupOccurrences.status, ["awaiting_confirmation", "decision_deferred", "confirmed", "reserved"]),
+  const occurrences = await db.select().from(bakeryPickupOccurrences).where(
     gt(bakeryPickupOccurrences.pickupDeadline, now),
-  )).orderBy(asc(bakeryPickupOccurrences.pickupWindowStartsAt));
+  ).orderBy(asc(bakeryPickupOccurrences.pickupWindowStartsAt));
   const bakeriesWithEarlierWindow = new Set<number>();
   for (const occurrence of occurrences) {
+    if (occurrence.status === "cancelled") continue;
     if (bakeriesWithEarlierWindow.has(occurrence.bakeryId)) continue;
     bakeriesWithEarlierWindow.add(occurrence.bakeryId);
-    // A confirmed, reserved, or already-open earlier window keeps later windows
-    // out of the commitment flow until that earlier occurrence is resolved.
+    // Any earlier, still-open window — including one whose food was already
+    // collected — keeps later windows out of the confirmation flow until its
+    // scheduled end time. A pickup being fulfilled must not prompt the bakery
+    // to make a decision about the next window early.
     if (!["awaiting_confirmation", "decision_deferred"].includes(occurrence.status)) continue;
     if (occurrence.pickupWindowStartsAt <= now) continue;
     const [bakery] = await db.select().from(bakeries).where(eq(bakeries.id, occurrence.bakeryId)).limit(1);

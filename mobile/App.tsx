@@ -1295,7 +1295,7 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   // earliest still-actionable window so opening that notification always shows
   // the actual window it refers to.
   const nextPickupAwaitingWindow = [...workspace.pickupOccurrences]
-    .filter((occurrence) => occurrence.status !== "cancelled" && occurrence.status !== "fulfilled" && new Date(occurrence.pickupDeadline) > now)
+    .filter((occurrence) => occurrence.status !== "cancelled" && new Date(occurrence.pickupDeadline) > now)
     .sort((left, right) => new Date(left.pickupWindowStartsAt).getTime() - new Date(right.pickupWindowStartsAt).getTime())[0];
   const activeOrCurrentPickup = activeOneTimePickup ?? currentTimedPickup ?? nextPickupAwaitingWindow;
   const todayPickup = activeOrCurrentPickup;

@@ -68,7 +68,7 @@ export default function PartnerWorkspace({ kind, organization, account, contacts
   // earliest actionable pickup as a fallback, so that notification opens show
   // the exact upcoming window that needs a decision.
   const nextPickupAwaitingWindow = [...pickupOccurrences]
-    .filter((item) => item.status !== "cancelled" && item.status !== "fulfilled" && new Date(item.pickupDeadline) > new Date())
+    .filter((item) => item.status !== "cancelled" && new Date(item.pickupDeadline) > new Date())
     .sort((left, right) => new Date(left.pickupWindowStartsAt).getTime() - new Date(right.pickupWindowStartsAt).getTime())[0];
   const activeOrCurrentPickup = activeOneTimePickup ?? currentTimedPickup ?? nextPickupAwaitingWindow;
   // Availability decisions always follow the earliest window that has not
