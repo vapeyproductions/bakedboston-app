@@ -39,7 +39,7 @@ export async function processPantryOpeningConfirmations() {
       eventType: "pantry_window_confirmation",
       threadKey: actionKey,
       title: "Confirm your pantry is open for deliveries",
-      body: "Confirm that your pantry is open and able to receive deliveries. This reminder will repeat every hour until it is confirmed.",
+      body: "This staffed receiving window is open now. Confirm that your pantry is open and able to receive deliveries; this reminder will repeat every hour until it is confirmed.",
       actionRequired: true,
       actionKey,
     });
