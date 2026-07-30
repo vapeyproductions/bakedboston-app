@@ -1302,6 +1302,9 @@ function PartnerSectionContent({ section, bakery, landscape, rightInset, workspa
   const hasActiveRoute = workspace.routes.some((route) => route.status === "reserved" || route.status === "ongoing");
   const notificationAppliesToCurrentPickup = (notification: DriverNotification) => {
     if (hasActiveRoute && notification.eventType === "delivery_completed") return false;
+    // Confirmation is represented by the live pickup state; do not keep a
+    // second persistent confirmation notice after the window changes.
+    if (notification.eventType === "pickup_confirmed") return false;
     if (notification.eventType !== "pickup_commitment_reminder") return true;
     const pickupId = Number(notification.threadKey.match(/^pickup:(\d+)$/)?.[1] ?? 0);
     return pickupId > 0 && pickupId === todayPickup?.id;
