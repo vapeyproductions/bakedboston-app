@@ -81,10 +81,10 @@ export async function markPickupReady(bakeryId: number, offerId: number) {
       recipientId: bakeryId,
       eventType: driverTraveling ? "pickup_ready_driver_en_route" : "pickup_ready",
       threadKey: `pickup:${pickup.id}`,
-      title: driverTraveling ? "Food is ready and the driver is on the way" : "Food is ready for pickup",
+      title: driverTraveling ? "Food is ready and the driver is on the way" : "Food is ready — pickup reserved",
       body: driverTraveling
         ? `The food is ready, and the driver is traveling to the bakery. Current estimated arrival: ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })}.`
-        : "The food is packaged and ready. The driver has been notified and will confirm when the delivery begins.",
+        : `The food is packaged and ready. ${offer.estimatedBakeryArrival.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} is the driver's estimated bakery arrival; this update will change to “Driver is on the way” when they begin the delivery.`,
       actionRequired: false,
       actionKey: "",
     }),
