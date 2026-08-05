@@ -64,11 +64,11 @@ const demoSteps: DemoStep[] = [
   {
     id: "network",
     label: "1 · Full network",
-    title: "Start with the current registered bakery and pantry network.",
-    description: "The map begins with all active partner locations plus a few closed examples, so the pruning step is visible before scoring starts.",
+    title: "Start with the full network of bakeries and pantries.",
+    description: "The map begins with the full partner network so you can see the available bakeries and pantries before the optimizer narrows the field.",
     scoreTitle: "Map status",
-    scoreValue: "Full network",
-    scoreNote: "Real partner locations stay in play while closed examples are removed",
+    scoreValue: "Full network of bakeries and pantries",
+    scoreNote: "All partner locations appear before the feasibility screen removes the ones that cannot participate",
     mipTitle: "Decision variables",
     mipBody: "The mixed-integer model starts by defining a binary variable for every bakery–pantry–driver assignment that could possibly exist.",
     mipLines: [
@@ -81,11 +81,11 @@ const demoSteps: DemoStep[] = [
   {
     id: "windows",
     label: "2 · Open windows",
-    title: "Closed locations disappear before route generation.",
-    description: "The optimizer filters out partners with closed or expired windows, leaving only locations that can still participate right now.",
+    title: "Closed or misaligned locations are removed.",
+    description: "The optimizer filters out bakeries and pantries that are closed or whose windows do not overlap, leaving only the locations that can participate in the same route.",
     scoreTitle: "Feasibility screen",
-    scoreValue: "Window filter",
-    scoreNote: "Closed examples are removed before the candidate routes are built",
+    scoreValue: "Closed and unaligned windows removed",
+    scoreNote: "Only partners with matching open windows stay in the candidate pool",
     mipTitle: "Hard constraints",
     mipBody: "Any assignment that violates time windows or service rules is forced to 0 and removed from the model.",
     mipLines: [
@@ -197,6 +197,7 @@ export default function Home() {
   const [demoStepIndex, setDemoStepIndex] = useState(0);
   const [demoData, setDemoData] = useState<DemoDataset>(fallbackDemoData);
   const scrollToModel = () => document.getElementById("model")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollToDemo = () => document.getElementById("live-demo")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const activeDemoStep = demoSteps[demoStepIndex];
   const chosenRouteId = demoData.highlightedRouteId ?? demoData.candidates[0]?.id ?? null;
   const activeNodeIds = activeDemoStep.id === "network"
@@ -226,6 +227,7 @@ export default function Home() {
           <a href="#how">How it works</a>
           <a href="#impact">Impact</a>
           <button type="button" onClick={scrollToModel}>The model</button>
+          <button type="button" onClick={scrollToDemo}>Live demo</button>
           <a href="/partners">Partner portal</a>
         </div>
       </nav>
@@ -345,7 +347,7 @@ export default function Home() {
           <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li></ul>
           <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
         </div>
-        <div className="demoSection">
+        <div className="demoSection" id="live-demo">
           <div className="demoIntro">
             <span className="kicker light">LIVE MATCH WALKTHROUGH</span>
             <h3>See a delivery get matched in four steps.</h3>
