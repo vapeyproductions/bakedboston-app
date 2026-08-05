@@ -94,3 +94,8 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoRouteBadgeE{color:#287d86}
 .demoRouteBadge.isChosen{background:var(--coral);border-color:#fff;color:#fff}
 .demoRouteBadge.isDimmed{opacity:.36}
+.demoNode{display:block;width:40px;height:40px}
+.demoNodeLabel{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%)}
+.demoNodeLabelHover{transform:translate(4px,-50%)}
+.demoNode:hover .demoNodeLabelHover{transform:translate(0,-50%)}
+@media(max-width:600px){.demoNode{width:32px;height:32px}}
