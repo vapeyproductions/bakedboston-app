@@ -20,9 +20,9 @@ type CandidateRoute = {
   drive: string;
   score: string;
   distanceMiles: number;
+  driverDistanceMiles: number;
   priority: number;
   waitingPenalty: number;
-  destinationPenalty: number;
   points: string;
   labelLeft: string;
   labelTop: string;
@@ -115,14 +115,23 @@ export async function GET() {
     return Boolean(bakery && pantry);
   });
 
+  const anchorBakery = featuredCompletedRoute
+    ? operationalBakeries.find((bakery) => bakery.name === featuredCompletedRoute.bakeryName) ?? operationalBakeries[0]
+    : operationalBakeries[0];
+  const anchorPantry = featuredCompletedRoute
+    ? operationalPantries.find((pantry) => pantry.name === featuredCompletedRoute.pantryName) ?? operationalPantries[0]
+    : operationalPantries[0];
+  const driverLatitude = anchorBakery.latitude + (anchorPantry.latitude - anchorBakery.latitude) * 0.34 - 0.008;
+  const driverLongitude = anchorBakery.longitude + (anchorPantry.longitude - anchorBakery.longitude) * 0.26 - 0.01;
+
   const rankedPairs = operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
     const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
-    const priority = Number((100 / ((pantry.deliveriesSevenDays ?? 0) + 1)).toFixed(1));
-    const waitingPenalty = Number((6 + distanceMiles * 0.9).toFixed(1));
-    const destinationPenalty = Number((4 + distanceMiles * 0.55).toFixed(1));
-    const score = Number((priority - distanceMiles * 7.4 - waitingPenalty - destinationPenalty).toFixed(1));
-    return { bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score };
-  })).sort((left, right) => right.score - left.score || left.distanceMiles - right.distanceMiles);
+    const driverDistanceMiles = milesBetween(driverLatitude, driverLongitude, bakery.latitude, bakery.longitude);
+    const priority = 1 / ((pantry.deliveriesSevenDays ?? 0) + 1);
+    const waitingPenalty = 0;
+    const rawScore = priority * 20 - driverDistanceMiles * 2.5 - distanceMiles - waitingPenalty;
+    return { bakery, pantry, distanceMiles, driverDistanceMiles, priority, waitingPenalty, rawScore };
+  })).sort((left, right) => right.rawScore - left.rawScore || left.distanceMiles - right.distanceMiles);
 
   const selectedPairs: typeof rankedPairs = [];
   const usedBakeryIds = new Set<number>();
@@ -134,7 +143,7 @@ export async function GET() {
     const nextPair = remainingPairs.sort((left, right) => {
       const leftCoverage = Number(!usedBakeryIds.has(left.bakery.id)) + Number(!usedPantryIds.has(left.pantry.id));
       const rightCoverage = Number(!usedBakeryIds.has(right.bakery.id)) + Number(!usedPantryIds.has(right.pantry.id));
-      return rightCoverage - leftCoverage || right.score - left.score || left.distanceMiles - right.distanceMiles;
+      return rightCoverage - leftCoverage || right.rawScore - left.rawScore || left.distanceMiles - right.distanceMiles;
     })[0];
 
     if (!nextPair) break;
@@ -149,9 +158,6 @@ export async function GET() {
     ...operationalPantries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
   ];
   const toCanvasPosition = normalizePoints(referencePoints);
-
-  const driverLatitude = chosenPair.bakery.latitude + (chosenPair.pantry.latitude - chosenPair.bakery.latitude) * 0.34 - 0.008;
-  const driverLongitude = chosenPair.bakery.longitude + (chosenPair.pantry.longitude - chosenPair.bakery.longitude) * 0.26 - 0.01;
 
   const closedBakeryLatitude = chosenPair.bakery.latitude + 0.04;
   const closedBakeryLongitude = chosenPair.bakery.longitude - 0.07;
@@ -224,7 +230,11 @@ export async function GET() {
     { x: 7, y: -7 },
   ];
 
-  const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score }, index) => {
+  const minimumRawScore = Math.min(...selectedPairs.map((pair) => pair.rawScore));
+  const maximumRawScore = Math.max(...selectedPairs.map((pair) => pair.rawScore));
+  const rawScoreRange = maximumRawScore - minimumRawScore;
+
+  const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, driverDistanceMiles, priority, waitingPenalty, rawScore }, index) => {
     const pantryPosition = toCanvasPosition(pantry.latitude, pantry.longitude);
     const bakeryPosition = toCanvasPosition(bakery.latitude, bakery.longitude);
     const bakeryLeft = Number(bakeryPosition.left.replace("%", ""));
@@ -239,11 +249,11 @@ export async function GET() {
       bakery: bakery.name,
       pantry: pantry.name,
       drive: `${distanceMiles.toFixed(1)} mi`,
-      score: score.toFixed(1),
+      score: (rawScoreRange > 0 ? 60 + ((rawScore - minimumRawScore) / rawScoreRange) * 35 : 85).toFixed(1),
       distanceMiles,
+      driverDistanceMiles,
       priority,
       waitingPenalty,
-      destinationPenalty,
       points: `${clamp(driverLeft, 6, 94)},${clamp(driverTop, 6, 94)} ${clamp(bakeryLeft, 6, 94)},${clamp(bakeryTop, 6, 94)} ${clamp(pantryLeft, 6, 94)},${clamp(pantryTop, 6, 94)}`,
       labelLeft: `${labelLeft}%`,
       labelTop: `${labelTop}%`,

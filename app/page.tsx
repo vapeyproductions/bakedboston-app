@@ -37,9 +37,9 @@ type DemoRoute = {
   drive: string;
   score: string;
   distanceMiles: number;
+  driverDistanceMiles: number;
   priority: number;
   waitingPenalty: number;
-  destinationPenalty: number;
   points: string;
   labelLeft: string;
   labelTop: string;
@@ -162,13 +162,13 @@ const demoSteps: DemoStep[] = [
     scoreValue: "Live scoring",
     scoreNote: "High-priority pantries earn a boost, while longer or less efficient routes fall down the list",
     mipTitle: "Objective",
-    mipBody: "The model maximizes route quality while penalizing wasted driving and poor timing fit.",
+    mipBody: "The model maximizes the total quality of the selected assignment. The scores shown under the map are normalized to a 0–100 scale for readability; the route order comes from the unscaled objective.",
     mipLines: [
       "reward pantry priority",
       "penalize drive time and waiting",
       "penalize poor destination fit for the driver",
     ],
-    mipEquation: "maximize  priority − drive − wait − destination mismatch",
+    mipEquation: "maximize  Σᵣ xᵣ(20·priorityᵣ − 2.5·driver milesᵣ − route milesᵣ − wait hoursᵣ + destination bonusᵣ)",
   },
   {
     id: "match",
@@ -209,9 +209,9 @@ const fallbackDemoRoutes: DemoRoute[] = [
     drive: "3.2 mi",
     score: "92.4",
     distanceMiles: 3.2,
-    priority: 100,
-    waitingPenalty: 8,
-    destinationPenalty: 6,
+    driverDistanceMiles: 0.8,
+    priority: 1,
+    waitingPenalty: 0,
     points: "46,62 21,56 72,41",
     labelLeft: "48%",
     labelTop: "40%",
@@ -224,9 +224,9 @@ const fallbackDemoRoutes: DemoRoute[] = [
     drive: "4.8 mi",
     score: "77.1",
     distanceMiles: 4.8,
-    priority: 50,
-    waitingPenalty: 10,
-    destinationPenalty: 7.5,
+    driverDistanceMiles: 1.6,
+    priority: 0.5,
+    waitingPenalty: 0,
     points: "46,62 32,28 76,21",
     labelLeft: "60%",
     labelTop: "28%",
@@ -239,9 +239,9 @@ const fallbackDemoRoutes: DemoRoute[] = [
     drive: "5.1 mi",
     score: "71.6",
     distanceMiles: 5.1,
-    priority: 33.3,
-    waitingPenalty: 12,
-    destinationPenalty: 9,
+    driverDistanceMiles: 0.8,
+    priority: 0.333,
+    waitingPenalty: 0,
     points: "46,62 21,56 58,72",
     labelLeft: "44%",
     labelTop: "70%",
@@ -254,9 +254,9 @@ const fallbackDemoRoutes: DemoRoute[] = [
     drive: "5.6 mi",
     score: "68.9",
     distanceMiles: 5.6,
-    priority: 33.3,
-    waitingPenalty: 13,
-    destinationPenalty: 9.5,
+    driverDistanceMiles: 1.6,
+    priority: 0.333,
+    waitingPenalty: 0,
     points: "46,62 32,28 58,72",
     labelLeft: "49%",
     labelTop: "54%",
@@ -269,9 +269,9 @@ const fallbackDemoRoutes: DemoRoute[] = [
     drive: "6.2 mi",
     score: "61.4",
     distanceMiles: 6.2,
-    priority: 50,
-    waitingPenalty: 14,
-    destinationPenalty: 10,
+    driverDistanceMiles: 0.8,
+    priority: 0.5,
+    waitingPenalty: 0,
     points: "46,62 21,56 76,21",
     labelLeft: "55%",
     labelTop: "35%",
@@ -443,7 +443,7 @@ export default function Home() {
           <div className="demoIntro">
             <span className="kicker light">LIVE MATCH WALKTHROUGH</span>
             <h3>See a delivery get matched in four steps.</h3>
-            <p>{demoData.liveRouteContext} The scoring sidebar stays visible, and the MIP panel shows how the model prunes, scores, and selects one binary assignment.</p>
+            <p>{demoData.liveRouteContext} Candidate routes and normalized scores appear in Step 3, while the MIP panel shows how the model prunes, scores, and selects one binary assignment.</p>
           </div>
           <div className="demoStepTabs" role="tablist" aria-label="Optimization demo steps">
             {demoSteps.map((step, index) => (
@@ -518,27 +518,26 @@ export default function Home() {
                   })}
                 </div>
               </div>
-              <div className="demoRouteScorePanel">
-                <div className="demoRouteScoreHeader">
-                  <span>Candidate routes</span>
-                  <small>Higher scores indicate a stronger match.</small>
-                </div>
-                <div className="demoRouteScoreGrid">
-                  {demoData.candidates.map((route) => {
-                    const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                    return (
-                      <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label} ${isChosen ? "isChosen" : ""}`}>
+              {activeDemoStep.id === "scoring" && (
+                <div className="demoRouteScorePanel">
+                  <div className="demoRouteScoreHeader">
+                    <span>Candidate routes · normalized match scores</span>
+                    <small>0–100 display scale; higher scores indicate a stronger match.</small>
+                  </div>
+                  <div className="demoRouteScoreGrid">
+                    {demoData.candidates.map((route) => (
+                      <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label}`}>
                         <div className="demoRouteScoreTop">
                           <b>Route {route.label}</b>
                           <strong>{route.score}</strong>
                         </div>
                         <p>{route.bakery} → {route.pantry}</p>
-                        <small>{route.drive} · priority {route.priority.toFixed(1)} · wait penalty {route.waitingPenalty.toFixed(0)}</small>
+                        <small>{route.driverDistanceMiles.toFixed(1)} mi to bakery · {route.drive} bakery to pantry · priority index {(route.priority * 100).toFixed(0)}</small>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
             <div className="demoSidebar">
               <div className="demoStepCard">
@@ -554,7 +553,7 @@ export default function Home() {
                   {activeDemoStep.mipLines.map((line) => <li key={line}>{line}</li>)}
                 </ul>
                 <div className="demoMipMatrix" aria-label="assignment matrix preview">
-                  {demoData.candidates.slice(0, 3).map((route) => {
+                  {demoData.candidates.map((route) => {
                     const active = activeDemoStep.id === "match" && route.id === chosenRouteId;
                     const eliminated = activeDemoStep.id === "windows" && route.id !== chosenRouteId;
                     return (
