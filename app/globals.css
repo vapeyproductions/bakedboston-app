@@ -94,8 +94,26 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoRouteBadgeE{color:#287d86}
 .demoRouteBadge.isChosen{background:var(--coral);border-color:#fff;color:#fff}
 .demoRouteBadge.isDimmed{opacity:.36}
+.demoMapColumn{min-width:0;display:flex;flex-direction:column;gap:14px}
+.demoRouteScorePanel{background:#f3efe4;color:var(--forest);padding:16px;border:1px solid rgba(255,255,255,.2)}
+.demoRouteScoreHeader{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:12px;text-transform:uppercase;letter-spacing:.9px;font-size:11px;font-weight:800}
+.demoRouteScoreHeader small{color:#647d71;font-size:9px;letter-spacing:.4px;text-align:right}
+.demoRouteScoreGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.demoRouteScoreItem{background:#fff;border:1px solid #d5ded5;border-left:4px solid var(--forest);padding:12px 13px;min-width:0;transition:background .2s,color .2s,border-color .2s}
+.demoRouteScoreItemA{border-left-color:var(--coral)}
+.demoRouteScoreItemB{border-left-color:#2f6b56}
+.demoRouteScoreItemC{border-left-color:#d59a16}
+.demoRouteScoreItemD{border-left-color:#6d5594}
+.demoRouteScoreItemE{border-left-color:#287d86}
+.demoRouteScoreItem.isChosen{background:var(--forest);border-color:var(--forest);color:#fff}
+.demoRouteScoreTop{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.demoRouteScoreTop b{font-size:11px;letter-spacing:.8px;text-transform:uppercase}
+.demoRouteScoreTop strong{font:700 22px/1 Georgia,serif}
+.demoRouteScoreItem p{margin:8px 0 6px;font-size:11px;font-weight:700;line-height:1.4}
+.demoRouteScoreItem small{display:block;color:#647d71;font-size:9px;line-height:1.45}
+.demoRouteScoreItem.isChosen small{color:#dce9e2}
 .demoNode{display:block;width:40px;height:40px}
 .demoNodeLabel{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%)}
 .demoNodeLabelHover{transform:translate(4px,-50%)}
 .demoNode:hover .demoNodeLabelHover{transform:translate(0,-50%)}
-@media(max-width:600px){.demoNode{width:32px;height:32px}}
+@media(max-width:600px){.demoNode{width:32px;height:32px}.demoRouteScoreHeader{align-items:flex-start;flex-direction:column;gap:4px}.demoRouteScoreHeader small{text-align:left}.demoRouteScoreGrid{grid-template-columns:1fr}}

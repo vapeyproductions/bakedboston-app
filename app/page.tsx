@@ -300,8 +300,6 @@ export default function Home() {
   const activeRoutes = activeDemoStep.id === "network" || activeDemoStep.id === "windows"
     ? []
     : demoData.candidates.map((route) => route.id);
-  const visibleCandidates = demoData.candidates.filter((route) => activeRoutes.includes(route.id));
-  const selectedCandidate = demoData.candidates.find((route) => route.id === chosenRouteId) ?? null;
 
   useEffect(() => {
     void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); });
@@ -461,62 +459,85 @@ export default function Home() {
             ))}
           </div>
           <div className="demoBoard">
-            <div className="demoMap">
-              <div className="demoMapHeader">
-                <span>Boston delivery network</span>
-                <small>{demoData.liveRouteLabel}</small>
-              </div>
-              <div className="demoMapCanvas">
-                <div className="demoWater" />
-                <div className="demoPark" />
-                <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                  {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
-                    const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                    const geometry = getDemoRouteGeometry(route);
-                    return (
-                      <path
-                        key={route.id}
-                        d={geometry.path}
-                        vectorEffect="non-scaling-stroke"
-                        className={`${isChosen ? "chosen" : `candidate candidate${route.label}`} ${activeDemoStep.id === "match" && !isChosen ? "isDimmed" : ""}`}
-                      />
-                    );
-                  })}
-                </svg>
-                {demoData.candidates
-                  .filter((route) => activeRoutes.includes(route.id))
-                  .map((route) => {
-                    const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                    const geometry = getDemoRouteGeometry(route);
+            <div className="demoMapColumn">
+              <div className="demoMap">
+                <div className="demoMapHeader">
+                  <span>Boston delivery network</span>
+                  <small>{demoData.liveRouteLabel}</small>
+                </div>
+                <div className="demoMapCanvas">
+                  <div className="demoWater" />
+                  <div className="demoPark" />
+                  <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
+                      const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                      const geometry = getDemoRouteGeometry(route);
+                      return (
+                        <path
+                          key={route.id}
+                          d={geometry.path}
+                          vectorEffect="non-scaling-stroke"
+                          className={`${isChosen ? "chosen" : `candidate candidate${route.label}`} ${activeDemoStep.id === "match" && !isChosen ? "isDimmed" : ""}`}
+                        />
+                      );
+                    })}
+                  </svg>
+                  {demoData.candidates
+                    .filter((route) => activeRoutes.includes(route.id))
+                    .map((route) => {
+                      const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                      const geometry = getDemoRouteGeometry(route);
+                      return (
+                        <div
+                          key={`${route.id}-badge`}
+                          className={`demoRouteBadge demoRouteBadge${route.label} ${isChosen ? "isChosen" : ""} ${activeDemoStep.id === "match" && !isChosen ? "isDimmed" : ""}`}
+                          style={{ left: geometry.badgeLeft, top: geometry.badgeTop }}
+                          aria-hidden="true"
+                        >
+                          {route.label}
+                        </div>
+                      );
+                    })}
+                  {demoData.nodes.map((node) => {
+                    const revealLabelOnHover = node.type === "Bakery" || node.type === "Pantry";
+
                     return (
                       <div
-                        key={`${route.id}-badge`}
-                        className={`demoRouteBadge demoRouteBadge${route.label} ${isChosen ? "isChosen" : ""} ${activeDemoStep.id === "match" && !isChosen ? "isDimmed" : ""}`}
-                        style={{ left: geometry.badgeLeft, top: geometry.badgeTop }}
-                        aria-hidden="true"
+                        key={node.id}
+                        className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""} ${node.isClosed && activeDemoStep.id === "network" ? "isClosed" : ""} ${node.isClosed && activeDemoStep.id !== "network" ? "isHidden" : ""}`}
+                        style={{ left: node.left, top: node.top }}
+                        title={revealLabelOnHover ? node.label : undefined}
                       >
-                        {route.label}
+                        <span className="demoNodePin">{node.short}</span>
+                        <div className={`demoNodeLabel ${revealLabelOnHover ? "demoNodeLabelHover" : ""}`}>
+                          <strong>{node.label}</strong>
+                          <small>{node.type}</small>
+                        </div>
                       </div>
                     );
                   })}
-                {demoData.nodes.map((node) => {
-                  const revealLabelOnHover = node.type === "Bakery" || node.type === "Pantry";
-
-                  return (
-                    <div
-                      key={node.id}
-                      className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""} ${node.isClosed && activeDemoStep.id === "network" ? "isClosed" : ""} ${node.isClosed && activeDemoStep.id !== "network" ? "isHidden" : ""}`}
-                      style={{ left: node.left, top: node.top }}
-                      title={revealLabelOnHover ? node.label : undefined}
-                    >
-                      <span className="demoNodePin">{node.short}</span>
-                      <div className={`demoNodeLabel ${revealLabelOnHover ? "demoNodeLabelHover" : ""}`}>
-                        <strong>{node.label}</strong>
-                        <small>{node.type}</small>
+                </div>
+              </div>
+              <div className="demoRouteScorePanel">
+                <div className="demoRouteScoreHeader">
+                  <span>Candidate routes</span>
+                  <small>Higher scores indicate a stronger match.</small>
+                </div>
+                <div className="demoRouteScoreGrid">
+                  {demoData.candidates.map((route) => {
+                    const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                    return (
+                      <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label} ${isChosen ? "isChosen" : ""}`}>
+                        <div className="demoRouteScoreTop">
+                          <b>Route {route.label}</b>
+                          <strong>{route.score}</strong>
+                        </div>
+                        <p>{route.bakery} → {route.pantry}</p>
+                        <small>{route.drive} · priority {route.priority.toFixed(1)} · wait penalty {route.waitingPenalty.toFixed(0)}</small>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div className="demoSidebar">
@@ -524,11 +545,6 @@ export default function Home() {
                 <small>{activeDemoStep.label}</small>
                 <h4>{activeDemoStep.title}</h4>
                 <p>{activeDemoStep.description}</p>
-              </div>
-              <div className="demoScoreCard">
-                <span>Route score</span>
-                <strong>{activeDemoStep.id === "match" && selectedCandidate ? selectedCandidate.score : activeDemoStep.scoreValue}</strong>
-                <p>{activeDemoStep.id === "match" && selectedCandidate ? `${selectedCandidate.bakery} → ${selectedCandidate.pantry}` : activeDemoStep.scoreNote}</p>
               </div>
               <div className="demoMipCard">
                 <small>{activeDemoStep.mipTitle}</small>
@@ -549,22 +565,6 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
-              <div className="demoCandidateList">
-                {visibleCandidates.map((route) => {
-                  const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                  return (
-                    <div key={route.id} className={`demoCandidate ${isChosen ? "isChosen" : ""}`}>
-                      <div className="demoCandidateTop">
-                        <b>{route.label}</b>
-                        <span>{route.score}</span>
-                      </div>
-                      <p><strong>Bakery:</strong> {route.bakery}</p>
-                      <p><strong>Pantry:</strong> {route.pantry}</p>
-                      <small>{route.drive} · priority {route.priority.toFixed(1)} · wait penalty {route.waitingPenalty.toFixed(0)}</small>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           </div>
