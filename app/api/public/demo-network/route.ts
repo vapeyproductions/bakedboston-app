@@ -24,6 +24,8 @@ type CandidateRoute = {
   waitingPenalty: number;
   destinationPenalty: number;
   points: string;
+  labelLeft: string;
+  labelTop: string;
 };
 
 type PartnerPoint = {
@@ -113,24 +115,32 @@ export async function GET() {
     return Boolean(bakery && pantry);
   });
 
-  const featuredBakery = featuredCompletedRoute
-    ? operationalBakeries.find((item) => item.name === featuredCompletedRoute.bakeryName) ?? operationalBakeries[0]
-    : operationalBakeries[0];
+  const allPairCandidates = operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
+    const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
+    const priority = Number((100 / ((pantry.deliveriesSevenDays ?? 0) + 1)).toFixed(1));
+    const waitingPenalty = Number((6 + distanceMiles * 0.9).toFixed(1));
+    const destinationPenalty = Number((4 + distanceMiles * 0.55).toFixed(1));
+    const score = Number((priority - distanceMiles * 7.4 - waitingPenalty - destinationPenalty).toFixed(1));
+    return { bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score };
+  }))
+    .filter((candidate) => candidate.distanceMiles <= 8)
+    .sort((left, right) => right.score - left.score || left.distanceMiles - right.distanceMiles);
 
-  const pantryCandidates = [...operationalPantries]
-    .map((pantry) => ({
-      pantry,
-      distanceMiles: milesBetween(featuredBakery.latitude, featuredBakery.longitude, pantry.latitude, pantry.longitude),
-    }))
-    .sort((left, right) => left.distanceMiles - right.distanceMiles)
-    .slice(0, Math.min(3, operationalPantries.length));
+  const rankedPairs = allPairCandidates.length ? allPairCandidates : operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
+    const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
+    const priority = Number((100 / ((pantry.deliveriesSevenDays ?? 0) + 1)).toFixed(1));
+    const waitingPenalty = Number((6 + distanceMiles * 0.9).toFixed(1));
+    const destinationPenalty = Number((4 + distanceMiles * 0.55).toFixed(1));
+    const score = Number((priority - distanceMiles * 7.4 - waitingPenalty - destinationPenalty).toFixed(1));
+    return { bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score };
+  })).sort((left, right) => right.score - left.score || left.distanceMiles - right.distanceMiles);
 
-  const highlightedPantry = featuredCompletedRoute
-    ? operationalPantries.find((item) => item.name === featuredCompletedRoute.pantryName) ?? pantryCandidates[0]?.pantry
-    : pantryCandidates[0]?.pantry;
+  const distinctPairCandidates = rankedPairs.filter((candidate, index, array) => (
+    array.findIndex((item) => item.bakery.id === candidate.bakery.id || item.pantry.id === candidate.pantry.id) === index
+  ));
 
-  const chosenIndex = pantryCandidates.findIndex((candidate) => candidate.pantry.id === highlightedPantry?.id);
-  const fallbackChosen = chosenIndex >= 0 ? chosenIndex : 0;
+  const selectedPairs = (distinctPairCandidates.length >= 3 ? distinctPairCandidates : rankedPairs).slice(0, 3);
+  const chosenPair = selectedPairs[0];
 
   const referencePoints = [
     ...operationalBakeries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
@@ -138,13 +148,13 @@ export async function GET() {
   ];
   const toCanvasPosition = normalizePoints(referencePoints);
 
-  const driverLatitude = featuredBakery.latitude + ((highlightedPantry?.latitude ?? featuredBakery.latitude) - featuredBakery.latitude) * 0.35 - 0.008;
-  const driverLongitude = featuredBakery.longitude + ((highlightedPantry?.longitude ?? featuredBakery.longitude) - featuredBakery.longitude) * 0.25 - 0.01;
+  const driverLatitude = chosenPair.bakery.latitude + (chosenPair.pantry.latitude - chosenPair.bakery.latitude) * 0.34 - 0.008;
+  const driverLongitude = chosenPair.bakery.longitude + (chosenPair.pantry.longitude - chosenPair.bakery.longitude) * 0.26 - 0.01;
 
-  const closedBakeryLatitude = featuredBakery.latitude + 0.028;
-  const closedBakeryLongitude = featuredBakery.longitude - 0.05;
-  const closedPantryLatitude = (highlightedPantry?.latitude ?? featuredBakery.latitude) - 0.036;
-  const closedPantryLongitude = (highlightedPantry?.longitude ?? featuredBakery.longitude) + 0.034;
+  const closedBakeryLatitude = chosenPair.bakery.latitude + 0.04;
+  const closedBakeryLongitude = chosenPair.bakery.longitude - 0.07;
+  const closedPantryLatitude = chosenPair.pantry.latitude + 0.06;
+  const closedPantryLongitude = chosenPair.pantry.longitude - 0.09;
 
   const driverPosition = toCanvasPosition(driverLatitude, driverLongitude);
   const closedBakeryPosition = toCanvasPosition(closedBakeryLatitude, closedBakeryLongitude);
@@ -204,21 +214,25 @@ export async function GET() {
   const driverLeft = Number(driverPosition.left.replace("%", ""));
   const driverTop = Number(driverPosition.top.replace("%", ""));
 
-  const candidates: CandidateRoute[] = pantryCandidates.map(({ pantry, distanceMiles }, index) => {
+  const labelOffsets = [
+    { x: -4, y: -10 },
+    { x: 0, y: 2 },
+    { x: 4, y: 10 },
+  ];
+
+  const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score }, index) => {
     const pantryPosition = toCanvasPosition(pantry.latitude, pantry.longitude);
-    const bakeryPosition = toCanvasPosition(featuredBakery.latitude, featuredBakery.longitude);
+    const bakeryPosition = toCanvasPosition(bakery.latitude, bakery.longitude);
     const bakeryLeft = Number(bakeryPosition.left.replace("%", ""));
     const bakeryTop = Number(bakeryPosition.top.replace("%", ""));
     const pantryLeft = Number(pantryPosition.left.replace("%", ""));
     const pantryTop = Number(pantryPosition.top.replace("%", ""));
-    const priority = Number((100 / ((pantry.deliveriesSevenDays ?? 0) + 1)).toFixed(1));
-    const waitingPenalty = 8 + index * 2;
-    const destinationPenalty = 6 + index * 1.5;
-    const score = Number((priority - distanceMiles * 7.4 - waitingPenalty - destinationPenalty).toFixed(1));
+    const labelLeft = clamp((bakeryLeft + pantryLeft) / 2 + labelOffsets[index].x, 8, 92);
+    const labelTop = clamp((bakeryTop + pantryTop) / 2 + labelOffsets[index].y, 10, 90);
     return {
       id: `route-${String.fromCharCode(97 + index)}`,
       label: String.fromCharCode(65 + index),
-      bakery: featuredBakery.name,
+      bakery: bakery.name,
       pantry: pantry.name,
       drive: `${distanceMiles.toFixed(1)} mi`,
       score: score.toFixed(1),
@@ -226,11 +240,13 @@ export async function GET() {
       priority,
       waitingPenalty,
       destinationPenalty,
-      points: `${clamp(bakeryLeft, 6, 94)},${clamp(bakeryTop, 6, 94)} ${clamp(driverLeft + [-3, 1.5, 4][index], 6, 94)},${clamp(driverTop + [-3, -7, 6][index], 6, 94)} ${clamp(pantryLeft, 6, 94)},${clamp(pantryTop, 6, 94)}`,
+      points: `${clamp(driverLeft, 6, 94)},${clamp(driverTop, 6, 94)} ${clamp(bakeryLeft, 6, 94)},${clamp(bakeryTop, 6, 94)} ${clamp(pantryLeft, 6, 94)},${clamp(pantryTop, 6, 94)}`,
+      labelLeft: `${labelLeft}%`,
+      labelTop: `${labelTop}%`,
     };
   });
 
-  const highlightedRouteId = candidates[fallbackChosen]?.id ?? null;
+  const highlightedRouteId = candidates[0]?.id ?? null;
   const completedAt = featuredCompletedRoute?.createdAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
@@ -245,7 +261,7 @@ export async function GET() {
     nodes: actualNodes,
     candidates,
     highlightedRouteId,
-    liveRouteLabel: highlightedPantry ? `${featuredBakery.name} → ${highlightedPantry.name}` : featuredBakery.name,
+    liveRouteLabel: `${chosenPair.bakery.name} → ${chosenPair.pantry.name}`,
     liveRouteContext: featuredCompletedRoute && completedAt
       ? `Based on the most recent completed delivery on ${completedAt}.`
       : "Based on the current registered bakery and pantry network.",

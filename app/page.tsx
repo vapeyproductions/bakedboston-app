@@ -41,6 +41,8 @@ type DemoRoute = {
   waitingPenalty: number;
   destinationPenalty: number;
   points: string;
+  labelLeft: string;
+  labelTop: string;
 };
 
 type DemoDataset = {
@@ -155,6 +157,8 @@ const fallbackDemoRoutes: DemoRoute[] = [
     waitingPenalty: 8,
     destinationPenalty: 6,
     points: "21,56 43,60 72,41",
+    labelLeft: "48%",
+    labelTop: "40%",
   },
   {
     id: "route-b",
@@ -168,6 +172,8 @@ const fallbackDemoRoutes: DemoRoute[] = [
     waitingPenalty: 10,
     destinationPenalty: 7.5,
     points: "32,28 49,54 76,21",
+    labelLeft: "60%",
+    labelTop: "28%",
   },
   {
     id: "route-c",
@@ -181,6 +187,8 @@ const fallbackDemoRoutes: DemoRoute[] = [
     waitingPenalty: 12,
     destinationPenalty: 9,
     points: "21,56 47,69 58,72",
+    labelLeft: "44%",
+    labelTop: "70%",
   },
 ];
 
@@ -203,7 +211,9 @@ export default function Home() {
   const activeNodeIds = activeDemoStep.id === "network"
     ? demoData.nodes.map((node) => node.id)
     : demoData.nodes.filter((node) => !node.isClosed).map((node) => node.id);
-  const activeRoutes = demoData.candidates.map((route) => route.id);
+  const activeRoutes = activeDemoStep.id === "network" || activeDemoStep.id === "windows"
+    ? []
+    : demoData.candidates.map((route) => route.id);
   const visibleCandidates = demoData.candidates.filter((route) => activeRoutes.includes(route.id));
   const selectedCandidate = demoData.candidates.find((route) => route.id === chosenRouteId) ?? null;
 
@@ -385,17 +395,13 @@ export default function Home() {
                     );
                   })}
                 </svg>
-                {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route, routeIndex) => {
+                {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
                   const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                  const points = route.points.split(" ").map((point) => point.split(",").map(Number));
-                  const [, mid, end] = points;
-                  const labelX = Math.max(10, Math.min(90, ((mid?.[0] ?? 0) * 0.62) + ((end?.[0] ?? 0) * 0.38)));
-                  const labelY = Math.max(12, Math.min(88, ((mid?.[1] ?? 0) * 0.58) + ((end?.[1] ?? 0) * 0.42) - 7 + (routeIndex - 1) * 8));
                   return (
                     <div
                       key={`${route.id}-badge`}
                       className={`demoRouteBadge ${isChosen ? "isChosen" : ""}`}
-                      style={{ left: `${labelX}%`, top: `${labelY}%` }}
+                      style={{ left: route.labelLeft, top: route.labelTop }}
                     >
                       {route.label}
                     </div>
