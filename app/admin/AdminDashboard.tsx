@@ -1039,6 +1039,7 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
   const [displayAddress, setDisplayAddress] = useState(record.address);
   const [googleFormattedAddress, setGoogleFormattedAddress] = useState(record.formattedAddress);
   const [confirmingAddress, setConfirmingAddress] = useState(false);
+  const [addressFeedback, setAddressFeedback] = useState("");
   const now = new Date();
   const activeAdditional = availability.filter((window) => new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
   const recurringOpen = !scheduleExceptions.some((exception) => exception.exceptionDate === adminDateKey(now)) && (kind === "pantry"
@@ -1053,6 +1054,7 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
   async function acceptStandardizedAddress() {
     if (!googleFormattedAddress || !window.confirm(`Use Google’s standardized address for ${record.name}?\n\n${googleFormattedAddress}`)) return;
     setConfirmingAddress(true);
+    setAddressFeedback("");
     const response = await fetch("/api/admin/address-validation", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1063,15 +1065,18 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
       setAddressStatus("validated");
       setDisplayAddress(data.record.address);
       setGoogleFormattedAddress(data.record.formattedAddress ?? "");
+      setAddressFeedback("Google’s standardized address was accepted. This location is now eligible for optimization.");
       await onChanged();
       setNotice(`${record.name}'s standardized address was confirmed and is now eligible for optimization.`);
     } else {
+      setAddressFeedback(data?.error ?? "Could not confirm this address.");
       setNotice(data?.error ?? "Could not confirm this address.");
     }
     setConfirmingAddress(false);
   }
   async function validateAddressNow() {
     setConfirmingAddress(true);
+    setAddressFeedback("");
     const response = await fetch("/api/admin/address-validation", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1082,12 +1087,15 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
       setAddressStatus(data.record.addressValidationStatus);
       setGoogleFormattedAddress(data.record.formattedAddress ?? "");
       if (data.record.addressValidationStatus === "validated") {
+        setAddressFeedback("Google validated this address exactly. It is now eligible for optimization.");
         setNotice(`${record.name}'s address was validated by Google and is now eligible for optimization.`);
       } else {
+        setAddressFeedback("Google found a standardized version of this address. Please review and accept it below.");
         setNotice(`Google found a standardized address for ${record.name}. Please review it before optimization begins.`);
       }
       await onChanged();
     } else {
+      setAddressFeedback(data?.error ?? "Could not validate this address right now.");
       setNotice(data?.error ?? "Could not validate this address right now.");
     }
     setConfirmingAddress(false);
@@ -1103,6 +1111,7 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
         <article className="adminAddressSummary">
           <div className="adminAddressHeading"><small>ADDRESS</small><span className={`addressStatus ${addressStatus}`}>{addressStatus === "validated" ? "Validated" : addressStatus === "needs_review" ? "Needs review" : "Not yet validated"}</span></div>
           <strong>{displayAddress}</strong>
+          {addressFeedback && <p>{addressFeedback}</p>}
           {addressStatus === "validated" && <p>This location is eligible for live optimization.</p>}
           {addressStatus === "unvalidated" && <div className="addressReviewPanel">
             <p>This location is not yet eligible for optimization. Run a Google address check now to validate it.</p>
