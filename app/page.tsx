@@ -95,11 +95,12 @@ function getDemoRouteGeometry(route: DemoRoute) {
 
   const [driver, bakery, pantry] = points;
   const routeIndex = Math.max(0, route.label.charCodeAt(0) - 65);
-  const firstLegBends = [-5.5, 5.5, 0];
-  const secondLegBends = [-2.25, 2.25, -1.5];
+  const firstLegBends = [-7, 7, -3.5, 3.5, 0];
+  const secondLegBends = [-4, 4, -7, 7, 0];
+  const badgePositions = [0.45, 0.55, 0.48, 0.52, 0.6];
   const firstControl = quadraticControl(driver, bakery, firstLegBends[routeIndex] ?? 0);
   const secondControl = quadraticControl(bakery, pantry, secondLegBends[routeIndex] ?? 0);
-  const badgePoint = quadraticPoint(bakery, secondControl, pantry, 0.52);
+  const badgePoint = quadraticPoint(bakery, secondControl, pantry, badgePositions[routeIndex] ?? 0.52);
 
   return {
     path: `M ${driver.x} ${driver.y} Q ${firstControl.x.toFixed(2)} ${firstControl.y.toFixed(2)} ${bakery.x} ${bakery.y} Q ${secondControl.x.toFixed(2)} ${secondControl.y.toFixed(2)} ${pantry.x} ${pantry.y}`,
@@ -244,6 +245,36 @@ const fallbackDemoRoutes: DemoRoute[] = [
     points: "46,62 21,56 58,72",
     labelLeft: "44%",
     labelTop: "70%",
+  },
+  {
+    id: "route-d",
+    label: "D",
+    bakery: "Harbor Bakes",
+    pantry: "Roxbury Pantry",
+    drive: "5.6 mi",
+    score: "68.9",
+    distanceMiles: 5.6,
+    priority: 33.3,
+    waitingPenalty: 13,
+    destinationPenalty: 9.5,
+    points: "46,62 32,28 58,72",
+    labelLeft: "49%",
+    labelTop: "54%",
+  },
+  {
+    id: "route-e",
+    label: "E",
+    bakery: "Lena's Bakery",
+    pantry: "North End Pantry",
+    drive: "6.2 mi",
+    score: "61.4",
+    distanceMiles: 6.2,
+    priority: 50,
+    waitingPenalty: 14,
+    destinationPenalty: 10,
+    points: "46,62 21,56 76,21",
+    labelLeft: "55%",
+    labelTop: "35%",
   },
 ];
 

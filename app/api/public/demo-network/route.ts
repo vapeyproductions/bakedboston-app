@@ -115,18 +115,7 @@ export async function GET() {
     return Boolean(bakery && pantry);
   });
 
-  const allPairCandidates = operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
-    const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
-    const priority = Number((100 / ((pantry.deliveriesSevenDays ?? 0) + 1)).toFixed(1));
-    const waitingPenalty = Number((6 + distanceMiles * 0.9).toFixed(1));
-    const destinationPenalty = Number((4 + distanceMiles * 0.55).toFixed(1));
-    const score = Number((priority - distanceMiles * 7.4 - waitingPenalty - destinationPenalty).toFixed(1));
-    return { bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score };
-  }))
-    .filter((candidate) => candidate.distanceMiles <= 8)
-    .sort((left, right) => right.score - left.score || left.distanceMiles - right.distanceMiles);
-
-  const rankedPairs = allPairCandidates.length ? allPairCandidates : operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
+  const rankedPairs = operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
     const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
     const priority = Number((100 / ((pantry.deliveriesSevenDays ?? 0) + 1)).toFixed(1));
     const waitingPenalty = Number((6 + distanceMiles * 0.9).toFixed(1));
@@ -135,11 +124,24 @@ export async function GET() {
     return { bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score };
   })).sort((left, right) => right.score - left.score || left.distanceMiles - right.distanceMiles);
 
-  const distinctPairCandidates = rankedPairs.filter((candidate, index, array) => (
-    array.findIndex((item) => item.bakery.id === candidate.bakery.id || item.pantry.id === candidate.pantry.id) === index
-  ));
+  const selectedPairs: typeof rankedPairs = [];
+  const usedBakeryIds = new Set<number>();
+  const usedPantryIds = new Set<number>();
+  const candidateLimit = Math.min(5, rankedPairs.length);
 
-  const selectedPairs = (distinctPairCandidates.length >= 3 ? distinctPairCandidates : rankedPairs).slice(0, 3);
+  while (selectedPairs.length < candidateLimit) {
+    const remainingPairs = rankedPairs.filter((candidate) => !selectedPairs.includes(candidate));
+    const nextPair = remainingPairs.sort((left, right) => {
+      const leftCoverage = Number(!usedBakeryIds.has(left.bakery.id)) + Number(!usedPantryIds.has(left.pantry.id));
+      const rightCoverage = Number(!usedBakeryIds.has(right.bakery.id)) + Number(!usedPantryIds.has(right.pantry.id));
+      return rightCoverage - leftCoverage || right.score - left.score || left.distanceMiles - right.distanceMiles;
+    })[0];
+
+    if (!nextPair) break;
+    selectedPairs.push(nextPair);
+    usedBakeryIds.add(nextPair.bakery.id);
+    usedPantryIds.add(nextPair.pantry.id);
+  }
   const chosenPair = selectedPairs[0];
 
   const referencePoints = [
@@ -218,6 +220,8 @@ export async function GET() {
     { x: -4, y: -10 },
     { x: 0, y: 2 },
     { x: 4, y: 10 },
+    { x: -7, y: 7 },
+    { x: 7, y: -7 },
   ];
 
   const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, priority, waitingPenalty, destinationPenalty, score }, index) => {

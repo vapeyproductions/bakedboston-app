@@ -79,14 +79,18 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoRoutesSvg{overflow:visible}
 .demoRoutesSvg path{fill:none;stroke-linecap:round;stroke-linejoin:round;transition:opacity .2s,stroke-width .2s}
 .demoRoutesSvg .candidate{stroke-width:4;filter:drop-shadow(0 2px 3px rgba(22,61,45,.14))}
-.demoRoutesSvg .candidateA{stroke:var(--coral);stroke-dasharray:none}
-.demoRoutesSvg .candidateB{stroke:#2f6b56;stroke-dasharray:10 7}
-.demoRoutesSvg .candidateC{stroke:#d59a16;stroke-dasharray:3 7}
+.demoRoutesSvg .candidateA{stroke:var(--coral);stroke-dasharray:1 7}
+.demoRoutesSvg .candidateB{stroke:#2f6b56;stroke-dasharray:1 7}
+.demoRoutesSvg .candidateC{stroke:#d59a16;stroke-dasharray:1 7}
+.demoRoutesSvg .candidateD{stroke:#6d5594;stroke-dasharray:1 7}
+.demoRoutesSvg .candidateE{stroke:#287d86;stroke-dasharray:1 7}
 .demoRoutesSvg .chosen{stroke:var(--coral);stroke-width:6;stroke-dasharray:none;filter:drop-shadow(0 3px 6px rgba(239,101,72,.3))}
 .demoRoutesSvg .isDimmed{opacity:.24}
 .demoRouteBadge{z-index:6;width:34px;height:34px;min-width:34px;max-width:34px;aspect-ratio:1;border-radius:50%;background:#fff;border:3px solid currentColor;overflow:hidden}
 .demoRouteBadgeA{color:var(--coral)}
 .demoRouteBadgeB{color:#2f6b56}
 .demoRouteBadgeC{color:#b67c08}
+.demoRouteBadgeD{color:#6d5594}
+.demoRouteBadgeE{color:#287d86}
 .demoRouteBadge.isChosen{background:var(--coral);border-color:#fff;color:#fff}
 .demoRouteBadge.isDimmed{opacity:.36}
