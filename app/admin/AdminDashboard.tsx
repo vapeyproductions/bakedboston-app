@@ -373,11 +373,11 @@ export default function AdminDashboard({ user }: { user: { name: string; email: 
 
 function AddressVerificationWorkspace({ checks, accounts, onView }: { checks: Array<{ kind: PartnerKind; record: Partner }>; accounts: PartnerAccount[]; onView: (kind: PartnerKind, record: Partner) => void }) {
   return <section className="addressVerificationWorkspace">
-    <div className="sectionLead"><span>ADDRESS VERIFICATION</span><h2>Locations needing attention</h2><p>Only registered partner locations appear here. Confirm Google’s standardized address when one is available; locations awaiting validation will be checked automatically.</p></div>
+    <div className="sectionLead"><span>ADDRESS VERIFICATION</span><h2>Locations needing attention</h2><p>Only registered partner locations appear here. Run a Google check now, then confirm the standardized address if a review is needed.</p></div>
     {!checks.length ? <div className="adminEmpty"><strong>All registered locations are verified.</strong><p>New registered bakery and pantry addresses will appear here only if they need review.</p></div> : <div className="tablePanel addressVerificationTable"><table><thead><tr><th>Organization</th><th>Type</th><th>Entered address</th><th>Verification status</th><th>Action</th></tr></thead><tbody>{checks.map(({ kind, record }) => {
       const account = accounts.find((candidate) => candidate.organizationType === kind && candidate.organizationId === record.id);
       const review = record.addressValidationStatus === "needs_review";
-      return <tr key={`${kind}:${record.id}`}><td><strong>{record.name}</strong><small>{account?.accountEmail ?? "Registered account"}</small></td><td><span className="typePill">{kind}</span></td><td><strong>{record.address}</strong>{review && record.formattedAddress && <small>Google: {record.formattedAddress}</small>}</td><td><span className={`addressCheckPill ${record.addressValidationStatus}`}>{review ? "Review Google match" : "Awaiting validation"}</span><small>{review ? "A standardized address is ready to review." : "The next address-validation sync will check this location."}</small></td><td><button className={review ? "solidBtn" : "outlineBtn"} onClick={() => onView(kind, record)}>{review ? "Review address" : "View profile"}</button></td></tr>;
+      return <tr key={`${kind}:${record.id}`}><td><strong>{record.name}</strong><small>{account?.accountEmail ?? "Registered account"}</small></td><td><span className="typePill">{kind}</span></td><td><strong>{record.address}</strong>{review && record.formattedAddress && <small>Google: {record.formattedAddress}</small>}</td><td><span className={`addressCheckPill ${record.addressValidationStatus}`}>{review ? "Review Google match" : "Needs Google check"}</span><small>{review ? "A standardized address is ready to review." : "Open the profile to run address validation now."}</small></td><td><button className={review ? "solidBtn" : "outlineBtn"} onClick={() => onView(kind, record)}>{review ? "Review address" : "Check address"}</button></td></tr>;
     })}</tbody></table></div>}
   </section>;
 }
@@ -1037,6 +1037,7 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
   const [section, setSection] = useState<"overview" | "deliveries" | "schedule" | "profile" | "photos">(initialSection);
   const [addressStatus, setAddressStatus] = useState(record.addressValidationStatus);
   const [displayAddress, setDisplayAddress] = useState(record.address);
+  const [googleFormattedAddress, setGoogleFormattedAddress] = useState(record.formattedAddress);
   const [confirmingAddress, setConfirmingAddress] = useState(false);
   const now = new Date();
   const activeAdditional = availability.filter((window) => new Date(window.startsAt) <= now && new Date(window.endsAt) > now);
@@ -1050,7 +1051,7 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
   const todayPickup = pickupOccurrences.find((pickup) => pickup.serviceDate === adminDateKey(now));
   const sections: Array<"overview" | "deliveries" | "schedule" | "profile" | "photos"> = kind === "pantry" ? ["overview", "deliveries", "schedule", "profile", "photos"] : ["overview", "deliveries", "schedule", "profile"];
   async function acceptStandardizedAddress() {
-    if (!record.formattedAddress || !window.confirm(`Use Google’s standardized address for ${record.name}?\n\n${record.formattedAddress}`)) return;
+    if (!googleFormattedAddress || !window.confirm(`Use Google’s standardized address for ${record.name}?\n\n${googleFormattedAddress}`)) return;
     setConfirmingAddress(true);
     const response = await fetch("/api/admin/address-validation", {
       method: "PATCH",
@@ -1061,10 +1062,33 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
     if (response.ok) {
       setAddressStatus("validated");
       setDisplayAddress(data.record.address);
+      setGoogleFormattedAddress(data.record.formattedAddress ?? "");
       await onChanged();
       setNotice(`${record.name}'s standardized address was confirmed and is now eligible for optimization.`);
     } else {
       setNotice(data?.error ?? "Could not confirm this address.");
+    }
+    setConfirmingAddress(false);
+  }
+  async function validateAddressNow() {
+    setConfirmingAddress(true);
+    const response = await fetch("/api/admin/address-validation", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organizationType: kind, organizationId: record.id, action: "validate_now" }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setAddressStatus(data.record.addressValidationStatus);
+      setGoogleFormattedAddress(data.record.formattedAddress ?? "");
+      if (data.record.addressValidationStatus === "validated") {
+        setNotice(`${record.name}'s address was validated by Google and is now eligible for optimization.`);
+      } else {
+        setNotice(`Google found a standardized address for ${record.name}. Please review it before optimization begins.`);
+      }
+      await onChanged();
+    } else {
+      setNotice(data?.error ?? "Could not validate this address right now.");
     }
     setConfirmingAddress(false);
   }
@@ -1080,13 +1104,20 @@ function AdminPartnerWorkspace({ kind, record, routes, impactPhotos, driverProof
           <div className="adminAddressHeading"><small>ADDRESS</small><span className={`addressStatus ${addressStatus}`}>{addressStatus === "validated" ? "Validated" : addressStatus === "needs_review" ? "Needs review" : "Not yet validated"}</span></div>
           <strong>{displayAddress}</strong>
           {addressStatus === "validated" && <p>This location is eligible for live optimization.</p>}
-          {addressStatus === "unvalidated" && <p>This registered location will be checked during the next address-validation sync and is not yet eligible for optimization.</p>}
+          {addressStatus === "unvalidated" && <div className="addressReviewPanel">
+            <p>This location is not yet eligible for optimization. Run a Google address check now to validate it.</p>
+            <div className="addressReviewActions">
+              <button className="solidBtn" disabled={confirmingAddress} onClick={validateAddressNow}>{confirmingAddress ? "Checking Google…" : "Validate address now"}</button>
+              <button onClick={onEdit}>Edit entered address</button>
+            </div>
+          </div>}
           {addressStatus === "needs_review" && <div className="addressReviewPanel">
             <p>Google found a standardized version that differs from the entered address. Confirm it before this location is used by the optimizer.</p>
             <div><small>ENTERED ADDRESS</small><strong>{record.address}</strong></div>
-            <div><small>GOOGLE STANDARDIZED ADDRESS</small><strong>{record.formattedAddress || "No standardized address returned"}</strong></div>
+            <div><small>GOOGLE STANDARDIZED ADDRESS</small><strong>{googleFormattedAddress || "No standardized address returned"}</strong></div>
             <div className="addressReviewActions">
-              <button className="solidBtn" disabled={confirmingAddress || !record.formattedAddress} onClick={acceptStandardizedAddress}>{confirmingAddress ? "Confirming…" : "Accept standardized address"}</button>
+              <button className="solidBtn" disabled={confirmingAddress || !googleFormattedAddress} onClick={acceptStandardizedAddress}>{confirmingAddress ? "Confirming…" : "Accept standardized address"}</button>
+              <button onClick={validateAddressNow}>Run Google check again</button>
               <button onClick={onEdit}>Edit entered address</button>
             </div>
           </div>}
