@@ -14,9 +14,101 @@ const pins = [
   { label: "St. Anne's", type: "P", left: "63%", top: "77%", color: "#163d2d" },
 ];
 
+const demoSteps = [
+  {
+    id: "windows",
+    label: "1 · Open windows",
+    title: "The network checks who is actually available.",
+    description: "Confirmed bakery pickup windows, pantry receiving windows, and an active driver request are loaded first.",
+    scoreTitle: "Feasible windows",
+    scoreValue: "6 nodes",
+    scoreNote: "2 bakeries · 3 pantries · 1 driver request",
+    visibleRoutes: [],
+    highlightedRoute: null,
+    activeNodeIds: ["bakery-lena", "bakery-harbor", "pantry-moughan", "pantry-north-end", "pantry-roxbury", "driver-eva"],
+  },
+  {
+    id: "feasibility",
+    label: "2 · Feasible candidates",
+    title: "The optimizer removes routes that miss time windows.",
+    description: "Travel time, pickup deadlines, pantry acceptance cutoffs, and service mode constraints trim the possible matches.",
+    scoreTitle: "Feasible candidates",
+    scoreValue: "3 routes",
+    scoreNote: "Every remaining route can be completed on time",
+    visibleRoutes: ["route-a", "route-b", "route-c"],
+    highlightedRoute: null,
+    activeNodeIds: ["bakery-lena", "bakery-harbor", "pantry-moughan", "pantry-north-end", "pantry-roxbury", "driver-eva"],
+  },
+  {
+    id: "scoring",
+    label: "3 · Scoring",
+    title: "Each feasible route gets a score.",
+    description: "Shorter routes, better driver fit, and pantries with fewer recent receiving opportunities rise to the top.",
+    scoreTitle: "Best score",
+    scoreValue: "92.4",
+    scoreNote: "Highest after priority, distance, and waiting penalties are applied",
+    visibleRoutes: ["route-a", "route-b", "route-c"],
+    highlightedRoute: null,
+    activeNodeIds: ["bakery-lena", "bakery-harbor", "pantry-moughan", "pantry-north-end", "pantry-roxbury", "driver-eva"],
+  },
+  {
+    id: "match",
+    label: "4 · Match selected",
+    title: "The top route is offered to the driver.",
+    description: "Lena's Bakery to Moughan Food Pantry is selected because it is fast, feasible, and serves the higher-priority pantry.",
+    scoreTitle: "Chosen route",
+    scoreValue: "Lena → Moughan",
+    scoreNote: "Offer sent to the driver for pickup and drop-off",
+    visibleRoutes: ["route-a", "route-b", "route-c"],
+    highlightedRoute: "route-a",
+    activeNodeIds: ["bakery-lena", "pantry-moughan", "driver-eva"],
+  },
+];
+
+const demoNodes = [
+  { id: "bakery-lena", label: "Lena's Bakery", type: "Bakery", short: "B", left: "21%", top: "56%" },
+  { id: "bakery-harbor", label: "Harbor Bakes", type: "Bakery", short: "B", left: "32%", top: "28%" },
+  { id: "pantry-moughan", label: "Moughan Food Pantry", type: "Pantry", short: "P", left: "72%", top: "41%" },
+  { id: "pantry-north-end", label: "North End Pantry", type: "Pantry", short: "P", left: "76%", top: "21%" },
+  { id: "pantry-roxbury", label: "Roxbury Pantry", type: "Pantry", short: "P", left: "58%", top: "72%" },
+  { id: "driver-eva", label: "Driver request", type: "Driver", short: "D", left: "46%", top: "62%" },
+];
+
+const demoRoutes = [
+  {
+    id: "route-a",
+    label: "Candidate A",
+    bakery: "Lena's Bakery",
+    pantry: "Moughan Food Pantry",
+    drive: "3.2 mi",
+    score: "92.4",
+    points: "21,56 46,62 72,41",
+  },
+  {
+    id: "route-b",
+    label: "Candidate B",
+    bakery: "Harbor Bakes",
+    pantry: "North End Pantry",
+    drive: "4.8 mi",
+    score: "77.1",
+    points: "32,28 46,62 76,21",
+  },
+  {
+    id: "route-c",
+    label: "Candidate C",
+    bakery: "Lena's Bakery",
+    pantry: "Roxbury Pantry",
+    drive: "5.1 mi",
+    score: "71.6",
+    points: "21,56 46,62 58,72",
+  },
+];
+
 export default function Home() {
   const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0, averagePantriesHelpedPerDay: 0 });
+  const [demoStepIndex, setDemoStepIndex] = useState(0);
   const scrollToModel = () => document.getElementById("model")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const activeDemoStep = demoSteps[demoStepIndex];
 
   useEffect(() => { void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); }); }, []);
 
@@ -144,6 +236,91 @@ export default function Home() {
           <div className="modelDetails"><div><strong>What is minimized</strong><p>Total predicted driving time and distance, with penalties for routes that approach pickup deadlines or a pantry’s latest permitted arrival.</p></div><div><strong>How a route is scored</strong><p>Feasible routes receive higher scores when they are short, fit a driver’s requested time and direction, and serve a pantry that has received fewer recent delivery opportunities.</p></div><div><strong>Hard constraints</strong><p>Every route must reach the bakery before its pickup deadline, reach the pantry before its acceptance cutoff, use an open and confirmed staffed pantry window (or unattended window), and assign a bakery pickup only once.</p></div><div><strong>Live inputs</strong><p>Google travel estimates, partner coordinates, recurring and one-time availability, driver origin/destination preferences, and rolling pantry priority data update the available network.</p></div></div>
           <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li></ul>
           <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
+        </div>
+        <div className="demoSection">
+          <div className="demoIntro">
+            <span className="kicker light">LIVE MATCH WALKTHROUGH</span>
+            <h3>See a delivery get matched in four steps.</h3>
+            <p>This demo mirrors a real BakedBoston route: Lena's Bakery, Moughan Food Pantry, and a nearby driver request.</p>
+          </div>
+          <div className="demoStepTabs" role="tablist" aria-label="Optimization demo steps">
+            {demoSteps.map((step, index) => (
+              <button
+                key={step.id}
+                type="button"
+                className={index === demoStepIndex ? "active" : ""}
+                aria-pressed={index === demoStepIndex}
+                onClick={() => setDemoStepIndex(index)}
+              >
+                {step.label}
+              </button>
+            ))}
+          </div>
+          <div className="demoBoard">
+            <div className="demoMap">
+              <div className="demoMapHeader">
+                <span>Boston delivery network</span>
+                <small>{activeDemoStep.scoreTitle}: {activeDemoStep.scoreValue}</small>
+              </div>
+              <div className="demoMapCanvas">
+                <div className="demoWater" />
+                <div className="demoPark" />
+                <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  {demoRoutes.filter((route) => activeDemoStep.visibleRoutes.includes(route.id)).map((route) => {
+                    const isChosen = activeDemoStep.highlightedRoute === route.id;
+                    return (
+                      <polyline
+                        key={route.id}
+                        points={route.points}
+                        className={isChosen ? "chosen" : "candidate"}
+                      />
+                    );
+                  })}
+                </svg>
+                {demoNodes.map((node) => (
+                  <div
+                    key={node.id}
+                    className={`demoNode demoNode${node.type} ${activeDemoStep.activeNodeIds.includes(node.id) ? "isActive" : ""}`}
+                    style={{ left: node.left, top: node.top }}
+                  >
+                    <span className="demoNodePin">{node.short}</span>
+                    <div className="demoNodeLabel">
+                      <strong>{node.label}</strong>
+                      <small>{node.type}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="demoSidebar">
+              <div className="demoStepCard">
+                <small>{activeDemoStep.label}</small>
+                <h4>{activeDemoStep.title}</h4>
+                <p>{activeDemoStep.description}</p>
+              </div>
+              <div className="demoScoreCard">
+                <span>Route score</span>
+                <strong>{activeDemoStep.scoreValue}</strong>
+                <p>{activeDemoStep.scoreNote}</p>
+              </div>
+              <div className="demoCandidateList">
+                {demoRoutes.filter((route) => activeDemoStep.visibleRoutes.includes(route.id)).map((route) => {
+                  const isChosen = activeDemoStep.highlightedRoute === route.id;
+                  return (
+                    <div key={route.id} className={`demoCandidate ${isChosen ? "isChosen" : ""}`}>
+                      <div className="demoCandidateTop">
+                        <b>{route.label}</b>
+                        <span>{route.score}</span>
+                      </div>
+                      <p><strong>Bakery:</strong> {route.bakery}</p>
+                      <p><strong>Pantry:</strong> {route.pantry}</p>
+                      <small>{route.drive} route distance</small>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
