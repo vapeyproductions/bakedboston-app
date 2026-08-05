@@ -217,7 +217,7 @@ export async function GET() {
     const score = Number((priority - distanceMiles * 7.4 - waitingPenalty - destinationPenalty).toFixed(1));
     return {
       id: `route-${String.fromCharCode(97 + index)}`,
-      label: `Candidate ${String.fromCharCode(65 + index)}`,
+      label: String.fromCharCode(65 + index),
       bakery: featuredBakery.name,
       pantry: pantry.name,
       drive: `${distanceMiles.toFixed(1)} mi`,

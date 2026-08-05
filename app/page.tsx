@@ -203,9 +203,7 @@ export default function Home() {
   const activeNodeIds = activeDemoStep.id === "network"
     ? demoData.nodes.map((node) => node.id)
     : demoData.nodes.filter((node) => !node.isClosed).map((node) => node.id);
-  const activeRoutes = activeDemoStep.id === "scoring" || activeDemoStep.id === "match"
-    ? demoData.candidates.map((route) => route.id)
-    : [];
+  const activeRoutes = demoData.candidates.map((route) => route.id);
   const visibleCandidates = demoData.candidates.filter((route) => activeRoutes.includes(route.id));
   const selectedCandidate = demoData.candidates.find((route) => route.id === chosenRouteId) ?? null;
 
@@ -378,12 +376,21 @@ export default function Home() {
                 <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                   {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
                     const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                    const points = route.points.split(" ").map((point) => point.split(",").map(Number));
+                    const [, mid, end] = points;
+                    const labelX = Math.max(8, Math.min(92, ((mid?.[0] ?? 0) + (end?.[0] ?? 0)) / 2));
+                    const labelY = Math.max(8, Math.min(92, ((mid?.[1] ?? 0) + (end?.[1] ?? 0)) / 2 - 3));
                     return (
-                      <polyline
-                        key={route.id}
-                        points={route.points}
-                        className={isChosen ? "chosen" : "candidate"}
-                      />
+                      <g key={route.id}>
+                        <polyline
+                          points={route.points}
+                          className={isChosen ? "chosen" : "candidate"}
+                        />
+                        <g className={`demoRouteTag ${isChosen ? "isChosen" : ""}`} transform={`translate(${labelX} ${labelY})`}>
+                          <rect x="-3.5" y="-3.1" width="7" height="6.2" rx="1.5" ry="1.5" />
+                          <text textAnchor="middle" dominantBaseline="central">{route.label}</text>
+                        </g>
+                      </g>
                     );
                   })}
                 </svg>
