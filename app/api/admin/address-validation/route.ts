@@ -12,40 +12,53 @@ type GoogleValidationResult = {
   addressValidationStatus: "validated" | "needs_review";
 };
 
-async function validateAddressWithGoogle(address: string): Promise<GoogleValidationResult | null> {
-  const apiKey = process.env.GOOGLE_ROUTES_API_KEY;
-  if (!apiKey) return null;
+type GoogleValidationResponse =
+  | { ok: true; result: GoogleValidationResult }
+  | { ok: false; error: string };
+
+async function validateAddressWithGoogle(address: string): Promise<GoogleValidationResponse> {
+  const apiKey = process.env.GOOGLE_GEOCODING_API_KEY || process.env.GOOGLE_ROUTES_API_KEY;
+  if (!apiKey) return { ok: false, error: "Google geocoding is not configured on the server." };
   try {
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
     url.searchParams.set("address", address);
     url.searchParams.set("key", apiKey);
     const response = await fetch(url, { signal: AbortSignal.timeout(8_000) });
-    if (!response.ok) return null;
+    if (!response.ok) return { ok: false, error: `Google geocoding returned HTTP ${response.status}.` };
     const data = await response.json() as {
       status?: string;
+      error_message?: string;
       results?: Array<{
         formatted_address?: string;
         place_id?: string;
         geometry?: { location?: { lat?: number; lng?: number } };
       }>;
     };
-    if (data.status !== "OK") return null;
+    if (data.status !== "OK") {
+      const suffix = data.error_message ? ` ${data.error_message}` : "";
+      return { ok: false, error: `Google geocoding returned ${data.status}.${suffix}`.trim() };
+    }
     const first = data.results?.[0];
     const formattedAddress = first?.formatted_address?.trim() ?? "";
     const googlePlaceId = first?.place_id?.trim() ?? "";
     const latitude = Number(first?.geometry?.location?.lat);
     const longitude = Number(first?.geometry?.location?.lng);
-    if (!formattedAddress || !googlePlaceId || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    if (!formattedAddress || !googlePlaceId || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return { ok: false, error: "Google returned an incomplete address result." };
+    }
     const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
     return {
-      formattedAddress,
-      googlePlaceId,
-      latitude,
-      longitude,
-      addressValidationStatus: normalize(formattedAddress) === normalize(address) ? "validated" : "needs_review",
+      ok: true,
+      result: {
+        formattedAddress,
+        googlePlaceId,
+        latitude,
+        longitude,
+        addressValidationStatus: normalize(formattedAddress) === normalize(address) ? "validated" : "needs_review",
+      },
     };
   } catch {
-    return null;
+    return { ok: false, error: "Google geocoding timed out or could not be reached." };
   }
 }
 
@@ -71,16 +84,16 @@ export async function PATCH(request: Request) {
 
   if (action === "validate_now") {
     const result = await validateAddressWithGoogle(existing.address);
-    if (!result) {
-      return Response.json({ error: "Google could not validate this address right now. Please try again in a moment." }, { status: 502 });
+    if (!result.ok) {
+      return Response.json({ error: result.error }, { status: 502 });
     }
 
     const [record] = await db.update(table).set({
-      formattedAddress: result.formattedAddress,
-      googlePlaceId: result.googlePlaceId,
-      latitude: result.latitude,
-      longitude: result.longitude,
-      addressValidationStatus: result.addressValidationStatus,
+      formattedAddress: result.result.formattedAddress,
+      googlePlaceId: result.result.googlePlaceId,
+      latitude: result.result.latitude,
+      longitude: result.result.longitude,
+      addressValidationStatus: result.result.addressValidationStatus,
     }).where(eq(table.id, organizationId)).returning();
 
     await writeAudit({
@@ -91,7 +104,7 @@ export async function PATCH(request: Request) {
       entityType: organizationType,
       entityId: organizationId,
       entityName: existing.name,
-      details: `${existing.address} → ${result.formattedAddress} (${result.addressValidationStatus})`,
+      details: `${existing.address} → ${result.result.formattedAddress} (${result.result.addressValidationStatus})`,
     });
 
     return Response.json({ record });
