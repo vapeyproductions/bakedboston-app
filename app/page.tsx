@@ -53,6 +53,61 @@ type DemoDataset = {
   liveRouteContext: string;
 };
 
+type DemoPoint = { x: number; y: number };
+
+function parseDemoRoutePoints(points: string): [DemoPoint, DemoPoint, DemoPoint] | null {
+  const parsed = points.trim().split(/\s+/).map((pair) => {
+    const [x, y] = pair.split(",").map(Number);
+    return { x, y };
+  });
+
+  if (parsed.length !== 3 || parsed.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+    return null;
+  }
+
+  return parsed as [DemoPoint, DemoPoint, DemoPoint];
+}
+
+function quadraticControl(start: DemoPoint, end: DemoPoint, bend: number): DemoPoint {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(Math.hypot(dx, dy), 0.001);
+
+  return {
+    x: (start.x + end.x) / 2 - (dy / length) * bend,
+    y: (start.y + end.y) / 2 + (dx / length) * bend,
+  };
+}
+
+function quadraticPoint(start: DemoPoint, control: DemoPoint, end: DemoPoint, t: number): DemoPoint {
+  const remaining = 1 - t;
+  return {
+    x: remaining * remaining * start.x + 2 * remaining * t * control.x + t * t * end.x,
+    y: remaining * remaining * start.y + 2 * remaining * t * control.y + t * t * end.y,
+  };
+}
+
+function getDemoRouteGeometry(route: DemoRoute) {
+  const points = parseDemoRoutePoints(route.points);
+  if (!points) {
+    return { path: "", badgeLeft: route.labelLeft, badgeTop: route.labelTop };
+  }
+
+  const [driver, bakery, pantry] = points;
+  const routeIndex = Math.max(0, route.label.charCodeAt(0) - 65);
+  const firstLegBends = [-5.5, 5.5, 0];
+  const secondLegBends = [-2.25, 2.25, -1.5];
+  const firstControl = quadraticControl(driver, bakery, firstLegBends[routeIndex] ?? 0);
+  const secondControl = quadraticControl(bakery, pantry, secondLegBends[routeIndex] ?? 0);
+  const badgePoint = quadraticPoint(bakery, secondControl, pantry, 0.52);
+
+  return {
+    path: `M ${driver.x} ${driver.y} Q ${firstControl.x.toFixed(2)} ${firstControl.y.toFixed(2)} ${bakery.x} ${bakery.y} Q ${secondControl.x.toFixed(2)} ${secondControl.y.toFixed(2)} ${pantry.x} ${pantry.y}`,
+    badgeLeft: `${badgePoint.x.toFixed(2)}%`,
+    badgeTop: `${badgePoint.y.toFixed(2)}%`,
+  };
+}
+
 const pins = [
   { label: "Flour & Field", type: "B", left: "18%", top: "28%", color: "#ef6548" },
   { label: "Harbor Pantry", type: "P", left: "67%", top: "18%", color: "#163d2d" },
@@ -156,7 +211,7 @@ const fallbackDemoRoutes: DemoRoute[] = [
     priority: 100,
     waitingPenalty: 8,
     destinationPenalty: 6,
-    points: "21,56 43,60 72,41",
+    points: "46,62 21,56 72,41",
     labelLeft: "48%",
     labelTop: "40%",
   },
@@ -171,7 +226,7 @@ const fallbackDemoRoutes: DemoRoute[] = [
     priority: 50,
     waitingPenalty: 10,
     destinationPenalty: 7.5,
-    points: "32,28 49,54 76,21",
+    points: "46,62 32,28 76,21",
     labelLeft: "60%",
     labelTop: "28%",
   },
@@ -186,7 +241,7 @@ const fallbackDemoRoutes: DemoRoute[] = [
     priority: 33.3,
     waitingPenalty: 12,
     destinationPenalty: 9,
-    points: "21,56 47,69 58,72",
+    points: "46,62 21,56 58,72",
     labelLeft: "44%",
     labelTop: "70%",
   },
@@ -386,11 +441,13 @@ export default function Home() {
                 <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                   {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
                     const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                    const geometry = getDemoRouteGeometry(route);
                     return (
-                      <polyline
+                      <path
                         key={route.id}
-                        points={route.points}
-                        className={isChosen ? "chosen" : `candidate candidate${route.label}`}
+                        d={geometry.path}
+                        vectorEffect="non-scaling-stroke"
+                        className={`${isChosen ? "chosen" : `candidate candidate${route.label}`} ${activeDemoStep.id === "match" && !isChosen ? "isDimmed" : ""}`}
                       />
                     );
                   })}
@@ -399,11 +456,12 @@ export default function Home() {
                   .filter((route) => activeRoutes.includes(route.id))
                   .map((route) => {
                     const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                    const geometry = getDemoRouteGeometry(route);
                     return (
                       <div
                         key={`${route.id}-badge`}
-                        className={`demoRouteBadge ${isChosen ? "isChosen" : ""}`}
-                        style={{ left: route.labelLeft, top: route.labelTop }}
+                        className={`demoRouteBadge demoRouteBadge${route.label} ${isChosen ? "isChosen" : ""} ${activeDemoStep.id === "match" && !isChosen ? "isDimmed" : ""}`}
+                        style={{ left: geometry.badgeLeft, top: geometry.badgeTop }}
                         aria-hidden="true"
                       >
                         {route.label}
