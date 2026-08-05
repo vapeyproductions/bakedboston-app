@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
-import { getDb } from "../../../../../db";
-import { bakeries, pantries, partnerAccounts, rescueRoutes } from "../../../../../db/schema";
+import { getDb } from "../../../../db";
+import { bakeries, pantries, partnerAccounts, rescueRoutes } from "../../../../db/schema";
 
 type DemoNode = {
   id: string;
