@@ -374,26 +374,33 @@ export default function Home() {
                 <div className="demoWater" />
                 <div className="demoPark" />
                 <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                  {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route, routeIndex) => {
+                  {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
                     const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                    const points = route.points.split(" ").map((point) => point.split(",").map(Number));
-                    const [, mid, end] = points;
-                    const labelX = Math.max(8, Math.min(92, ((mid?.[0] ?? 0) + (end?.[0] ?? 0)) / 2));
-                    const labelY = Math.max(8, Math.min(92, ((mid?.[1] ?? 0) + (end?.[1] ?? 0)) / 2 - 3 + (routeIndex - 1) * 4.5));
                     return (
-                      <g key={route.id}>
-                        <polyline
-                          points={route.points}
-                          className={isChosen ? "chosen" : "candidate"}
-                        />
-                        <g className={`demoRouteTag ${isChosen ? "isChosen" : ""}`} transform={`translate(${labelX} ${labelY})`}>
-                          <rect x="-2.6" y="-2.4" width="5.2" height="4.8" rx="1.2" ry="1.2" />
-                          <text textAnchor="middle" dominantBaseline="central">{route.label}</text>
-                        </g>
-                      </g>
+                      <polyline
+                        key={route.id}
+                        points={route.points}
+                        className={isChosen ? "chosen" : `candidate candidate${route.label}`}
+                      />
                     );
                   })}
                 </svg>
+                {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route, routeIndex) => {
+                  const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                  const points = route.points.split(" ").map((point) => point.split(",").map(Number));
+                  const [, mid, end] = points;
+                  const labelX = Math.max(10, Math.min(90, ((mid?.[0] ?? 0) * 0.62) + ((end?.[0] ?? 0) * 0.38)));
+                  const labelY = Math.max(12, Math.min(88, ((mid?.[1] ?? 0) * 0.58) + ((end?.[1] ?? 0) * 0.42) - 7 + (routeIndex - 1) * 8));
+                  return (
+                    <div
+                      key={`${route.id}-badge`}
+                      className={`demoRouteBadge ${isChosen ? "isChosen" : ""}`}
+                      style={{ left: `${labelX}%`, top: `${labelY}%` }}
+                    >
+                      {route.label}
+                    </div>
+                  );
+                })}
                 {demoData.nodes.map((node) => (
                   <div
                     key={node.id}
