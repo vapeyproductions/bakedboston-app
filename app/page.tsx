@@ -395,19 +395,24 @@ export default function Home() {
                     );
                   })}
                 </svg>
-                {demoData.nodes.map((node) => (
-                  <div
-                    key={node.id}
-                    className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""} ${node.isClosed && activeDemoStep.id === "network" ? "isClosed" : ""} ${node.isClosed && activeDemoStep.id !== "network" ? "isHidden" : ""}`}
-                    style={{ left: node.left, top: node.top }}
-                  >
-                    <span className="demoNodePin">{node.short}</span>
-                    <div className="demoNodeLabel">
-                      <strong>{node.label}</strong>
-                      <small>{node.type}</small>
+                {demoData.nodes.map((node) => {
+                  const revealLabelOnHover = node.type === "Bakery" || node.type === "Pantry";
+
+                  return (
+                    <div
+                      key={node.id}
+                      className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""} ${node.isClosed && activeDemoStep.id === "network" ? "isClosed" : ""} ${node.isClosed && activeDemoStep.id !== "network" ? "isHidden" : ""}`}
+                      style={{ left: node.left, top: node.top }}
+                      title={revealLabelOnHover ? node.label : undefined}
+                    >
+                      <span className="demoNodePin">{node.short}</span>
+                      <div className={`demoNodeLabel ${revealLabelOnHover ? "demoNodeLabelHover" : ""}`}>
+                        <strong>{node.label}</strong>
+                        <small>{node.type}</small>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             <div className="demoSidebar">
