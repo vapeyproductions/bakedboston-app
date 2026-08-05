@@ -192,15 +192,6 @@ export async function GET() {
       top: driverPosition.top,
     },
     {
-      id: "closed-bakery",
-      label: "Closed bakery",
-      type: "Bakery",
-      short: "🥖",
-      left: closedBakeryPosition.left,
-      top: closedBakeryPosition.top,
-      isClosed: true,
-    },
-    {
       id: "closed-pantry",
       label: "Closed pantry",
       type: "Pantry",

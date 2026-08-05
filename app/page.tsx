@@ -140,7 +140,6 @@ const fallbackDemoNodes: DemoNode[] = [
   { id: "pantry-north-end", label: "North End Pantry", type: "Pantry", short: "🥫", left: "76%", top: "21%" },
   { id: "pantry-roxbury", label: "Roxbury Pantry", type: "Pantry", short: "🥫", left: "58%", top: "72%" },
   { id: "driver-request", label: "Driver request", type: "Driver", short: "🚗", left: "46%", top: "62%" },
-  { id: "closed-bakery", label: "Closed bakery", type: "Bakery", short: "🥖", left: "12%", top: "20%", isClosed: true },
   { id: "closed-pantry", label: "Closed pantry", type: "Pantry", short: "🥫", left: "83%", top: "78%", isClosed: true },
 ];
 
@@ -395,18 +394,6 @@ export default function Home() {
                     );
                   })}
                 </svg>
-                {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
-                  const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
-                  return (
-                    <div
-                      key={`${route.id}-badge`}
-                      className={`demoRouteBadge ${isChosen ? "isChosen" : ""}`}
-                      style={{ left: route.labelLeft, top: route.labelTop }}
-                    >
-                      {route.label}
-                    </div>
-                  );
-                })}
                 {demoData.nodes.map((node) => (
                   <div
                     key={node.id}
