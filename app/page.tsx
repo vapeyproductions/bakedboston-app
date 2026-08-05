@@ -145,7 +145,7 @@ const fallbackDemoNodes: DemoNode[] = [
 const fallbackDemoRoutes: DemoRoute[] = [
   {
     id: "route-a",
-    label: "Candidate A",
+    label: "A",
     bakery: "Lena's Bakery",
     pantry: "Moughan Food Pantry",
     drive: "3.2 mi",
@@ -154,11 +154,11 @@ const fallbackDemoRoutes: DemoRoute[] = [
     priority: 100,
     waitingPenalty: 8,
     destinationPenalty: 6,
-    points: "21,56 46,62 72,41",
+    points: "21,56 43,60 72,41",
   },
   {
     id: "route-b",
-    label: "Candidate B",
+    label: "B",
     bakery: "Harbor Bakes",
     pantry: "North End Pantry",
     drive: "4.8 mi",
@@ -167,11 +167,11 @@ const fallbackDemoRoutes: DemoRoute[] = [
     priority: 50,
     waitingPenalty: 10,
     destinationPenalty: 7.5,
-    points: "32,28 46,62 76,21",
+    points: "32,28 49,54 76,21",
   },
   {
     id: "route-c",
-    label: "Candidate C",
+    label: "C",
     bakery: "Lena's Bakery",
     pantry: "Roxbury Pantry",
     drive: "5.1 mi",
@@ -180,7 +180,7 @@ const fallbackDemoRoutes: DemoRoute[] = [
     priority: 33.3,
     waitingPenalty: 12,
     destinationPenalty: 9,
-    points: "21,56 46,62 58,72",
+    points: "21,56 47,69 58,72",
   },
 ];
 
@@ -374,12 +374,12 @@ export default function Home() {
                 <div className="demoWater" />
                 <div className="demoPark" />
                 <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                  {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
+                  {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route, routeIndex) => {
                     const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
                     const points = route.points.split(" ").map((point) => point.split(",").map(Number));
                     const [, mid, end] = points;
                     const labelX = Math.max(8, Math.min(92, ((mid?.[0] ?? 0) + (end?.[0] ?? 0)) / 2));
-                    const labelY = Math.max(8, Math.min(92, ((mid?.[1] ?? 0) + (end?.[1] ?? 0)) / 2 - 3));
+                    const labelY = Math.max(8, Math.min(92, ((mid?.[1] ?? 0) + (end?.[1] ?? 0)) / 2 - 3 + (routeIndex - 1) * 4.5));
                     return (
                       <g key={route.id}>
                         <polyline
@@ -387,7 +387,7 @@ export default function Home() {
                           className={isChosen ? "chosen" : "candidate"}
                         />
                         <g className={`demoRouteTag ${isChosen ? "isChosen" : ""}`} transform={`translate(${labelX} ${labelY})`}>
-                          <rect x="-3.5" y="-3.1" width="7" height="6.2" rx="1.5" ry="1.5" />
+                          <rect x="-2.6" y="-2.4" width="5.2" height="4.8" rx="1.2" ry="1.2" />
                           <text textAnchor="middle" dominantBaseline="central">{route.label}</text>
                         </g>
                       </g>

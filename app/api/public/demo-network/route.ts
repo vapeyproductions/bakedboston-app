@@ -226,7 +226,7 @@ export async function GET() {
       priority,
       waitingPenalty,
       destinationPenalty,
-      points: `${clamp(bakeryLeft, 6, 94)},${clamp(bakeryTop, 6, 94)} ${clamp(driverLeft, 6, 94)},${clamp(driverTop, 6, 94)} ${clamp(pantryLeft, 6, 94)},${clamp(pantryTop, 6, 94)}`,
+      points: `${clamp(bakeryLeft, 6, 94)},${clamp(bakeryTop, 6, 94)} ${clamp(driverLeft + [-3, 1.5, 4][index], 6, 94)},${clamp(driverTop + [-3, -7, 6][index], 6, 94)} ${clamp(pantryLeft, 6, 94)},${clamp(pantryTop, 6, 94)}`,
     };
   });
 
