@@ -196,8 +196,8 @@ export async function GET() {
       label: "North Station Bakes",
       type: "Bakery",
       short: "🥖",
-      left: "17%",
-      top: "18%",
+      left: "8%",
+      top: "10%",
       isClosed: true,
     },
     {
@@ -205,8 +205,8 @@ export async function GET() {
       label: "Harbor Shelf Pantry",
       type: "Pantry",
       short: "🥫",
-      left: "86%",
-      top: "80%",
+      left: "93%",
+      top: "90%",
       isClosed: true,
     },
   ];

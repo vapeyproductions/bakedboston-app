@@ -140,8 +140,8 @@ const fallbackDemoNodes: DemoNode[] = [
   { id: "pantry-north-end", label: "North End Pantry", type: "Pantry", short: "🥫", left: "76%", top: "21%" },
   { id: "pantry-roxbury", label: "Roxbury Pantry", type: "Pantry", short: "🥫", left: "58%", top: "72%" },
   { id: "driver-request", label: "Driver request", type: "Driver", short: "🚗", left: "46%", top: "62%" },
-  { id: "closed-bakery", label: "North Station Bakes", type: "Bakery", short: "🥖", left: "17%", top: "18%", isClosed: true },
-  { id: "closed-pantry", label: "Harbor Shelf Pantry", type: "Pantry", short: "🥫", left: "86%", top: "80%", isClosed: true },
+  { id: "closed-bakery", label: "North Station Bakes", type: "Bakery", short: "🥖", left: "8%", top: "10%", isClosed: true },
+  { id: "closed-pantry", label: "Harbor Shelf Pantry", type: "Pantry", short: "🥫", left: "93%", top: "90%", isClosed: true },
 ];
 
 const fallbackDemoRoutes: DemoRoute[] = [
