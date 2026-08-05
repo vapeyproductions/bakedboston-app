@@ -395,6 +395,21 @@ export default function Home() {
                     );
                   })}
                 </svg>
+                {demoData.candidates
+                  .filter((route) => activeRoutes.includes(route.id))
+                  .map((route) => {
+                    const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
+                    return (
+                      <div
+                        key={`${route.id}-badge`}
+                        className={`demoRouteBadge ${isChosen ? "isChosen" : ""}`}
+                        style={{ left: route.labelLeft, top: route.labelTop }}
+                        aria-hidden="true"
+                      >
+                        {route.label}
+                      </div>
+                    );
+                  })}
                 {demoData.nodes.map((node) => {
                   const revealLabelOnHover = node.type === "Bakery" || node.type === "Pantry";
 
