@@ -5,6 +5,52 @@ import { useEffect, useState } from "react";
 const APP_STORE_URL = "https://apps.apple.com/us/app/bakedboston/id6795673575";
 const APP_STORE_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(APP_STORE_URL)}`;
 
+type DemoStep = {
+  id: string;
+  label: string;
+  title: string;
+  description: string;
+  scoreTitle: string;
+  scoreValue: string;
+  scoreNote: string;
+  mipTitle: string;
+  mipBody: string;
+  mipLines: string[];
+  mipEquation: string;
+};
+
+type DemoNode = {
+  id: string;
+  label: string;
+  type: "Bakery" | "Pantry" | "Driver";
+  short: string;
+  left: string;
+  top: string;
+  isClosed?: boolean;
+};
+
+type DemoRoute = {
+  id: string;
+  label: string;
+  bakery: string;
+  pantry: string;
+  drive: string;
+  score: string;
+  distanceMiles: number;
+  priority: number;
+  waitingPenalty: number;
+  destinationPenalty: number;
+  points: string;
+};
+
+type DemoDataset = {
+  nodes: DemoNode[];
+  candidates: DemoRoute[];
+  highlightedRouteId: string | null;
+  liveRouteLabel: string;
+  liveRouteContext: string;
+};
+
 const pins = [
   { label: "Flour & Field", type: "B", left: "18%", top: "28%", color: "#ef6548" },
   { label: "Harbor Pantry", type: "P", left: "67%", top: "18%", color: "#163d2d" },
@@ -14,67 +60,89 @@ const pins = [
   { label: "St. Anne's", type: "P", left: "63%", top: "77%", color: "#163d2d" },
 ];
 
-const demoSteps = [
+const demoSteps: DemoStep[] = [
   {
-    id: "windows",
-    label: "1 · Open windows",
-    title: "The network checks who is actually available.",
-    description: "Confirmed bakery pickup windows, pantry receiving windows, and an active driver request are loaded first.",
-    scoreTitle: "Feasible windows",
-    scoreValue: "6 nodes",
-    scoreNote: "2 bakeries · 3 pantries · 1 driver request",
-    visibleRoutes: [],
-    highlightedRoute: null,
-    activeNodeIds: ["bakery-lena", "bakery-harbor", "pantry-moughan", "pantry-north-end", "pantry-roxbury", "driver-eva"],
+    id: "network",
+    label: "1 · Full network",
+    title: "Start with the current registered bakery and pantry network.",
+    description: "The map begins with all active partner locations plus a few closed examples, so the pruning step is visible before scoring starts.",
+    scoreTitle: "Map status",
+    scoreValue: "Full network",
+    scoreNote: "Real partner locations stay in play while closed examples are removed",
+    mipTitle: "Decision variables",
+    mipBody: "The mixed-integer model starts by defining a binary variable for every bakery–pantry–driver assignment that could possibly exist.",
+    mipLines: [
+      "x[b,p,d] = 1 if bakery b is assigned to pantry p and driver d",
+      "x[b,p,d] = 0 otherwise",
+      "Only feasible assignments move forward to screening",
+    ],
+    mipEquation: "x[b,p,d] ∈ {0,1}",
   },
   {
-    id: "feasibility",
-    label: "2 · Feasible candidates",
-    title: "The optimizer removes routes that miss time windows.",
-    description: "Travel time, pickup deadlines, pantry acceptance cutoffs, and service mode constraints trim the possible matches.",
-    scoreTitle: "Feasible candidates",
-    scoreValue: "3 routes",
-    scoreNote: "Every remaining route can be completed on time",
-    visibleRoutes: ["route-a", "route-b", "route-c"],
-    highlightedRoute: null,
-    activeNodeIds: ["bakery-lena", "bakery-harbor", "pantry-moughan", "pantry-north-end", "pantry-roxbury", "driver-eva"],
+    id: "windows",
+    label: "2 · Open windows",
+    title: "Closed locations disappear before route generation.",
+    description: "The optimizer filters out partners with closed or expired windows, leaving only locations that can still participate right now.",
+    scoreTitle: "Feasibility screen",
+    scoreValue: "Window filter",
+    scoreNote: "Closed examples are removed before the candidate routes are built",
+    mipTitle: "Hard constraints",
+    mipBody: "Any assignment that violates time windows or service rules is forced to 0 and removed from the model.",
+    mipLines: [
+      "Bakery must be confirmed and available",
+      "Pantry must be open and receiving",
+      "Travel must fit pickup and delivery deadlines",
+    ],
+    mipEquation: "x[b,p,d] = 0 for any route that violates a time window",
   },
   {
     id: "scoring",
     label: "3 · Scoring",
     title: "Each feasible route gets a score.",
-    description: "Shorter routes, better driver fit, and pantries with fewer recent receiving opportunities rise to the top.",
-    scoreTitle: "Best score",
-    scoreValue: "92.4",
-    scoreNote: "Highest after priority, distance, and waiting penalties are applied",
-    visibleRoutes: ["route-a", "route-b", "route-c"],
-    highlightedRoute: null,
-    activeNodeIds: ["bakery-lena", "bakery-harbor", "pantry-moughan", "pantry-north-end", "pantry-roxbury", "driver-eva"],
+    description: "The remaining routes are scored using pantry priority, travel distance, waiting time, and driver route fit.",
+    scoreTitle: "Candidate scores",
+    scoreValue: "Live scoring",
+    scoreNote: "High-priority pantries earn a boost, while longer or less efficient routes fall down the list",
+    mipTitle: "Objective",
+    mipBody: "The model maximizes route quality while penalizing wasted driving and poor timing fit.",
+    mipLines: [
+      "reward pantry priority",
+      "penalize drive time and waiting",
+      "penalize poor destination fit for the driver",
+    ],
+    mipEquation: "maximize  priority − drive − wait − destination mismatch",
   },
   {
     id: "match",
     label: "4 · Match selected",
-    title: "The top route is offered to the driver.",
-    description: "Lena's Bakery to Moughan Food Pantry is selected because it is fast, feasible, and serves the higher-priority pantry.",
+    title: "The highest-scoring feasible route becomes the match.",
+    description: "One assignment is selected and offered to the driver, while the other candidate routes stay at zero and fall away.",
     scoreTitle: "Chosen route",
-    scoreValue: "Lena → Moughan",
-    scoreNote: "Offer sent to the driver for pickup and drop-off",
-    visibleRoutes: ["route-a", "route-b", "route-c"],
-    highlightedRoute: "route-a",
-    activeNodeIds: ["bakery-lena", "pantry-moughan", "driver-eva"],
+    scoreValue: "Selected match",
+    scoreNote: "One pickup, one pantry, one driver assignment",
+    mipTitle: "Binary choice",
+    mipBody: "At the end of the solve, one assignment flips to 1 and every competing assignment remains 0.",
+    mipLines: [
+      "selected assignment = 1",
+      "all other candidates = 0",
+      "the chosen bakery pickup is removed from the pool",
+    ],
+    mipEquation: "Σ x[b,p,d] ≤ 1 for each bakery pickup window",
   },
 ];
 
-const demoNodes = [
-  { id: "bakery-lena", label: "Lena's Bakery", type: "Bakery", short: "B", left: "21%", top: "56%" },
-  { id: "bakery-harbor", label: "Harbor Bakes", type: "Bakery", short: "B", left: "32%", top: "28%" },
-  { id: "pantry-moughan", label: "Moughan Food Pantry", type: "Pantry", short: "P", left: "72%", top: "41%" },
-  { id: "pantry-north-end", label: "North End Pantry", type: "Pantry", short: "P", left: "76%", top: "21%" },
-  { id: "pantry-roxbury", label: "Roxbury Pantry", type: "Pantry", short: "P", left: "58%", top: "72%" },
-  { id: "driver-eva", label: "Driver request", type: "Driver", short: "D", left: "46%", top: "62%" },
+const fallbackDemoNodes: DemoNode[] = [
+  { id: "bakery-lena", label: "Lena's Bakery", type: "Bakery", short: "🥖", left: "21%", top: "56%" },
+  { id: "bakery-harbor", label: "Harbor Bakes", type: "Bakery", short: "🥖", left: "32%", top: "28%" },
+  { id: "pantry-moughan", label: "Moughan Food Pantry", type: "Pantry", short: "🥫", left: "72%", top: "41%" },
+  { id: "pantry-north-end", label: "North End Pantry", type: "Pantry", short: "🥫", left: "76%", top: "21%" },
+  { id: "pantry-roxbury", label: "Roxbury Pantry", type: "Pantry", short: "🥫", left: "58%", top: "72%" },
+  { id: "driver-request", label: "Driver request", type: "Driver", short: "🚗", left: "46%", top: "62%" },
+  { id: "closed-bakery", label: "Closed bakery", type: "Bakery", short: "🥖", left: "12%", top: "20%", isClosed: true },
+  { id: "closed-pantry", label: "Closed pantry", type: "Pantry", short: "🥫", left: "83%", top: "78%", isClosed: true },
 ];
 
-const demoRoutes = [
+const fallbackDemoRoutes: DemoRoute[] = [
   {
     id: "route-a",
     label: "Candidate A",
@@ -82,6 +150,10 @@ const demoRoutes = [
     pantry: "Moughan Food Pantry",
     drive: "3.2 mi",
     score: "92.4",
+    distanceMiles: 3.2,
+    priority: 100,
+    waitingPenalty: 8,
+    destinationPenalty: 6,
     points: "21,56 46,62 72,41",
   },
   {
@@ -91,6 +163,10 @@ const demoRoutes = [
     pantry: "North End Pantry",
     drive: "4.8 mi",
     score: "77.1",
+    distanceMiles: 4.8,
+    priority: 50,
+    waitingPenalty: 10,
+    destinationPenalty: 7.5,
     points: "32,28 46,62 76,21",
   },
   {
@@ -100,17 +176,44 @@ const demoRoutes = [
     pantry: "Roxbury Pantry",
     drive: "5.1 mi",
     score: "71.6",
+    distanceMiles: 5.1,
+    priority: 33.3,
+    waitingPenalty: 12,
+    destinationPenalty: 9,
     points: "21,56 46,62 58,72",
   },
 ];
 
+const fallbackDemoData: DemoDataset = {
+  nodes: fallbackDemoNodes,
+  candidates: fallbackDemoRoutes,
+  highlightedRouteId: "route-a",
+  liveRouteLabel: "Lena's Bakery → Moughan Food Pantry",
+  liveRouteContext: "Demo route based on the current registered network.",
+};
+
 export default function Home() {
   const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0, averagePantriesHelpedPerDay: 0 });
   const [demoStepIndex, setDemoStepIndex] = useState(0);
+  const [demoData, setDemoData] = useState<DemoDataset>(fallbackDemoData);
   const scrollToModel = () => document.getElementById("model")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const activeDemoStep = demoSteps[demoStepIndex];
+  const chosenRouteId = demoData.highlightedRouteId ?? demoData.candidates[0]?.id ?? null;
+  const activeNodeIds = activeDemoStep.id === "network"
+    ? demoData.nodes.map((node) => node.id)
+    : demoData.nodes.filter((node) => !node.isClosed).map((node) => node.id);
+  const activeRoutes = activeDemoStep.id === "scoring" || activeDemoStep.id === "match"
+    ? demoData.candidates.map((route) => route.id)
+    : [];
+  const visibleCandidates = demoData.candidates.filter((route) => activeRoutes.includes(route.id));
+  const selectedCandidate = demoData.candidates.find((route) => route.id === chosenRouteId) ?? null;
 
-  useEffect(() => { void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); }); }, []);
+  useEffect(() => {
+    void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); });
+    void fetch("/api/public/demo-network", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => {
+      if (data?.nodes?.length && data?.candidates?.length) setDemoData(data);
+    });
+  }, []);
 
   return (
     <main>
@@ -233,7 +336,12 @@ export default function Home() {
         <div className="modelCopy">
           <p>BakedBoston uses a mixed-integer optimization model to match each confirmed bakery pickup with a feasible pantry receiving window and a volunteer driver. The model decides which bakery–pantry–driver combinations should be offered while respecting the practical limits of a real delivery.</p>
           <div className="formula">min <b>Σ</b> <i>(travel time + route distance + lateness risk − pantry priority)</i></div>
-          <div className="modelDetails"><div><strong>What is minimized</strong><p>Total predicted driving time and distance, with penalties for routes that approach pickup deadlines or a pantry’s latest permitted arrival.</p></div><div><strong>How a route is scored</strong><p>Feasible routes receive higher scores when they are short, fit a driver’s requested time and direction, and serve a pantry that has received fewer recent delivery opportunities.</p></div><div><strong>Hard constraints</strong><p>Every route must reach the bakery before its pickup deadline, reach the pantry before its acceptance cutoff, use an open and confirmed staffed pantry window (or unattended window), and assign a bakery pickup only once.</p></div><div><strong>Live inputs</strong><p>Google travel estimates, partner coordinates, recurring and one-time availability, driver origin/destination preferences, and rolling pantry priority data update the available network.</p></div></div>
+          <div className="modelDetails"><div><strong>What is optimized</strong><p>The solver evaluates feasible bakery–pantry–driver combinations and chooses the assignment with the strongest overall score while preventing duplicate pickup assignments.</p></div><div><strong>Pantry priority</strong><p>Each pantry receives a higher priority value when it has had fewer recent receiving opportunities. In the live scoring layer, that appears as an inverse relationship to the rolling seven-day delivery count.</p></div><div><strong>Hard constraints</strong><p>Every route must reach the bakery before its pickup deadline, reach the pantry before its acceptance cutoff, use an open and confirmed pantry window, and assign a bakery pickup only once.</p></div><div><strong>Live inputs</strong><p>Google travel estimates, partner coordinates, recurring and one-time availability, driver origin/destination preferences, and rolling pantry priority data update the available network.</p></div></div>
+          <div className="modelMiniBoard">
+            <div><small>Decision variable</small><strong>x[b,p,d] ∈ {0,1}</strong><p>1 means a bakery b is matched to pantry p and driver d.</p></div>
+            <div><small>Objective</small><strong>maximize route quality</strong><p>Priority is rewarded; drive time, waiting, and poor route fit are penalized.</p></div>
+            <div><small>Constraint</small><strong>one pickup, one assignment</strong><p>A bakery pickup window can only be assigned once, even if several candidate routes are feasible.</p></div>
+          </div>
           <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li></ul>
           <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
         </div>
@@ -241,7 +349,7 @@ export default function Home() {
           <div className="demoIntro">
             <span className="kicker light">LIVE MATCH WALKTHROUGH</span>
             <h3>See a delivery get matched in four steps.</h3>
-            <p>This demo mirrors a real BakedBoston route: Lena's Bakery, Moughan Food Pantry, and a nearby driver request.</p>
+            <p>{demoData.liveRouteContext} The scoring sidebar stays visible, and the MIP panel shows how the model prunes, scores, and selects one binary assignment.</p>
           </div>
           <div className="demoStepTabs" role="tablist" aria-label="Optimization demo steps">
             {demoSteps.map((step, index) => (
@@ -260,14 +368,14 @@ export default function Home() {
             <div className="demoMap">
               <div className="demoMapHeader">
                 <span>Boston delivery network</span>
-                <small>{activeDemoStep.scoreTitle}: {activeDemoStep.scoreValue}</small>
+                <small>{demoData.liveRouteLabel}</small>
               </div>
               <div className="demoMapCanvas">
                 <div className="demoWater" />
                 <div className="demoPark" />
                 <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                  {demoRoutes.filter((route) => activeDemoStep.visibleRoutes.includes(route.id)).map((route) => {
-                    const isChosen = activeDemoStep.highlightedRoute === route.id;
+                  {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
+                    const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
                     return (
                       <polyline
                         key={route.id}
@@ -277,10 +385,10 @@ export default function Home() {
                     );
                   })}
                 </svg>
-                {demoNodes.map((node) => (
+                {demoData.nodes.map((node) => (
                   <div
                     key={node.id}
-                    className={`demoNode demoNode${node.type} ${activeDemoStep.activeNodeIds.includes(node.id) ? "isActive" : ""}`}
+                    className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""} ${node.isClosed && activeDemoStep.id === "network" ? "isClosed" : ""} ${node.isClosed && activeDemoStep.id !== "network" ? "isHidden" : ""}`}
                     style={{ left: node.left, top: node.top }}
                   >
                     <span className="demoNodePin">{node.short}</span>
@@ -300,12 +408,32 @@ export default function Home() {
               </div>
               <div className="demoScoreCard">
                 <span>Route score</span>
-                <strong>{activeDemoStep.scoreValue}</strong>
-                <p>{activeDemoStep.scoreNote}</p>
+                <strong>{activeDemoStep.id === "match" && selectedCandidate ? selectedCandidate.score : activeDemoStep.scoreValue}</strong>
+                <p>{activeDemoStep.id === "match" && selectedCandidate ? `${selectedCandidate.bakery} → ${selectedCandidate.pantry}` : activeDemoStep.scoreNote}</p>
+              </div>
+              <div className="demoMipCard">
+                <small>{activeDemoStep.mipTitle}</small>
+                <p>{activeDemoStep.mipBody}</p>
+                <div className="demoMipEquation">{activeDemoStep.mipEquation}</div>
+                <ul>
+                  {activeDemoStep.mipLines.map((line) => <li key={line}>{line}</li>)}
+                </ul>
+                <div className="demoMipMatrix" aria-label="assignment matrix preview">
+                  {demoData.candidates.slice(0, 3).map((route) => {
+                    const active = activeDemoStep.id === "match" && route.id === chosenRouteId;
+                    const eliminated = activeDemoStep.id === "windows" && route.id !== chosenRouteId;
+                    return (
+                      <div key={route.id} className={`demoMipMatrixRow ${active ? "isActive" : ""} ${eliminated ? "isDim" : ""}`}>
+                        <span>{route.label}</span>
+                        <b>{active ? "1" : "0"}</b>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div className="demoCandidateList">
-                {demoRoutes.filter((route) => activeDemoStep.visibleRoutes.includes(route.id)).map((route) => {
-                  const isChosen = activeDemoStep.highlightedRoute === route.id;
+                {visibleCandidates.map((route) => {
+                  const isChosen = activeDemoStep.id === "match" && chosenRouteId === route.id;
                   return (
                     <div key={route.id} className={`demoCandidate ${isChosen ? "isChosen" : ""}`}>
                       <div className="demoCandidateTop">
@@ -314,7 +442,7 @@ export default function Home() {
                       </div>
                       <p><strong>Bakery:</strong> {route.bakery}</p>
                       <p><strong>Pantry:</strong> {route.pantry}</p>
-                      <small>{route.drive} route distance</small>
+                      <small>{route.drive} · priority {route.priority.toFixed(1)} · wait penalty {route.waitingPenalty.toFixed(0)}</small>
                     </div>
                   );
                 })}
