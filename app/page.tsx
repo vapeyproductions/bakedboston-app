@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+const APP_STORE_URL = "https://apps.apple.com/us/app/bakedboston/id6795673575";
+const APP_STORE_QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(APP_STORE_URL)}`;
+
 const pins = [
   { label: "Flour & Field", type: "B", left: "18%", top: "28%", color: "#ef6548" },
   { label: "Harbor Pantry", type: "P", left: "67%", top: "18%", color: "#163d2d" },
@@ -96,7 +99,17 @@ export default function Home() {
             <div><span>4</span><b>🥖 Pick up</b><p>Drive to the bakery and collect the food.</p></div>
             <div><span>5</span><b>🥫 Drop off</b><p>Bring it to the pantry and complete the delivery.</p></div>
           </div>
-          <aside className="appQr"><div className="qrPlaceholder" aria-label="Scan to download BakedBoston">▦<span>▦</span><i>▦</i></div><strong>Scan to download<br />the BakedBoston app</strong><small>Driver routes are mobile-only.</small></aside>
+          <a
+            className="appQr"
+            href={APP_STORE_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Download BakedBoston on the App Store"
+          >
+            <img className="qrImage" src={APP_STORE_QR_URL} alt="QR code to download BakedBoston on the App Store" />
+            <strong>Scan to download<br />the BakedBoston app</strong>
+            <small>Driver routes are mobile-only. Tap or scan to open the App Store.</small>
+          </a>
         </div>
       </section>
 
