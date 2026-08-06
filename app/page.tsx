@@ -300,6 +300,19 @@ export default function Home() {
   const activeRoutes = activeDemoStep.id === "network" || activeDemoStep.id === "windows"
     ? []
     : demoData.candidates.map((route) => route.id);
+  const networkNodeCount = demoData.nodes.length;
+  const eligibleNodeCount = demoData.nodes.filter((node) => !node.isClosed).length;
+  const scoredRouteCount = activeDemoStep.id === "scoring" || activeDemoStep.id === "match"
+    ? demoData.candidates.length
+    : 0;
+  const selectedRouteCount = activeDemoStep.id === "match" && chosenRouteId ? 1 : 0;
+  const activeFunnelMetric = activeDemoStep.id === "network"
+    ? "network"
+    : activeDemoStep.id === "windows"
+      ? "eligible"
+      : activeDemoStep.id === "scoring"
+        ? "scored"
+        : "selected";
 
   useEffect(() => {
     void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); });
@@ -544,6 +557,27 @@ export default function Home() {
                 <small>{activeDemoStep.label}</small>
                 <h4>{activeDemoStep.title}</h4>
                 <p>{activeDemoStep.description}</p>
+                <div className="demoNetworkFunnel" aria-label="optimization network counts">
+                  <span>Optimization funnel</span>
+                  <div className="demoNetworkCounts">
+                    <div className={`demoNetworkCount ${activeFunnelMetric === "network" ? "isCurrent" : ""}`}>
+                      <strong>{networkNodeCount}</strong>
+                      <small>Network nodes</small>
+                    </div>
+                    <div className={`demoNetworkCount ${activeFunnelMetric === "eligible" ? "isCurrent" : ""}`}>
+                      <strong>{activeDemoStep.id === "network" ? networkNodeCount : eligibleNodeCount}</strong>
+                      <small>Eligible nodes</small>
+                    </div>
+                    <div className={`demoNetworkCount ${activeFunnelMetric === "scored" ? "isCurrent" : ""}`}>
+                      <strong>{scoredRouteCount}</strong>
+                      <small>Routes scored</small>
+                    </div>
+                    <div className={`demoNetworkCount ${activeFunnelMetric === "selected" ? "isCurrent" : ""}`}>
+                      <strong>{selectedRouteCount}</strong>
+                      <small>Route selected</small>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="demoMipCard">
                 <small>{activeDemoStep.mipTitle}</small>
