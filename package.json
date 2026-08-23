@@ -7,11 +7,12 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/migrate-partner-accounts.mjs && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:bootstrap": "node scripts/migrate-partner-accounts.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

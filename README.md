@@ -150,6 +150,7 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run build`: verify the vinext build output
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm run db:bootstrap`: run the legacy database bootstrap explicitly when database access is available; production builds do not mutate the database
 
 ## Learn More
 
