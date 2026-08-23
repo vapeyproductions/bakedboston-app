@@ -138,6 +138,33 @@
 .driverTabs .activeDriver { color: white; border-color: var(--green-2); background: var(--green-2); }
 .driverTabs .activeDriver small { color: #d5e1dc; }
 
+.mapPanel { border-bottom: 1px solid var(--line); background: #f7f3e8; }
+.mapHeader { padding: 22px 28px 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.mapHeader h3 { margin: 0; font-size: 24px; }
+.mapHeader p:not(.panelLabel) { max-width: 720px; margin: 7px 0 0; color: #6b8279; line-height: 1.45; }
+.mapMode { padding: 4px; display: flex; flex: 0 0 auto; gap: 4px; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); }
+.mapMode button { padding: 10px 12px; border: 0; border-radius: 9px; color: var(--green); background: transparent; cursor: pointer; font-size: 12px; font-weight: 900; }
+.mapMode .activeMapMode { color: white; background: var(--green); }
+.routeMap { margin: 0 28px; overflow: hidden; border: 1px solid #bfcfc6; border-radius: 20px; background: #e8ecdf; }
+.routeMap svg { width: 100%; height: auto; min-height: 360px; display: block; }
+.networkBakery { fill: #f3a795; stroke: white; stroke-width: 2; opacity: .72; }
+.networkPantry { fill: #77a796; stroke: white; stroke-width: 2; opacity: .72; }
+.chosenMapRoute { stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 3px 2px rgba(17, 63, 49, .18)); }
+.alternativeMapRoute { stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 12 10; opacity: .78; }
+.driverNode { fill: #f4bf3f; stroke: white; stroke-width: 4; }
+.bakeryNode { fill: #f56447; stroke: white; stroke-width: 4; }
+.pantryNode { fill: #113f31; stroke: white; stroke-width: 4; }
+.mapEmoji { font-size: 18px; pointer-events: none; }
+.mapRankLabel { fill: var(--green); font-size: 13px; font-weight: 900; }
+.mapNodeLabel { paint-order: stroke; fill: var(--green); stroke: #fffdf8; stroke-width: 5px; stroke-linejoin: round; font-size: 12px; font-weight: 900; }
+.mapLegend { padding: 13px 28px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.mapLegend button { min-width: 0; padding: 11px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; color: var(--green); background: var(--paper); text-align: left; cursor: pointer; }
+.mapLegend strong { grid-row: span 2; width: 31px; height: 31px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--green-2); font-size: 11px; }
+.mapLegend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 850; }
+.mapLegend small { color: #748a81; font-size: 10px; }
+.mapLegend .selectedLegendRoute { border: 2px solid var(--orange); background: #fff4e4; }
+.mapLegend .selectedLegendRoute strong { background: var(--orange); }
+
 .recommendationArea { padding: 28px 32px 34px; }
 .routeListHeading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .routeListHeading > span { padding: 8px 12px; border-radius: 999px; color: var(--green); background: var(--mint); font-size: 12px; font-weight: 900; }
@@ -170,6 +197,44 @@
 .formulaNote { max-width: 900px; color: #bed0c8; line-height: 1.6; }
 
 .comparisonSection { background: #fffaf0; }
+.tradeoffCallout { margin-bottom: 22px; padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; align-items: center; border: 1px solid #e2b74b; border-radius: 22px; background: #fff2ca; }
+.tradeoffCallout > div:first-child { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 16px; align-items: start; }
+.tradeoffCallout h3 { margin: 0 0 7px; font-size: 23px; }
+.tradeoffCallout p { margin: 0; color: #596f66; line-height: 1.55; }
+.calloutIcon { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--orange); font-size: 25px; font-weight: 900; }
+.objectiveEvidence { padding: 17px; display: grid; border-radius: 16px; color: white; background: var(--green); }
+.objectiveEvidence span, .objectiveEvidence small { color: #bed0c8; }
+.objectiveEvidence strong { margin: 3px 0; font-size: 32px; }
+.policyCards { margin-bottom: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.policyCards article { padding: 17px; border: 1px solid var(--line); border-radius: 16px; background: white; }
+.policyCards article > span { color: #85978f; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.policyCards h3 { margin: 8px 0 5px; font-size: 18px; }
+.policyCards p { margin: 0; color: #74887f; font-size: 12px; line-height: 1.45; }
+.policyCards .primaryPolicyCard { border: 2px solid var(--orange); background: #fff4df; }
+.policyCards .primaryPolicyCard > span { color: var(--orange); }
+.metricGroups { display: grid; gap: 26px; }
+.metricGroup { min-width: 0; }
+.metricGroupHeading { margin: 0 0 10px; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.metricGroupHeading h3 { margin: 0; font-size: 26px; }
+.metricGroupHeading p { max-width: 560px; margin: 0; color: #74887f; text-align: right; }
+.metricTable { overflow-x: auto; border: 1px solid var(--line); border-radius: 17px; background: white; }
+.metricHeader, .metricRow { min-width: 1120px; display: grid; grid-template-columns: 220px repeat(6, minmax(120px, 1fr)); gap: 8px; align-items: stretch; }
+.metricHeader { color: #647b72; background: #eaf0ea; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.metricHeader > span { padding: 12px; display: flex; align-items: center; }
+.metricRow { border-top: 1px solid var(--line); }
+.metricRow > div { padding: 14px 12px; display: grid; gap: 3px; align-content: center; }
+.metricRow > div small { color: #7a8d86; font-size: 10px; line-height: 1.35; }
+.metricRow > span { position: relative; padding: 14px 12px; display: flex; align-items: center; gap: 6px; border-left: 1px solid #edf1ed; font-size: 15px; font-weight: 900; }
+.metricRow > span:nth-child(2) { background: #fff9ec; }
+.metricRow .bestMetric { color: var(--green); background: #dff1e3; }
+.bestMetric small { padding: 3px 5px; border-radius: 999px; color: white; background: var(--green-2); font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.methodologyNote { margin-top: 30px; padding: 26px; border-radius: 22px; color: white; background: var(--green); }
+.methodologyNote h3 { margin: 0 0 10px; font-size: 25px; }
+.methodologyNote p { max-width: 1000px; margin: 7px 0; color: #c1d2cb; line-height: 1.5; }
+.experimentScale { margin-top: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.experimentScale div { padding: 15px; display: grid; border: 1px solid rgba(255,255,255,.17); border-radius: 14px; background: rgba(255,255,255,.06); }
+.experimentScale strong { color: var(--gold); font-size: 28px; }
+.experimentScale span { color: #c1d2cb; font-size: 11px; }
 .comparisonTable { overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: white; }
 .comparisonHeader, .comparisonRow { display: grid; grid-template-columns: minmax(250px, 2fr) repeat(4, minmax(90px, .6fr)); gap: 14px; align-items: center; }
 .comparisonHeader { padding: 13px 18px; color: #647b72; background: #eaf0ea; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
@@ -190,6 +255,7 @@
   .timelinePanel > button { width: auto; min-width: 150px; display: inline-grid; margin-right: 6px; }
   .daySummary { grid-template-columns: repeat(3, 1fr); }
   .comparisonHeader, .comparisonRow { grid-template-columns: minmax(210px, 2fr) repeat(4, minmax(85px, .6fr)); }
+  .policyCards { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 720px) {
@@ -203,6 +269,12 @@
   .solveStats { width: 100%; }
   .solveStats div { flex: 1; min-width: 0; }
   .recommendationArea, .epochHeader { padding: 22px 18px; }
+  .mapHeader { padding: 20px 18px 14px; align-items: flex-start; flex-direction: column; }
+  .mapMode { width: 100%; }
+  .mapMode button { flex: 1; }
+  .routeMap { margin: 0 12px; overflow-x: auto; }
+  .routeMap svg { min-width: 760px; }
+  .mapLegend { padding: 12px 18px 18px; grid-template-columns: 1fr; }
   .routeCard { grid-template-columns: 38px minmax(0, 1fr); }
   .rank { width: 36px; height: 36px; }
   .routeScore { grid-column: 2; justify-items: start; }
@@ -211,5 +283,10 @@
   .formula i { transform: rotate(90deg); }
   .comparisonTable { overflow-x: auto; }
   .comparisonHeader, .comparisonRow { min-width: 790px; }
+  .tradeoffCallout { grid-template-columns: 1fr; }
+  .policyCards { grid-template-columns: 1fr; }
+  .metricGroupHeading { align-items: flex-start; flex-direction: column; }
+  .metricGroupHeading p { text-align: left; }
+  .experimentScale { grid-template-columns: repeat(2, 1fr); }
   .footer { flex-direction: column; }
 }

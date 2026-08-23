@@ -19,6 +19,12 @@ type RouteOption = {
   destinationMinutes: number;
   pantryPriority: number;
   routeScore: number;
+  acceptanceProbability: number;
+  distanceMiles: number;
+  totalTripMinutes: number;
+  driverStart: Coordinate;
+  bakeryLocation: Coordinate;
+  pantryLocation: Coordinate;
   recommendationRank: number;
   selected: boolean;
   accepted: boolean;
@@ -63,8 +69,19 @@ type SimulationDay = {
 
 type PolicyResult = {
   policy: string;
-  metrics: Record<string, number>;
+  metrics: Record<string, number | null>;
   days: SimulationDay[];
+};
+
+type Coordinate = {
+  latitude: number;
+  longitude: number;
+};
+
+type NetworkNode = Coordinate & {
+  id: string;
+  name: string;
+  kind: "bakery" | "pantry";
 };
 
 type SimulationPayload = {
@@ -77,6 +94,7 @@ type SimulationPayload = {
     timezone: string;
     matchingIntervalMinutes: number;
     driversPerDay: number;
+    maxSimultaneousDrivers: 2 | 3;
   };
   runtime: {
     solverBackend: string;
@@ -86,6 +104,15 @@ type SimulationPayload = {
   selectionRule: string;
   objectiveWeights: Record<string, number>;
   policyMetadata: Record<string, { label: string; description: string }>;
+  network: {
+    bakeries: NetworkNode[];
+    pantries: NetworkNode[];
+  };
+  metricMethodology?: {
+    actualSelection: string;
+    acceptanceModel: string;
+    comparison: string;
+  };
   results: PolicyResult[];
 };
 
@@ -111,6 +138,102 @@ const formatDate = (value: string) =>
 const score = (value: number) => value.toFixed(2);
 const compactDriver = (driverId: string) => driverId.replace("synthetic-driver-", "Driver ");
 
+const percent = (value: number | null | undefined, digits = 0) =>
+  typeof value === "number" ? `${(value * 100).toFixed(digits)}%` : "—";
+
+const numeric = (value: number | null | undefined, digits = 1) =>
+  typeof value === "number" ? value.toFixed(digits) : "—";
+
+type MetricDefinition = {
+  key: string;
+  label: string;
+  explanation: string;
+  direction: "higher" | "lower" | "none";
+  format: (value: number | null | undefined, result: PolicyResult) => string;
+};
+
+type MetricGroup = {
+  title: string;
+  description: string;
+  metrics: MetricDefinition[];
+};
+
+const metricGroups: MetricGroup[] = [
+  {
+    title: "Service completion",
+    description: "Whether available bakery surplus actually becomes a completed delivery.",
+    metrics: [
+      { key: "bakeryPickupCoverage", label: "Bakery pickup coverage", explanation: "Eligible food-ready pickup occurrences completed.", direction: "higher", format: (value) => percent(value) },
+      { key: "completedDeliveries", label: "Completed deliveries", explanation: "Successful bakery-to-pantry deliveries.", direction: "higher", format: (value) => numeric(value, 0) },
+      { key: "unservedPickups", label: "Unserved pickups", explanation: "Food-ready bakery windows that expired without assignment.", direction: "lower", format: (value) => numeric(value, 0) },
+    ],
+  },
+  {
+    title: "Pantry reach and fairness",
+    description: "How broadly and evenly deliveries are distributed across available pantries.",
+    metrics: [
+      {
+        key: "pantryCoverageCount",
+        label: "Pantry coverage",
+        explanation: "Unique pantries served, with the share of available pantries in parentheses.",
+        direction: "higher",
+        format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.pantryCoveragePercentage)})`,
+      },
+      {
+        key: "pantriesNeverServedCount",
+        label: "Pantries never served",
+        explanation: "Available pantries receiving no deliveries.",
+        direction: "lower",
+        format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.pantriesNeverServedPercentage)})`,
+      },
+      { key: "pantryServiceGini", label: "Distribution fairness (Gini)", explanation: "Zero is perfectly even; lower is fairer.", direction: "lower", format: (value) => numeric(value, 3) },
+      { key: "pantryServiceGap", label: "Pantry service gap", explanation: "Difference between the most- and least-served pantries.", direction: "lower", format: (value) => numeric(value, 0) },
+      { key: "averagePantryPriorityServed", label: "Mean priority served", explanation: "Average priority of the pantries receiving deliveries.", direction: "higher", format: (value) => numeric(value, 3) },
+    ],
+  },
+  {
+    title: "Driver and route burden",
+    description: "The time and travel asked of volunteers on completed routes.",
+    metrics: [
+      { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per completed route.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per completed route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
+      { key: "averageWaitingMinutes", label: "Mean waiting time", explanation: "Average idle time before or between service windows.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averageTotalTripDurationMinutes", label: "Mean total trip duration", explanation: "Driving, waiting, pickup, and drop-off time combined.", direction: "lower", format: (value) => `${numeric(value)} min` },
+    ],
+  },
+  {
+    title: "Acceptance and rejection",
+    description: "Selections are deterministic in this academic replay; behavioral measures remain model-based diagnostics.",
+    metrics: [
+      { key: "driverAcceptanceRate", label: "Driver acceptance (simulated)", explanation: "Share selecting rank #1 in this replay.", direction: "higher", format: (value) => percent(value) },
+      { key: "expectedDriverAcceptanceRate", label: "Expected acceptance", explanation: "Behavioral estimate based on route burden and fit.", direction: "higher", format: (value) => percent(value, 1) },
+      {
+        key: "offersLikelyRejected",
+        label: "Likely rejected offers",
+        explanation: "Count and percentage predicted unlikely to be accepted.",
+        direction: "lower",
+        format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.likelyRejectionRate, 1)})`,
+      },
+    ],
+  },
+  {
+    title: "Optimization performance",
+    description: "The stated objective value and computational performance of each policy.",
+    metrics: [
+      { key: "systemObjectiveValue", label: "System objective value", explanation: "Higher is better for the declared BakedBoston objective.", direction: "higher", format: (value) => numeric(value, 2) },
+      { key: "totalSolverRuntimeSeconds", label: "Total solve time", explanation: "Time across all decision epochs.", direction: "lower", format: (value) => `${numeric(value, 4)} s` },
+      { key: "averageSolverRuntimeSeconds", label: "Mean solve time", explanation: "Average computation time per nonempty decision epoch.", direction: "lower", format: (value) => `${numeric(value, 6)} s` },
+      {
+        key: "averageOptimalityGap",
+        label: "Gurobi optimality gap",
+        explanation: "Zero means a proven optimum. Baseline heuristics do not have a MIP gap.",
+        direction: "lower",
+        format: (value, result) => result.policy === "bakedboston_mip" && value === null ? "Optimal" : value === null ? "n/a" : percent(value, 2),
+      },
+    ],
+  },
+];
+
 const interestingEpoch = (day: SimulationDay) => {
   const simultaneous = day.decisionEpochs.findIndex((epoch) => epoch.queueSize > 1 && epoch.candidateCount > 0);
   if (simultaneous >= 0) return simultaneous;
@@ -124,6 +247,7 @@ export function SimulatorClient({ data }: Props) {
   const [dayIndex, setDayIndex] = useState(0);
   const [epochIndex, setEpochIndex] = useState(() => interestingEpoch(mip.days[0]));
   const [driverIndex, setDriverIndex] = useState(0);
+  const [mapMode, setMapMode] = useState<"driver" | "window">("driver");
 
   const day = mip.days[dayIndex];
   const epoch = day.decisionEpochs[epochIndex] ?? day.decisionEpochs[0];
@@ -131,24 +255,53 @@ export function SimulatorClient({ data }: Props) {
   const activeDriver = recommendations[driverIndex] ?? recommendations[0];
   const selectedRoute = activeDriver?.routes.find((route) => route.selected) ?? activeDriver?.selectedRoute ?? null;
 
-  const comparison = useMemo(
-    () =>
-      payload.results.map((result) => ({
-        id: result.policy,
-        label: payload.policyMetadata[result.policy]?.label ?? result.policy,
-        description: payload.policyMetadata[result.policy]?.description ?? "",
-        completed: result.metrics.completedDeliveries,
-        coverage: result.metrics.pickupCoverage,
-        drive: result.metrics.averageDriveMinutes,
-        priority: result.metrics.averagePantryPriorityServed,
-      })),
-    [payload],
-  );
+  const mapRoutes = useMemo(() => {
+    if (mapMode === "driver") return activeDriver?.routes ?? [];
+    return recommendations
+      .map((driver) => driver.routes.find((route) => route.selected) ?? driver.selectedRoute)
+      .filter((route): route is RouteOption => Boolean(route));
+  }, [activeDriver, mapMode, recommendations]);
+
+  const mapProjection = useMemo(() => {
+    const coordinates = [
+      ...payload.network.bakeries,
+      ...payload.network.pantries,
+      ...mapRoutes.flatMap((route) => [route.driverStart, route.bakeryLocation, route.pantryLocation]),
+    ];
+    const latitudes = coordinates.map((point) => point.latitude);
+    const longitudes = coordinates.map((point) => point.longitude);
+    const minLatitude = Math.min(...latitudes);
+    const maxLatitude = Math.max(...latitudes);
+    const minLongitude = Math.min(...longitudes);
+    const maxLongitude = Math.max(...longitudes);
+    const latitudeRange = Math.max(maxLatitude - minLatitude, 0.01);
+    const longitudeRange = Math.max(maxLongitude - minLongitude, 0.01);
+    return (point: Coordinate) => ({
+      x: 55 + ((point.longitude - minLongitude) / longitudeRange) * 890,
+      y: 465 - ((point.latitude - minLatitude) / latitudeRange) * 410,
+    });
+  }, [mapRoutes, payload.network]);
+
+  const metricWinner = (metric: MetricDefinition, result: PolicyResult) => {
+    if (metric.direction === "none") return false;
+    const values = payload.results
+      .map((policy) => policy.metrics[metric.key])
+      .filter((value): value is number => typeof value === "number");
+    const current = result.metrics[metric.key];
+    if (typeof current !== "number" || !values.length) return false;
+    const best = metric.direction === "higher" ? Math.max(...values) : Math.min(...values);
+    return Math.abs(current - best) < 1e-9;
+  };
 
   const chooseDay = (nextDay: number) => {
+    const nextEpoch = interestingEpoch(mip.days[nextDay]);
+    const firstWithRoutes = mip.days[nextDay].decisionEpochs[nextEpoch].driverRecommendations.findIndex(
+      (driver) => driver.routes.length > 0,
+    );
     setDayIndex(nextDay);
-    setEpochIndex(interestingEpoch(mip.days[nextDay]));
-    setDriverIndex(0);
+    setEpochIndex(nextEpoch);
+    setDriverIndex(Math.max(firstWithRoutes, 0));
+    setMapMode("driver");
   };
 
   const chooseEpoch = (nextEpoch: number) => {
@@ -157,6 +310,7 @@ export function SimulatorClient({ data }: Props) {
       (driver) => driver.routes.length > 0,
     );
     setDriverIndex(Math.max(firstWithRoutes, 0));
+    setMapMode("driver");
   };
 
   return (
@@ -189,6 +343,7 @@ export function SimulatorClient({ data }: Props) {
           <span>EXPERIMENT</span>
           <strong>{payload.scenario.horizonDays} days</strong>
           <p>{payload.scenario.driversPerDay} synthetic drivers per day</p>
+          <p>Up to {payload.scenario.maxSimultaneousDrivers} drivers in one decision window</p>
           <p>Seed {payload.scenario.seed} · reproducible</p>
         </aside>
       </section>
@@ -268,6 +423,106 @@ export function SimulatorClient({ data }: Props) {
                 </button>
               ))}
             </div>
+
+            <section className={styles.mapPanel} aria-label="Interactive recommendation map">
+              <div className={styles.mapHeader}>
+                <div>
+                  <p className={styles.panelLabel}>ROUTE MAP</p>
+                  <h3>{mapMode === "driver" ? "All routes shown to this driver" : "All selections in this decision window"}</h3>
+                  <p>
+                    {mapMode === "driver"
+                      ? "Dashed lines are alternatives. The solid orange line is the highest-scoring route selected by the driver."
+                      : "Each line is the rank-1 route selected by a driver solved in this shared decision window."}
+                  </p>
+                </div>
+                <div className={styles.mapMode} role="group" aria-label="Map view">
+                  <button className={mapMode === "driver" ? styles.activeMapMode : ""} onClick={() => setMapMode("driver")} type="button">
+                    Selected driver
+                  </button>
+                  <button className={mapMode === "window" ? styles.activeMapMode : ""} onClick={() => setMapMode("window")} type="button">
+                    Decision window
+                  </button>
+                </div>
+              </div>
+
+              <div className={styles.routeMap}>
+                <svg viewBox="0 0 1000 520" role="img" aria-label="Boston-area route recommendations">
+                  <defs>
+                    <pattern id="simulatorGrid" width="64" height="64" patternUnits="userSpaceOnUse" patternTransform="rotate(24)">
+                      <rect width="64" height="64" fill="#e8ecdf" />
+                      <rect width="8" height="64" fill="#f8f5eb" />
+                    </pattern>
+                  </defs>
+                  <rect width="1000" height="520" fill="url(#simulatorGrid)" />
+                  <path d="M0 392 C190 330 270 435 455 365 S750 270 1000 320 V520 H0 Z" fill="#d4e8e3" opacity=".78" />
+                  {payload.network.bakeries.map((node) => {
+                    const point = mapProjection(node);
+                    return <circle className={styles.networkBakery} cx={point.x} cy={point.y} key={node.id} r="6"><title>{node.name} · bakery</title></circle>;
+                  })}
+                  {payload.network.pantries.map((node) => {
+                    const point = mapProjection(node);
+                    return <rect className={styles.networkPantry} height="10" key={node.id} rx="2" width="10" x={point.x - 5} y={point.y - 5}><title>{node.name} · pantry</title></rect>;
+                  })}
+                  {mapRoutes.map((route, index) => {
+                    const driver = mapProjection(route.driverStart);
+                    const bakery = mapProjection(route.bakeryLocation);
+                    const pantry = mapProjection(route.pantryLocation);
+                    const selected = mapMode === "window" || route.selected;
+                    const colors = ["#f56447", "#286b59", "#b87d08", "#654b9b", "#167b88"];
+                    const color = selected && mapMode === "driver" ? "#f56447" : colors[index % colors.length];
+                    const labelX = (bakery.x + pantry.x) / 2;
+                    const labelY = (bakery.y + pantry.y) / 2;
+                    return (
+                      <g key={`${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
+                        <polyline
+                          className={selected && mapMode === "driver" ? styles.chosenMapRoute : styles.alternativeMapRoute}
+                          fill="none"
+                          points={`${driver.x},${driver.y} ${bakery.x},${bakery.y} ${pantry.x},${pantry.y}`}
+                          stroke={color}
+                        >
+                          <title>{compactDriver(route.driverId)}: {route.bakeryName} to {route.pantryName}, score {score(route.routeScore)}</title>
+                        </polyline>
+                        <circle cx={labelX} cy={labelY} fill="#fffdf8" r="15" stroke={color} strokeWidth="3" />
+                        <text className={styles.mapRankLabel} dominantBaseline="central" textAnchor="middle" x={labelX} y={labelY}>
+                          {mapMode === "driver" ? route.recommendationRank : index + 1}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  {mapRoutes.map((route) => {
+                    const driver = mapProjection(route.driverStart);
+                    const bakery = mapProjection(route.bakeryLocation);
+                    const pantry = mapProjection(route.pantryLocation);
+                    return (
+                      <g key={`nodes-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
+                        <g transform={`translate(${driver.x} ${driver.y})`}><circle className={styles.driverNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🚗</text><title>{compactDriver(route.driverId)}</title></g>
+                        <g transform={`translate(${bakery.x} ${bakery.y})`}><circle className={styles.bakeryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥖</text><title>{route.bakeryName}</title></g>
+                        <g transform={`translate(${pantry.x} ${pantry.y})`}><circle className={styles.pantryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥫</text><title>{route.pantryName}</title></g>
+                        {route.selected || mapMode === "window" ? <>
+                          <text className={styles.mapNodeLabel} textAnchor="middle" x={bakery.x} y={bakery.y - 27}>{route.bakeryName}</text>
+                          <text className={styles.mapNodeLabel} textAnchor="middle" x={pantry.x} y={pantry.y - 27}>{route.pantryName}</text>
+                        </> : null}
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+
+              <div className={styles.mapLegend}>
+                {mapRoutes.map((route, index) => (
+                  <button
+                    className={route.selected ? styles.selectedLegendRoute : ""}
+                    key={`legend-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}
+                    onClick={() => mapMode === "window" && setDriverIndex(Math.max(recommendations.findIndex((driver) => driver.requestId === route.requestId), 0))}
+                    type="button"
+                  >
+                    <strong>{mapMode === "driver" ? `#${route.recommendationRank}` : compactDriver(route.driverId)}</strong>
+                    <span>{route.bakeryName} → {route.pantryName}</span>
+                    <small>{score(route.routeScore)} score{route.selected ? " · selected" : ""}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
 
             {activeDriver?.routes.length ? (
               <div className={styles.recommendationArea}>
@@ -359,21 +614,78 @@ export function SimulatorClient({ data }: Props) {
             <p className={styles.eyebrow}>POLICY COMPARISON</p>
             <h2>One scenario, six routing policies</h2>
           </div>
-          <p>Every policy receives the same synthetic five-day events.</p>
+          <p>Every policy receives the same five-day surplus, pantry, and driver events.</p>
         </div>
-        <div className={styles.comparisonTable} role="table" aria-label="Routing policy comparison">
-          <div className={styles.comparisonHeader} role="row">
-            <span>Policy</span><span>Completed</span><span>Coverage</span><span>Avg. drive</span><span>Avg. priority</span>
-          </div>
-          {comparison.map((policy) => (
-            <div className={`${styles.comparisonRow} ${policy.id === "bakedboston_mip" ? styles.primaryPolicy : ""}`} role="row" key={policy.id}>
-              <div><strong>{policy.label}</strong><small>{policy.description}</small></div>
-              <span>{policy.completed}</span>
-              <span>{(policy.coverage * 100).toFixed(0)}%</span>
-              <span>{policy.drive.toFixed(1)} min</span>
-              <span>{policy.priority.toFixed(2)}</span>
+
+        <div className={styles.tradeoffCallout}>
+          <div>
+            <span className={styles.calloutIcon}>↔</span>
+            <div>
+              <h3>The MIP is not supposed to win every column.</h3>
+              <p>
+                Highest Pantry Priority can distribute service more evenly, while Shortest Route or Earliest Deadline
+                can minimize a particular travel measure. BakedBoston&apos;s Gurobi model is optimal for its declared
+                two-level objective: first maximize completed assignments, then maximize total weighted route quality
+                across the drivers entering together.
+              </p>
             </div>
+          </div>
+          <div className={styles.objectiveEvidence}>
+            <span>MIP objective</span>
+            <strong>{numeric(mip.metrics.systemObjectiveValue, 2)}</strong>
+            <small>Best system objective in this run</small>
+          </div>
+        </div>
+
+        <div className={styles.policyCards}>
+          {payload.results.map((result) => (
+            <article className={result.policy === "bakedboston_mip" ? styles.primaryPolicyCard : ""} key={`policy-${result.policy}`}>
+              <span>{result.policy === "bakedboston_mip" ? "OPTIMIZATION POLICY" : "COMPARISON POLICY"}</span>
+              <h3>{payload.policyMetadata[result.policy]?.label ?? result.policy}</h3>
+              <p>{payload.policyMetadata[result.policy]?.description}</p>
+            </article>
           ))}
+        </div>
+
+        <div className={styles.metricGroups}>
+          {metricGroups.map((group) => (
+            <section className={styles.metricGroup} key={group.title}>
+              <div className={styles.metricGroupHeading}>
+                <h3>{group.title}</h3>
+                <p>{group.description}</p>
+              </div>
+              <div className={styles.metricTable} role="table" aria-label={`${group.title} policy comparison`}>
+                <div className={styles.metricHeader} role="row">
+                  <span>Measure</span>
+                  {payload.results.map((result) => <span key={`header-${group.title}-${result.policy}`}>{payload.policyMetadata[result.policy]?.label ?? result.policy}</span>)}
+                </div>
+                {group.metrics.map((metric) => (
+                  <div className={styles.metricRow} role="row" key={metric.key}>
+                    <div><strong>{metric.label}</strong><small>{metric.explanation}</small></div>
+                    {payload.results.map((result) => (
+                      <span className={metricWinner(metric, result) ? styles.bestMetric : ""} key={`${metric.key}-${result.policy}`}>
+                        {metric.format(result.metrics[metric.key], result)}
+                        {metricWinner(metric, result) ? <small>best</small> : null}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div className={styles.methodologyNote}>
+          <h3>How to interpret acceptance and rejection</h3>
+          <p>{payload.metricMethodology?.actualSelection ?? "Every simulated driver selects rank #1."}</p>
+          <p>{payload.metricMethodology?.acceptanceModel}</p>
+          <p>{payload.metricMethodology?.comparison}</p>
+          <div className={styles.experimentScale}>
+            <div><strong>{payload.network.bakeries.length}</strong><span>bakeries</span></div>
+            <div><strong>{payload.network.pantries.length}</strong><span>pantries</span></div>
+            <div><strong>{payload.scenario.horizonDays * payload.scenario.driversPerDay}</strong><span>driver requests</span></div>
+            <div><strong>{payload.scenario.maxSimultaneousDrivers}</strong><span>maximum simultaneous drivers</span></div>
+          </div>
         </div>
       </section>
 
