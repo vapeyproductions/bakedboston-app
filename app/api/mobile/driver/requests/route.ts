@@ -16,7 +16,7 @@ import {
   rescueRoutes,
   routeOffers,
 } from "../../../../../db/schema";
-import { confirmedPantryServiceModeAt, matchConfirmedPickup, pantryAcceptsAt } from "../../../../pickup-matching";
+import { confirmedPantryServiceModeAt, matchNetworkForServiceDate, pantryAcceptsAt } from "../../../../pickup-matching";
 import { processDepartureNotifications } from "../../../../departure-notifications";
 import { replaceOperationalNotification } from "../../../../operational-notifications";
 import { trafficAwareDriveMinutes } from "../../../../google-routes";
@@ -171,25 +171,7 @@ export async function POST(request: Request) {
       driverId: driver.id, serviceDate, earliestStart, latestFinish,
       startZip, endZip, maximumExtraMinutes,
     }).returning();
-    const currentLocation = driver.lastLatitude !== null && driver.lastLongitude !== null
-      ? { latitude: driver.lastLatitude, longitude: driver.lastLongitude }
-      : null;
-    if (currentLocation) {
-      const optimized = await requestOptimizedRoutes({
-        earliestStart,
-        latestFinish,
-        startLocation: currentLocation,
-      });
-      if (optimized?.[0]) await offerOptimizedRoute(driver.id, record.id, optimized[0]);
-    }
-    const confirmedPickups = await getDb().select().from(bakeryPickupOccurrences).where(and(
-      eq(bakeryPickupOccurrences.serviceDate, serviceDate),
-      eq(bakeryPickupOccurrences.status, "confirmed"),
-    ));
-    for (const pickup of confirmedPickups) {
-      const [bakery] = await getDb().select().from(bakeries).where(eq(bakeries.id, pickup.bakeryId)).limit(1);
-      if (bakery) await matchConfirmedPickup(pickup, bakery.name, bakery.latitude, bakery.longitude);
-    }
+    await matchNetworkForServiceDate(serviceDate);
     return Response.json({ request: record }, { status: 201 });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not save this ride request." }, { status: 400 });
@@ -269,19 +251,20 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
   const db = getDb();
   const now = new Date();
   const horizon = new Date(now.getTime() + 2 * 60 * 60_000);
-  let optimizerRoutes: ReturnType<typeof optimizedBrowseRoutes> = [];
   if (driverLocation) {
     const optimized = await requestOptimizedRoutes({
       earliestStart: now,
       latestFinish: horizon,
       startLocation: driverLocation,
     });
-    // The optimizer is the preferred source for traffic-aware ranking, but its
-    // network snapshot can briefly lag a just-confirmed one-time window. Keep
-    // the app's live database matcher as a fallback instead of showing no
-    // available routes during that gap.
-    if (optimized !== null) optimizerRoutes = optimizedBrowseRoutes(optimized);
+    // A successful optimizer response is authoritative, including an empty
+    // result. The local calculation below only preserves continuity when the
+    // external solver cannot be reached at all.
+    if (optimized !== null) return optimizedBrowseRoutes(optimized);
   }
+  const allowLocalFallback = process.env.NODE_ENV !== "production"
+    && process.env.ALLOW_NON_GUROBI_DEVELOPMENT_FALLBACK === "true";
+  if (!allowLocalFallback) return [];
   const [pickups, bakeryRows, pantryRows, accounts, pantryWindows, pantryConfirmations] = await Promise.all([
     db.select().from(bakeryPickupOccurrences).where(eq(bakeryPickupOccurrences.status, "confirmed")),
     db.select().from(bakeries).where(eq(bakeries.active, true)),
@@ -345,10 +328,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
     if (!bestByPickup.has(candidate.pickupId)) bestByPickup.set(candidate.pickupId, candidate);
   }
   const liveRoutes = [...bestByPickup.values()].sort((a, b) => b.score - a.score);
-  const routesByPickup = new Map<number, (typeof liveRoutes)[number] | (typeof optimizerRoutes)[number]>();
-  for (const route of liveRoutes) routesByPickup.set(route.pickupId, route);
-  for (const route of optimizerRoutes) if (!routesByPickup.has(route.pickupId)) routesByPickup.set(route.pickupId, route);
-  return [...routesByPickup.values()].slice(0, 6);
+  return liveRoutes.slice(0, 6);
 }
 
 function optimizedBrowseRoutes(routes: OptimizedRoute[]) {

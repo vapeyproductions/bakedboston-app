@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { availabilityPauses, availabilityWindows, bakeries, bakeryPickupOccurrences, driverRideRequests, pantries, partnerAccounts, rescueRoutes, routeOffers, scheduleExceptions } from "../../../../db/schema";
+import { availabilityPauses, availabilityWindows, bakeries, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, pantries, partnerAccounts, rescueRoutes, routeOffers, scheduleExceptions } from "../../../../db/schema";
 
 function authorized(request: Request) {
   const expected = process.env.OPTIMIZER_API_KEY ?? "";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   if (!authorized(request)) return Response.json({ error: "Unauthorized." }, { status: 401 });
 
   const db = getDb();
-  const [bakeryRows, pantryRows, accounts, windows, pauses, exceptions, routes, pickupOccurrences, rideRequests, offers] = await Promise.all([
+  const [bakeryRows, pantryRows, accounts, windows, pauses, exceptions, routes, pickupOccurrences, rideRequests, offers, drivers, pantryWindowConfirmations] = await Promise.all([
     db.select().from(bakeries).where(eq(bakeries.active, true)),
     db.select().from(pantries).where(eq(pantries.active, true)),
     db.select({
@@ -28,6 +28,22 @@ export async function GET(request: Request) {
     db.select().from(bakeryPickupOccurrences),
     db.select().from(driverRideRequests),
     db.select().from(routeOffers),
+    db.select({
+      id: driverAccounts.id,
+      active: driverAccounts.active,
+      lastLatitude: driverAccounts.lastLatitude,
+      lastLongitude: driverAccounts.lastLongitude,
+      lastLocationAt: driverAccounts.lastLocationAt,
+    }).from(driverAccounts).where(eq(driverAccounts.active, true)),
+    db.select({
+      recipientId: inAppNotifications.recipientId,
+      actionKey: inAppNotifications.actionKey,
+      acknowledgedAt: inAppNotifications.acknowledgedAt,
+    }).from(inAppNotifications).where(and(
+      eq(inAppNotifications.recipientType, "pantry"),
+      eq(inAppNotifications.eventType, "pantry_window_confirmation"),
+      isNotNull(inAppNotifications.acknowledgedAt),
+    )),
   ]);
   const registeredBakeries = new Set(accounts.filter((account) => account.organizationType === "bakery").map((account) => account.organizationId));
   const registeredPantries = new Set(accounts.filter((account) => account.organizationType === "pantry").map((account) => account.organizationId));
@@ -38,7 +54,7 @@ export async function GET(request: Request) {
   const operationalExceptions = exceptions.filter((exception) => exception.organizationType === "bakery" ? registeredBakeries.has(exception.organizationId) : registeredPantries.has(exception.organizationId));
 
   return Response.json({
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     bakeries: operationalBakeries.map((bakery) => ({
       id: bakery.id,
@@ -89,6 +105,10 @@ export async function GET(request: Request) {
     ),
     rideRequests: rideRequests.filter((request) => ["active", "paused"].includes(request.status)),
     routeOffers: offers,
+    drivers,
+    pantryWindowConfirmations: pantryWindowConfirmations.filter((confirmation) =>
+      registeredPantries.has(confirmation.recipientId)
+    ),
   }, {
     headers: {
       "Cache-Control": "private, no-store",

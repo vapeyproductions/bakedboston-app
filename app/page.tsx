@@ -333,6 +333,7 @@ export default function Home() {
           <a href="#impact">Impact</a>
           <button type="button" onClick={scrollToModel}>The model</button>
           <button type="button" onClick={scrollToDemo}>Live demo</button>
+          <a href="/simulator">Simulator</a>
           <a href="/partners">Partner portal</a>
         </div>
       </nav>

@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   availabilityWindows,
@@ -9,11 +9,31 @@ import {
   partnerAccounts,
   routeOffers,
 } from "../db/schema";
+import { requestNetworkAssignments, type OptimizedAssignment } from "./optimizer-service";
 
 type PickupOccurrence = typeof bakeryPickupOccurrences.$inferSelect;
 
+const localDevelopmentFallbackEnabled = () =>
+  process.env.NODE_ENV !== "production"
+  && process.env.ALLOW_NON_GUROBI_DEVELOPMENT_FALLBACK === "true";
+
+export async function matchNetworkForServiceDate(serviceDate: string) {
+  const optimized = await requestNetworkAssignments({ serviceDate });
+  if (optimized) return materializeOptimizedAssignments(optimized.assignments);
+  return { matchedRequests: 0, offered: false, solver: "unavailable" as const };
+}
+
 export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName: string, bakeryLatitude: number | null, bakeryLongitude: number | null) {
   const db = getDb();
+  const networkMatching = await matchNetworkForServiceDate(pickup.serviceDate);
+  if (networkMatching.solver === "gurobi") return networkMatching;
+
+  if (!localDevelopmentFallbackEnabled()) {
+    return { matchedRequests: 0, offered: false, solver: "unavailable" as const };
+  }
+
+  // Explicit, development-only continuity fallback. Production fails closed
+  // so every live assignment is backed by the Gurobi model.
   const [requests, pantryRows, pantryAccounts, pantryWindows, pantryConfirmations] = await Promise.all([
     db.select().from(driverRideRequests).where(and(
       eq(driverRideRequests.serviceDate, pickup.serviceDate),
@@ -117,6 +137,62 @@ export async function matchConfirmedPickup(pickup: PickupOccurrence, bakeryName:
     }
   }
   return { matchedRequests: created.length, offered: created.some((offer) => offer.status === "offered") };
+}
+
+async function materializeOptimizedAssignments(assignments: OptimizedAssignment[]) {
+  const db = getDb();
+  const created: Array<typeof routeOffers.$inferSelect> = [];
+  for (const assignment of assignments) {
+    const [existingForPickup] = await db.select().from(routeOffers).where(and(
+      eq(routeOffers.pickupOccurrenceId, assignment.pickupId),
+      // A bakery pickup can only be assigned once while an offer is live.
+      // Completed, declined, or cancelled history remains in the database.
+      inArray(routeOffers.status, ["offered", "accepted"]),
+    )).limit(1);
+    if (existingForPickup) continue;
+    const [existing] = await db.select().from(routeOffers).where(and(
+      eq(routeOffers.driverRequestId, assignment.requestId),
+      eq(routeOffers.pickupOccurrenceId, assignment.pickupId),
+    )).limit(1);
+    if (existing) {
+      created.push(existing);
+      continue;
+    }
+    const departureWindowStartsAt = new Date(assignment.departAt);
+    const pickupAt = new Date(assignment.pickupAt);
+    const departureWindowEndsAt = new Date(Math.min(
+      pickupAt.getTime(),
+      departureWindowStartsAt.getTime() + 30 * 60_000,
+    ));
+    const [offer] = await db.insert(routeOffers).values({
+      pickupOccurrenceId: assignment.pickupId,
+      driverRequestId: assignment.requestId,
+      driverId: assignment.driverId,
+      pantryId: assignment.pantryId,
+      pantryServiceMode: assignment.pantryServiceMode,
+      rank: 1,
+      score: assignment.score,
+      estimatedBakeryArrival: pickupAt,
+      estimatedPantryArrival: new Date(assignment.pantryArrivalAt),
+      departureWindowStartsAt,
+      departureWindowEndsAt,
+      status: "offered",
+      offeredAt: new Date(),
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+    }).onConflictDoNothing().returning();
+    if (!offer) continue;
+    created.push(offer);
+    await db.insert(inAppNotifications).values({
+      recipientType: "driver",
+      recipientId: assignment.driverId,
+      eventType: "route_offer",
+      title: "A route matches your request",
+      body: `Pick up from ${assignment.bakeryName} and deliver to ${assignment.pantryName}. This offer is held for five minutes.`,
+      actionRequired: true,
+      actionKey: `route-offer:${offer.id}`,
+    });
+  }
+  return { matchedRequests: created.length, offered: created.length > 0, solver: "gurobi" as const };
 }
 
 function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
