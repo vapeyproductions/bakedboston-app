@@ -95,6 +95,12 @@ type Coordinate = {
   longitude: number;
 };
 
+type MapTooltip = {
+  x: number;
+  y: number;
+  label: string;
+};
+
 type NetworkNode = Coordinate & {
   id: string;
   name: string;
@@ -295,6 +301,7 @@ export function SimulatorClient({ data }: Props) {
   const [epochIndex, setEpochIndex] = useState(() => interestingEpoch(mip.days[0]));
   const [driverIndex, setDriverIndex] = useState(0);
   const [mapMode, setMapMode] = useState<"driver" | "window">("driver");
+  const [mapTooltip, setMapTooltip] = useState<MapTooltip | null>(null);
 
   const day = mip.days[dayIndex] ?? mip.days[0];
   const epoch = day.decisionEpochs[epochIndex] ?? day.decisionEpochs[0];
@@ -393,6 +400,7 @@ export function SimulatorClient({ data }: Props) {
     setEpochIndex(nextEpoch);
     setDriverIndex(Math.max(firstWithRoutes, 0));
     setMapMode("driver");
+    setMapTooltip(null);
   };
 
   const resetReplay = (nextPayload: SimulationPayload) => {
@@ -405,6 +413,7 @@ export function SimulatorClient({ data }: Props) {
     setEpochIndex(nextEpoch);
     setDriverIndex(Math.max(firstWithRoutes, 0));
     setMapMode("driver");
+    setMapTooltip(null);
   };
 
   const showSavedExample = () => {
@@ -452,6 +461,7 @@ export function SimulatorClient({ data }: Props) {
     );
     setDriverIndex(Math.max(firstWithRoutes, 0));
     setMapMode("driver");
+    setMapTooltip(null);
   };
 
   return (
@@ -685,11 +695,45 @@ export function SimulatorClient({ data }: Props) {
                   <path d="M0 392 C190 330 270 435 455 365 S750 270 1000 320 V520 H0 Z" fill="#d4e8e3" opacity=".78" />
                   {payload.network.bakeries.map((node) => {
                     const point = mapProjection(node);
-                    return <circle className={styles.networkBakery} cx={point.x} cy={point.y} key={node.id} r="6"><title>{bakeryHoverLabel(node.name)}</title></circle>;
+                    const label = bakeryHoverLabel(node.name);
+                    return (
+                      <g
+                        aria-label={label.replaceAll("\n", ". ")}
+                        className={styles.mapInteractiveNode}
+                        key={node.id}
+                        onClick={() => setMapTooltip({ ...point, label })}
+                        onFocus={() => setMapTooltip({ ...point, label })}
+                        onMouseEnter={() => setMapTooltip({ ...point, label })}
+                        onMouseLeave={() => setMapTooltip(null)}
+                        onBlur={() => setMapTooltip(null)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <circle className={styles.mapHitArea} cx={point.x} cy={point.y} r="18" />
+                        <circle className={styles.networkBakery} cx={point.x} cy={point.y} r="6" />
+                      </g>
+                    );
                   })}
                   {payload.network.pantries.map((node) => {
                     const point = mapProjection(node);
-                    return <rect className={styles.networkPantry} height="10" key={node.id} rx="2" width="10" x={point.x - 5} y={point.y - 5}><title>{pantryHoverLabel(node.name)}</title></rect>;
+                    const label = pantryHoverLabel(node.name);
+                    return (
+                      <g
+                        aria-label={label.replaceAll("\n", ". ")}
+                        className={styles.mapInteractiveNode}
+                        key={node.id}
+                        onClick={() => setMapTooltip({ ...point, label })}
+                        onFocus={() => setMapTooltip({ ...point, label })}
+                        onMouseEnter={() => setMapTooltip({ ...point, label })}
+                        onMouseLeave={() => setMapTooltip(null)}
+                        onBlur={() => setMapTooltip(null)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <circle className={styles.mapHitArea} cx={point.x} cy={point.y} r="18" />
+                        <rect className={styles.networkPantry} height="10" rx="2" width="10" x={point.x - 5} y={point.y - 5} />
+                      </g>
+                    );
                   })}
                   {mapRoutes.map((route, index) => {
                     const driver = mapProjection(route.driverStart);
@@ -721,11 +765,35 @@ export function SimulatorClient({ data }: Props) {
                     const driver = mapProjection(route.driverStart);
                     const bakery = mapProjection(route.bakeryLocation);
                     const pantry = mapProjection(route.pantryLocation);
+                    const bakeryLabel = bakeryHoverLabel(route.bakeryName, route.pickupId);
+                    const pantryLabel = pantryHoverLabel(route.pantryName, route.pantryWindowId);
                     return (
                       <g key={`nodes-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
                         <g transform={`translate(${driver.x} ${driver.y})`}><circle className={styles.driverNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🚗</text><title>{compactDriver(route.driverId)}</title></g>
-                        <g transform={`translate(${bakery.x} ${bakery.y})`}><circle className={styles.bakeryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥖</text><title>{bakeryHoverLabel(route.bakeryName, route.pickupId)}</title></g>
-                        <g transform={`translate(${pantry.x} ${pantry.y})`}><circle className={styles.pantryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥫</text><title>{pantryHoverLabel(route.pantryName, route.pantryWindowId)}</title></g>
+                        <g
+                          aria-label={bakeryLabel.replaceAll("\n", ". ")}
+                          className={styles.mapInteractiveNode}
+                          onClick={() => setMapTooltip({ ...bakery, label: bakeryLabel })}
+                          onFocus={() => setMapTooltip({ ...bakery, label: bakeryLabel })}
+                          onMouseEnter={() => setMapTooltip({ ...bakery, label: bakeryLabel })}
+                          onMouseLeave={() => setMapTooltip(null)}
+                          onBlur={() => setMapTooltip(null)}
+                          role="button"
+                          tabIndex={0}
+                          transform={`translate(${bakery.x} ${bakery.y})`}
+                        ><circle className={styles.bakeryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥖</text></g>
+                        <g
+                          aria-label={pantryLabel.replaceAll("\n", ". ")}
+                          className={styles.mapInteractiveNode}
+                          onClick={() => setMapTooltip({ ...pantry, label: pantryLabel })}
+                          onFocus={() => setMapTooltip({ ...pantry, label: pantryLabel })}
+                          onMouseEnter={() => setMapTooltip({ ...pantry, label: pantryLabel })}
+                          onMouseLeave={() => setMapTooltip(null)}
+                          onBlur={() => setMapTooltip(null)}
+                          role="button"
+                          tabIndex={0}
+                          transform={`translate(${pantry.x} ${pantry.y})`}
+                        ><circle className={styles.pantryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥫</text></g>
                         {route.selected || mapMode === "window" ? <>
                           <text className={styles.mapNodeLabel} textAnchor="middle" x={bakery.x} y={bakery.y - 27}>{route.bakeryName}</text>
                           <text className={styles.mapNodeLabel} textAnchor="middle" x={pantry.x} y={pantry.y - 27}>{route.pantryName}</text>
@@ -734,6 +802,23 @@ export function SimulatorClient({ data }: Props) {
                     );
                   })}
                 </svg>
+                {mapTooltip ? (
+                  <div
+                    className={styles.mapTooltip}
+                    role="status"
+                    style={{
+                      left: `${mapTooltip.x / 10}%`,
+                      top: `${mapTooltip.y / 5.2}%`,
+                      transform: `translate(${mapTooltip.x > 650 ? "calc(-100% - 16px)" : "16px"}, ${mapTooltip.y > 330 ? "calc(-100% - 16px)" : "16px"})`,
+                    }}
+                  >
+                    {mapTooltip.label.split("\n").map((line, index) => (
+                      index === 0
+                        ? <strong key={line}>{line}</strong>
+                        : <span key={`${line}-${index}`}>{line}</span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className={styles.mapLegend}>
