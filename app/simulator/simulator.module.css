@@ -101,6 +101,7 @@
 .hero h1 {
   max-width: 980px;
   margin: 0;
+  color: #ffffff;
   font-size: clamp(46px, 6.3vw, 96px);
   line-height: 0.95;
   letter-spacing: -0.06em;
@@ -178,13 +179,13 @@
 .mapMode .activeMapMode { color: white; background: var(--green); }
 .routeMap { margin: 0 28px; overflow: hidden; border: 1px solid #bfcfc6; border-radius: 20px; background: #e8ecdf; }
 .routeMap svg { width: 100%; height: auto; min-height: 360px; display: block; }
-.networkBakery { fill: #f3a795; stroke: white; stroke-width: 2; opacity: .72; }
-.networkPantry { fill: #77a796; stroke: white; stroke-width: 2; opacity: .72; }
+.networkBakery { fill: #f3a795; stroke: white; stroke-width: 2; opacity: .72; cursor: help; }
+.networkPantry { fill: #77a796; stroke: white; stroke-width: 2; opacity: .72; cursor: help; }
 .chosenMapRoute { stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 3px 2px rgba(17, 63, 49, .18)); }
 .alternativeMapRoute { stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 12 10; opacity: .78; }
 .driverNode { fill: #f4bf3f; stroke: white; stroke-width: 4; }
-.bakeryNode { fill: #f56447; stroke: white; stroke-width: 4; }
-.pantryNode { fill: #113f31; stroke: white; stroke-width: 4; }
+.bakeryNode { fill: #f56447; stroke: white; stroke-width: 4; cursor: help; }
+.pantryNode { fill: #113f31; stroke: white; stroke-width: 4; cursor: help; }
 .mapEmoji { font-size: 18px; pointer-events: none; }
 .mapRankLabel { fill: var(--green); font-size: 13px; font-weight: 900; }
 .mapNodeLabel { paint-order: stroke; fill: var(--green); stroke: #fffdf8; stroke-width: 5px; stroke-linejoin: round; font-size: 12px; font-weight: 900; }

@@ -55,6 +55,21 @@ type DecisionEpoch = {
   };
 };
 
+type PickupWindow = {
+  pickupId: string;
+  bakeryName: string;
+  readyAt: string;
+  pickupDeadline: string;
+};
+
+type PantryWindow = {
+  pantryWindowId: string;
+  pantryName: string;
+  receivingStart: string;
+  receivingEnd: string;
+  latestPermittedArrival: string;
+};
+
 type SimulationDay = {
   serviceDate: string;
   scheduledPickupWindows: number;
@@ -64,6 +79,8 @@ type SimulationDay = {
   feasibleCandidatesEvaluated: number;
   routesOffered: number;
   routesAccepted: number;
+  pickupWindows?: PickupWindow[];
+  pantryWindows?: PantryWindow[];
   decisionEpochs: DecisionEpoch[];
 };
 
@@ -286,6 +303,50 @@ export function SimulatorClient({ data }: Props) {
       .filter((route): route is RouteOption => Boolean(route));
   }, [activeDriver, mapMode, recommendations]);
 
+  const actualDriverRequests = useMemo(
+    () => mip.days.reduce((total, item) => total + item.driverRequests, 0),
+    [mip.days],
+  );
+
+  const pickupWindowsByBakery = useMemo(() => {
+    const windows = new Map<string, PickupWindow[]>();
+    for (const item of day.pickupWindows ?? []) {
+      windows.set(item.bakeryName, [...(windows.get(item.bakeryName) ?? []), item]);
+    }
+    return windows;
+  }, [day.pickupWindows]);
+
+  const pantryWindowsByPantry = useMemo(() => {
+    const windows = new Map<string, PantryWindow[]>();
+    for (const item of day.pantryWindows ?? []) {
+      windows.set(item.pantryName, [...(windows.get(item.pantryName) ?? []), item]);
+    }
+    return windows;
+  }, [day.pantryWindows]);
+
+  const bakeryHoverLabel = (bakeryName: string, pickupId?: string) => {
+    const available = pickupWindowsByBakery.get(bakeryName) ?? [];
+    const exact = pickupId ? available.filter((item) => item.pickupId === pickupId) : available;
+    const windows = exact.length ? exact : available;
+    if (!windows.length) return `${bakeryName} · bakery\nNo food-ready pickup window on ${formatDate(day.serviceDate)}`;
+    return `${bakeryName} · bakery\n${windows
+      .map((item) => `Pickup: ${formatClock(item.readyAt)}–${formatClock(item.pickupDeadline)}`)
+      .join("\n")}`;
+  };
+
+  const pantryHoverLabel = (pantryName: string, pantryWindowId?: string) => {
+    const available = pantryWindowsByPantry.get(pantryName) ?? [];
+    const exact = pantryWindowId ? available.filter((item) => item.pantryWindowId === pantryWindowId) : available;
+    const windows = exact.length ? exact : available;
+    if (!windows.length) return `${pantryName} · pantry\nNo receiving window on ${formatDate(day.serviceDate)}`;
+    return `${pantryName} · pantry\n${windows
+      .map(
+        (item) =>
+          `Receiving: ${formatClock(item.receivingStart)}–${formatClock(item.receivingEnd)} · latest arrival ${formatClock(item.latestPermittedArrival)}`,
+      )
+      .join("\n")}`;
+  };
+
   const mapProjection = useMemo(() => {
     const coordinates = [
       ...payload.network.bakeries,
@@ -426,10 +487,10 @@ export function SimulatorClient({ data }: Props) {
           <div className={styles.customPanel}>
             <div className={styles.controlGrid}>
               <label className={styles.controlField}>
-                <span>Drivers per day</span>
+                <span>Daily driver cap</span>
                 <strong>{customConfig.driversPerDay}</strong>
-                <input aria-label="Drivers per day" max="12" min="1" onChange={(event) => updateCustomConfig("driversPerDay", Number(event.target.value))} type="range" value={customConfig.driversPerDay} />
-                <small>1–12 volunteers</small>
+                <input aria-label="Daily driver cap" max="12" min="1" onChange={(event) => updateCustomConfig("driversPerDay", Number(event.target.value))} type="range" value={customConfig.driversPerDay} />
+                <small>Each day randomly uses 1–{customConfig.driversPerDay} volunteers.</small>
               </label>
               <label className={styles.controlField}>
                 <span>Bakeries</span>
@@ -452,11 +513,12 @@ export function SimulatorClient({ data }: Props) {
                 </select>
               </label>
               <label className={styles.controlField}>
-                <span>Max drivers arriving together</span>
+                <span>Maximum drivers in one window</span>
                 <select aria-label="Maximum simultaneous drivers" onChange={(event) => updateCustomConfig("maxSimultaneousDrivers", Number(event.target.value))} value={customConfig.maxSimultaneousDrivers}>
                   <option value="2">2 drivers</option>
                   <option value="3">3 drivers</option>
                 </select>
+                <small>Each window randomly receives 1–{customConfig.maxSimultaneousDrivers} drivers.</small>
               </label>
               <label className={styles.controlField}>
                 <span>Reproducible seed</span>
@@ -466,7 +528,7 @@ export function SimulatorClient({ data }: Props) {
             </div>
             <div className={styles.customActions}>
               <div className={styles.scenarioSummary}>
-                <strong>{customConfig.driversPerDay} drivers/day for {customConfig.bakeryCount} bakeries</strong>
+                <strong>Up to {customConfig.driversPerDay} drivers/day for {customConfig.bakeryCount} bakeries</strong>
                 <span>
                   {customConfig.driversPerDay < customConfig.bakeryCount
                     ? "Driver scarcity is built into this run, so some eligible pickups may remain unserved."
@@ -500,9 +562,10 @@ export function SimulatorClient({ data }: Props) {
         <aside className={styles.heroCard}>
           <span>{resultMode === "saved" ? "SAVED EXAMPLE" : "CUSTOM RUN"}</span>
           <strong>{payload.scenario.horizonDays} days</strong>
-          <p>{payload.scenario.driversPerDay} synthetic drivers per day</p>
+          <p>Up to {payload.scenario.driversPerDay} synthetic drivers per day</p>
           <p>{payload.scenario.bakeryCount ?? payload.network.bakeries.length} bakeries · {payload.scenario.pantryCount ?? payload.network.pantries.length} pantries</p>
-          <p>Up to {payload.scenario.maxSimultaneousDrivers} drivers in one decision window</p>
+          <p>Each decision window samples 1–{payload.scenario.maxSimultaneousDrivers} drivers</p>
+          <p>{actualDriverRequests} drivers actually entered this run</p>
           <p>Seed {payload.scenario.seed} · reproducible</p>
         </aside>
       </section>
@@ -616,11 +679,11 @@ export function SimulatorClient({ data }: Props) {
                   <path d="M0 392 C190 330 270 435 455 365 S750 270 1000 320 V520 H0 Z" fill="#d4e8e3" opacity=".78" />
                   {payload.network.bakeries.map((node) => {
                     const point = mapProjection(node);
-                    return <circle className={styles.networkBakery} cx={point.x} cy={point.y} key={node.id} r="6"><title>{node.name} · bakery</title></circle>;
+                    return <circle className={styles.networkBakery} cx={point.x} cy={point.y} key={node.id} r="6"><title>{bakeryHoverLabel(node.name)}</title></circle>;
                   })}
                   {payload.network.pantries.map((node) => {
                     const point = mapProjection(node);
-                    return <rect className={styles.networkPantry} height="10" key={node.id} rx="2" width="10" x={point.x - 5} y={point.y - 5}><title>{node.name} · pantry</title></rect>;
+                    return <rect className={styles.networkPantry} height="10" key={node.id} rx="2" width="10" x={point.x - 5} y={point.y - 5}><title>{pantryHoverLabel(node.name)}</title></rect>;
                   })}
                   {mapRoutes.map((route, index) => {
                     const driver = mapProjection(route.driverStart);
@@ -655,8 +718,8 @@ export function SimulatorClient({ data }: Props) {
                     return (
                       <g key={`nodes-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
                         <g transform={`translate(${driver.x} ${driver.y})`}><circle className={styles.driverNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🚗</text><title>{compactDriver(route.driverId)}</title></g>
-                        <g transform={`translate(${bakery.x} ${bakery.y})`}><circle className={styles.bakeryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥖</text><title>{route.bakeryName}</title></g>
-                        <g transform={`translate(${pantry.x} ${pantry.y})`}><circle className={styles.pantryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥫</text><title>{route.pantryName}</title></g>
+                        <g transform={`translate(${bakery.x} ${bakery.y})`}><circle className={styles.bakeryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥖</text><title>{bakeryHoverLabel(route.bakeryName, route.pickupId)}</title></g>
+                        <g transform={`translate(${pantry.x} ${pantry.y})`}><circle className={styles.pantryNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🥫</text><title>{pantryHoverLabel(route.pantryName, route.pantryWindowId)}</title></g>
                         {route.selected || mapMode === "window" ? <>
                           <text className={styles.mapNodeLabel} textAnchor="middle" x={bakery.x} y={bakery.y - 27}>{route.bakeryName}</text>
                           <text className={styles.mapNodeLabel} textAnchor="middle" x={pantry.x} y={pantry.y - 27}>{route.pantryName}</text>
@@ -842,8 +905,8 @@ export function SimulatorClient({ data }: Props) {
           <div className={styles.experimentScale}>
             <div><strong>{payload.network.bakeries.length}</strong><span>bakeries</span></div>
             <div><strong>{payload.network.pantries.length}</strong><span>pantries</span></div>
-            <div><strong>{payload.scenario.horizonDays * payload.scenario.driversPerDay}</strong><span>driver requests</span></div>
-            <div><strong>{payload.scenario.maxSimultaneousDrivers}</strong><span>maximum simultaneous drivers</span></div>
+            <div><strong>{actualDriverRequests}</strong><span>actual driver requests</span></div>
+            <div><strong>1–{payload.scenario.maxSimultaneousDrivers}</strong><span>drivers sampled per window</span></div>
           </div>
         </div>
       </section>
