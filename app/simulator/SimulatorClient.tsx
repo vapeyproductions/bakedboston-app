@@ -121,6 +121,12 @@ type SimulationPayload = {
     pythonVersion: string;
   };
   selectionRule: string;
+  recommendationAllocation?: {
+    bakeryPickupExclusiveAcrossMenus: boolean;
+    pantryDestinationsMayRepeat: boolean;
+    menuConstruction: string;
+    zeroRecommendationRule: string;
+  };
   objectiveWeights: Record<string, number>;
   policyMetadata: Record<string, { label: string; description: string }>;
   network: {
@@ -555,8 +561,8 @@ export function SimulatorClient({ data }: Props) {
           <h1 className={styles.heroTitle}>See every recommendation. Then see what the driver selected.</h1>
           <p className={styles.lede}>
             Replay {payload.scenario.horizonDays} synthetic service days. At every decision time, BakedBoston generates feasible routes,
-            solves simultaneous driver conflicts with Gurobi, ranks each driver&apos;s remaining options, and selects
-            the highest-scoring recommendation.
+            solves simultaneous driver conflicts with Gurobi, builds fair conflict-free menus, and selects the
+            highest-scoring recommendation shown to each driver.
           </p>
         </div>
         <aside className={styles.heroCard}>
@@ -621,7 +627,7 @@ export function SimulatorClient({ data }: Props) {
                 <h3>{epoch.queueSize > 1 ? `${epoch.queueSize} drivers enter together` : "One driver enters the queue"}</h3>
                 <p>
                   {epoch.queueSize > 1
-                    ? "The model considers all feasible routes jointly so two drivers cannot claim the same bakery pickup."
+                    ? "The model considers every feasible route jointly. Each bakery pickup can appear in only one driver's menu, and every feasible driver gets one option before anyone gets a second."
                     : "The model filters for timing feasibility, scores every remaining route, and ranks the options."}
                 </p>
               </div>
@@ -792,7 +798,8 @@ export function SimulatorClient({ data }: Props) {
                       <h3>{selectedRoute.bakeryName} → {selectedRoute.pantryName}</h3>
                       <p>
                         Rank #1 was selected because its score of {score(selectedRoute.routeScore)} is the highest among
-                        this driver&apos;s conflict-free recommendations.
+                        this driver&apos;s conflict-free recommendations. Pantry destinations may repeat across drivers,
+                        but bakery pickups cannot.
                       </p>
                     </div>
                   </div>
@@ -899,6 +906,10 @@ export function SimulatorClient({ data }: Props) {
 
         <div className={styles.methodologyNote}>
           <h3>How to interpret acceptance and rejection</h3>
+          <p><strong>How simultaneous recommendation menus are shared:</strong> {payload.selectionRule}</p>
+          {payload.recommendationAllocation?.zeroRecommendationRule ? (
+            <p>{payload.recommendationAllocation.zeroRecommendationRule}</p>
+          ) : null}
           <p>{payload.metricMethodology?.actualSelection ?? "Every simulated driver selects rank #1."}</p>
           <p>{payload.metricMethodology?.acceptanceModel}</p>
           <p>{payload.metricMethodology?.comparison}</p>
