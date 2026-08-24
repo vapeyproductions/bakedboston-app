@@ -37,9 +37,17 @@ type DriverRecommendation = {
   selectedRoute: RouteOption | null;
 };
 
+type DriverRequestTrace = {
+  requestId: string;
+  driverId: string;
+  earliestStart: string;
+  latestFinish: string;
+  hasPreferredDestination: boolean;
+};
+
 type DecisionEpoch = {
   decisionEpoch: string;
-  requests: string[];
+  requests: DriverRequestTrace[];
   queueSize: number;
   candidateCount: number;
   selectedCount: number;
@@ -275,10 +283,31 @@ const metricGroups: MetricGroup[] = [
 ];
 
 const interestingEpoch = (day: SimulationDay) => {
+  const fullyCoveredSimultaneous = day.decisionEpochs.findIndex(
+    (epoch) =>
+      epoch.queueSize > 1 &&
+      epoch.driverRecommendations.length > 1 &&
+      epoch.driverRecommendations.every((driver) => driver.routes.length > 0),
+  );
+  if (fullyCoveredSimultaneous >= 0) return fullyCoveredSimultaneous;
   const simultaneous = day.decisionEpochs.findIndex((epoch) => epoch.queueSize > 1 && epoch.candidateCount > 0);
   if (simultaneous >= 0) return simultaneous;
   const feasible = day.decisionEpochs.findIndex((epoch) => epoch.candidateCount > 0);
   return Math.max(feasible, 0);
+};
+
+const interestingReplay = (result: PolicyResult) => {
+  for (let dayIndex = 0; dayIndex < result.days.length; dayIndex += 1) {
+    const day = result.days[dayIndex];
+    const epochIndex = day.decisionEpochs.findIndex(
+      (epoch) =>
+        epoch.queueSize > 1 &&
+        epoch.driverRecommendations.length > 1 &&
+        epoch.driverRecommendations.every((driver) => driver.routes.length > 0),
+    );
+    if (epochIndex >= 0) return { dayIndex, epochIndex };
+  }
+  return { dayIndex: 0, epochIndex: interestingEpoch(result.days[0]) };
 };
 
 export function SimulatorClient({ data }: Props) {
@@ -297,8 +326,9 @@ export function SimulatorClient({ data }: Props) {
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState("");
   const mip = payload.results.find((result) => result.policy === "bakedboston_mip") ?? payload.results[0];
-  const [dayIndex, setDayIndex] = useState(0);
-  const [epochIndex, setEpochIndex] = useState(() => interestingEpoch(mip.days[0]));
+  const initialReplay = interestingReplay(mip);
+  const [dayIndex, setDayIndex] = useState(initialReplay.dayIndex);
+  const [epochIndex, setEpochIndex] = useState(initialReplay.epochIndex);
   const [driverIndex, setDriverIndex] = useState(0);
   const [mapMode, setMapMode] = useState<"driver" | "window">("driver");
   const [mapTooltip, setMapTooltip] = useState<MapTooltip | null>(null);
@@ -307,6 +337,7 @@ export function SimulatorClient({ data }: Props) {
   const epoch = day.decisionEpochs[epochIndex] ?? day.decisionEpochs[0];
   const recommendations = epoch.driverRecommendations;
   const activeDriver = recommendations[driverIndex] ?? recommendations[0];
+  const activeRequest = epoch.requests.find((request) => request.requestId === activeDriver?.requestId);
   const selectedRoute = activeDriver?.routes.find((route) => route.selected) ?? activeDriver?.selectedRoute ?? null;
 
   const mapRoutes = useMemo(() => {
@@ -405,12 +436,12 @@ export function SimulatorClient({ data }: Props) {
 
   const resetReplay = (nextPayload: SimulationPayload) => {
     const nextMip = nextPayload.results.find((result) => result.policy === "bakedboston_mip") ?? nextPayload.results[0];
-    const nextEpoch = interestingEpoch(nextMip.days[0]);
-    const firstWithRoutes = nextMip.days[0].decisionEpochs[nextEpoch].driverRecommendations.findIndex(
+    const nextReplay = interestingReplay(nextMip);
+    const firstWithRoutes = nextMip.days[nextReplay.dayIndex].decisionEpochs[nextReplay.epochIndex].driverRecommendations.findIndex(
       (driver) => driver.routes.length > 0,
     );
-    setDayIndex(0);
-    setEpochIndex(nextEpoch);
+    setDayIndex(nextReplay.dayIndex);
+    setEpochIndex(nextReplay.epochIndex);
     setDriverIndex(Math.max(firstWithRoutes, 0));
     setMapMode("driver");
     setMapTooltip(null);
@@ -843,6 +874,7 @@ export function SimulatorClient({ data }: Props) {
                   <div>
                     <p className={styles.panelLabel}>ROUTES RECOMMENDED TO {compactDriver(activeDriver.driverId).toUpperCase()}</p>
                     <h3>Ranked from highest to lowest score</h3>
+                    <p>These are alternative choices for one delivery. Selecting one does not count the remaining choices as rejected offers.</p>
                   </div>
                   <span>Top {activeDriver.routes.length}</span>
                 </div>
@@ -884,7 +916,8 @@ export function SimulatorClient({ data }: Props) {
                       <p>
                         Rank #1 was selected because its score of {score(selectedRoute.routeScore)} is the highest among
                         this driver&apos;s conflict-free recommendations. Pantry destinations may repeat across drivers,
-                        but bakery pickups cannot.
+                        but bakery pickups cannot. The other recommendations remain unselected alternatives—not four
+                        additional trips that the driver rejected.
                       </p>
                     </div>
                   </div>
@@ -894,7 +927,11 @@ export function SimulatorClient({ data }: Props) {
               <div className={styles.emptyState}>
                 <span>∅</span>
                 <h3>No route was recommended to {activeDriver ? compactDriver(activeDriver.driverId) : "this driver"}.</h3>
-                <p>At this decision time, no remaining bakery–pantry combination satisfied every timing and assignment constraint.</p>
+                <p>
+                  This is not the model choosing to give another driver extra routes instead. At this decision time,
+                  this driver had no time-feasible route or there were fewer distinct feasible bakery pickups than
+                  simultaneous drivers{activeRequest ? ` before the request ended at ${formatClock(activeRequest.latestFinish)}` : ""}.
+                </p>
               </div>
             )}
           </div>
