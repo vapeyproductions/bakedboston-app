@@ -49,6 +49,37 @@
 .nav a { color: var(--green); font-size: 14px; font-weight: 800; text-decoration: none; }
 .nav a:hover { color: var(--orange); }
 
+.modeBar {
+  padding: 30px clamp(24px, 5vw, 80px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 22px 40px;
+  align-items: center;
+  border-bottom: 1px solid rgba(17, 63, 49, 0.18);
+  background: var(--paper);
+}
+.modeCopy h2 { margin: 0; font-size: clamp(27px, 3vw, 40px); letter-spacing: -.035em; }
+.modeCopy > p:last-child { margin: 8px 0 0; color: #6a8178; line-height: 1.5; }
+.modeTabs { padding: 5px; display: flex; gap: 5px; border: 1px solid var(--line); border-radius: 16px; background: #eef2eb; }
+.modeTabs button { padding: 13px 18px; border: 0; border-radius: 11px; color: var(--green); background: transparent; cursor: pointer; font-weight: 900; }
+.modeTabs .activeMode { color: white; background: var(--green); }
+.customPanel { grid-column: 1 / -1; padding: 24px; border: 1px solid var(--line); border-radius: 22px; background: var(--cream); }
+.controlGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.controlField { min-width: 0; padding: 15px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); }
+.controlField > span { font-size: 12px; font-weight: 900; }
+.controlField > strong { color: var(--orange); font-size: 24px; }
+.controlField > input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--orange); }
+.controlField > input[type="number"], .controlField > select { grid-column: 1 / -1; width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--green); background: white; font: inherit; font-weight: 800; }
+.controlField > small { grid-column: 1 / -1; color: #758a82; font-size: 10px; }
+.customActions { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; }
+.scenarioSummary { display: grid; gap: 3px; }
+.scenarioSummary strong { font-size: 17px; }
+.scenarioSummary span { color: #667d74; font-size: 12px; line-height: 1.4; }
+.runButton { min-width: 230px; min-height: 52px; padding: 13px 20px; border: 0; border-radius: 14px; color: white; background: var(--orange); cursor: pointer; font: inherit; font-weight: 900; }
+.runButton:disabled { cursor: wait; opacity: .65; }
+.runError { margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; color: #8b2d1d; background: #ffe3dc; font-weight: 800; }
+.runStatus { margin: 14px 0 0; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+
 .hero {
   padding: clamp(60px, 8vw, 120px) clamp(24px, 7vw, 120px);
   display: grid;
@@ -99,7 +130,7 @@
 .sectionHeading > p { max-width: 360px; margin: 0; color: #668177; line-height: 1.5; }
 .solverPill { padding: 10px 16px; border-radius: 999px; color: white; background: var(--green); font-size: 13px; font-weight: 800; }
 
-.dayTabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
+.dayTabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .dayTabs button, .timelinePanel button, .driverTabs button {
   border: 1px solid var(--line);
   color: var(--green);
@@ -248,6 +279,9 @@
 .footer p { max-width: 650px; }
 
 @media (max-width: 1000px) {
+  .modeBar { grid-template-columns: 1fr; }
+  .modeTabs { width: fit-content; }
+  .controlGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero { grid-template-columns: 1fr; }
   .heroCard { max-width: 440px; }
   .simulatorGrid { grid-template-columns: 1fr; }
@@ -261,10 +295,17 @@
 @media (max-width: 720px) {
   .header { align-items: flex-start; }
   .nav { display: none; }
+  .modeBar { padding: 24px 18px; }
+  .modeTabs { width: 100%; }
+  .modeTabs button { flex: 1; padding: 12px 8px; }
+  .customPanel { padding: 14px; }
+  .controlGrid { grid-template-columns: 1fr; }
+  .customActions { grid-template-columns: 1fr; }
+  .runButton { width: 100%; min-width: 0; }
   .hero { padding-top: 55px; }
   .hero h1 { font-size: 48px; }
   .sectionHeading, .epochHeader { align-items: flex-start; flex-direction: column; }
-  .dayTabs { grid-template-columns: repeat(5, minmax(105px, 1fr)); overflow-x: auto; }
+  .dayTabs { grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); overflow-x: auto; }
   .dayTabs button { display: grid; justify-content: start; text-align: left; }
   .solveStats { width: 100%; }
   .solveStats div { flex: 1; min-width: 0; }

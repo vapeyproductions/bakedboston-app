@@ -32,6 +32,15 @@ export type OptimizedAssignment = OptimizedRoute & {
   driverId: number;
 };
 
+export type CustomSimulationInput = {
+  driversPerDay: number;
+  bakeryCount: number;
+  pantryCount: number;
+  horizonDays: number;
+  randomSeed: number;
+  maxSimultaneousDrivers: 2 | 3;
+};
+
 const optimizerEndpoint = () => `${(process.env.OPTIMIZER_BASE_URL ?? "https://bakedboston-optimizer.vercel.app").replace(/\/$/, "")}/api/recommendations`;
 
 export async function requestOptimizedRoutes(input: {
@@ -120,4 +129,43 @@ export async function requestNetworkAssignments(input: {
     console.error("[optimizer] Network assignment request failed.", error);
     return null;
   }
+}
+
+export async function requestCustomSimulation(input: CustomSimulationInput): Promise<Record<string, unknown>> {
+  const apiKey = process.env.OPTIMIZER_API_KEY;
+  if (!apiKey) {
+    throw new Error("The optimizer service is not configured for custom experiments.");
+  }
+
+  const response = await fetch(optimizerEndpoint(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mode: "custom_experiment",
+      days: input.horizonDays,
+      driversPerDay: input.driversPerDay,
+      bakeryCount: input.bakeryCount,
+      pantryCount: input.pantryCount,
+      randomSeed: input.randomSeed,
+      maxSimultaneousDrivers: input.maxSimultaneousDrivers,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(55_000),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`The optimizer could not complete this experiment (HTTP ${response.status})${detail ? `: ${detail.slice(0, 180)}` : "."}`);
+  }
+
+  const data = await response.json() as Record<string, unknown> & {
+    runtime?: { solverBackend?: string };
+  };
+  if (data.runtime?.solverBackend !== "gurobi") {
+    throw new Error("The custom experiment did not run with the required Gurobi backend.");
+  }
+  return data;
 }

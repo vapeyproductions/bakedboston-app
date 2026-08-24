@@ -95,6 +95,8 @@ type SimulationPayload = {
     matchingIntervalMinutes: number;
     driversPerDay: number;
     maxSimultaneousDrivers: 2 | 3;
+    bakeryCount?: number;
+    pantryCount?: number;
   };
   runtime: {
     solverBackend: string;
@@ -118,6 +120,15 @@ type SimulationPayload = {
 
 type Props = {
   data: unknown;
+};
+
+type CustomConfig = {
+  driversPerDay: number;
+  bakeryCount: number;
+  pantryCount: number;
+  horizonDays: number;
+  randomSeed: number;
+  maxSimultaneousDrivers: 2 | 3;
 };
 
 const formatClock = (value: string) =>
@@ -242,14 +253,27 @@ const interestingEpoch = (day: SimulationDay) => {
 };
 
 export function SimulatorClient({ data }: Props) {
-  const payload = data as SimulationPayload;
+  const savedPayload = data as SimulationPayload;
+  const [payload, setPayload] = useState(savedPayload);
+  const [viewMode, setViewMode] = useState<"saved" | "custom">("saved");
+  const [resultMode, setResultMode] = useState<"saved" | "custom">("saved");
+  const [customConfig, setCustomConfig] = useState<CustomConfig>({
+    driversPerDay: 6,
+    bakeryCount: 9,
+    pantryCount: 9,
+    horizonDays: 5,
+    randomSeed: 2042,
+    maxSimultaneousDrivers: 3 as 2 | 3,
+  });
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState("");
   const mip = payload.results.find((result) => result.policy === "bakedboston_mip") ?? payload.results[0];
   const [dayIndex, setDayIndex] = useState(0);
   const [epochIndex, setEpochIndex] = useState(() => interestingEpoch(mip.days[0]));
   const [driverIndex, setDriverIndex] = useState(0);
   const [mapMode, setMapMode] = useState<"driver" | "window">("driver");
 
-  const day = mip.days[dayIndex];
+  const day = mip.days[dayIndex] ?? mip.days[0];
   const epoch = day.decisionEpochs[epochIndex] ?? day.decisionEpochs[0];
   const recommendations = epoch.driverRecommendations;
   const activeDriver = recommendations[driverIndex] ?? recommendations[0];
@@ -304,6 +328,56 @@ export function SimulatorClient({ data }: Props) {
     setMapMode("driver");
   };
 
+  const resetReplay = (nextPayload: SimulationPayload) => {
+    const nextMip = nextPayload.results.find((result) => result.policy === "bakedboston_mip") ?? nextPayload.results[0];
+    const nextEpoch = interestingEpoch(nextMip.days[0]);
+    const firstWithRoutes = nextMip.days[0].decisionEpochs[nextEpoch].driverRecommendations.findIndex(
+      (driver) => driver.routes.length > 0,
+    );
+    setDayIndex(0);
+    setEpochIndex(nextEpoch);
+    setDriverIndex(Math.max(firstWithRoutes, 0));
+    setMapMode("driver");
+  };
+
+  const showSavedExample = () => {
+    setViewMode("saved");
+    setResultMode("saved");
+    setPayload(savedPayload);
+    setRunError("");
+    resetReplay(savedPayload);
+  };
+
+  const updateCustomConfig = (key: keyof CustomConfig, value: number) => {
+    setCustomConfig((current) => ({
+      ...current,
+      [key]: key === "maxSimultaneousDrivers" ? (value as 2 | 3) : value,
+    }));
+  };
+
+  const runCustomSimulation = async () => {
+    setIsRunning(true);
+    setRunError("");
+    try {
+      const response = await fetch("/api/simulator/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customConfig),
+      });
+      const result = await response.json() as SimulationPayload & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The custom simulation could not be completed.");
+      setPayload(result);
+      setViewMode("custom");
+      setResultMode("custom");
+      resetReplay(result);
+      document.querySelector("#replay")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : "The custom simulation could not be completed.");
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const chooseEpoch = (nextEpoch: number) => {
     setEpochIndex(nextEpoch);
     const firstWithRoutes = day.decisionEpochs[nextEpoch].driverRecommendations.findIndex(
@@ -329,20 +403,105 @@ export function SimulatorClient({ data }: Props) {
         </nav>
       </header>
 
+      <section className={styles.modeBar} aria-label="Simulation type">
+        <div className={styles.modeCopy}>
+          <p className={styles.eyebrow}>CHOOSE AN EXPERIMENT</p>
+          <h2>{viewMode === "saved" ? "Start with a complete saved example" : "Build a custom scarcity scenario"}</h2>
+          <p>
+            {viewMode === "saved"
+              ? "This reproducible five-day study is ready to explore immediately."
+              : "Choose the network size and driver supply. Every policy receives the exact same seeded scenario."}
+          </p>
+        </div>
+        <div className={styles.modeTabs} role="group" aria-label="Experiment mode">
+          <button className={viewMode === "saved" ? styles.activeMode : ""} onClick={showSavedExample} type="button">
+            Saved example
+          </button>
+          <button className={viewMode === "custom" ? styles.activeMode : ""} onClick={() => setViewMode("custom")} type="button">
+            Custom simulation
+          </button>
+        </div>
+
+        {viewMode === "custom" ? (
+          <div className={styles.customPanel}>
+            <div className={styles.controlGrid}>
+              <label className={styles.controlField}>
+                <span>Drivers per day</span>
+                <strong>{customConfig.driversPerDay}</strong>
+                <input aria-label="Drivers per day" max="12" min="1" onChange={(event) => updateCustomConfig("driversPerDay", Number(event.target.value))} type="range" value={customConfig.driversPerDay} />
+                <small>1–12 volunteers</small>
+              </label>
+              <label className={styles.controlField}>
+                <span>Bakeries</span>
+                <strong>{customConfig.bakeryCount}</strong>
+                <input aria-label="Number of bakeries" max="9" min="2" onChange={(event) => updateCustomConfig("bakeryCount", Number(event.target.value))} type="range" value={customConfig.bakeryCount} />
+                <small>2–9 pickup sites</small>
+              </label>
+              <label className={styles.controlField}>
+                <span>Pantries</span>
+                <strong>{customConfig.pantryCount}</strong>
+                <input aria-label="Number of pantries" max="9" min="2" onChange={(event) => updateCustomConfig("pantryCount", Number(event.target.value))} type="range" value={customConfig.pantryCount} />
+                <small>2–9 receiving sites</small>
+              </label>
+              <label className={styles.controlField}>
+                <span>Simulation days</span>
+                <select aria-label="Simulation days" onChange={(event) => updateCustomConfig("horizonDays", Number(event.target.value))} value={customConfig.horizonDays}>
+                  <option value="3">3 days</option>
+                  <option value="4">4 days</option>
+                  <option value="5">5 days</option>
+                </select>
+              </label>
+              <label className={styles.controlField}>
+                <span>Max drivers arriving together</span>
+                <select aria-label="Maximum simultaneous drivers" onChange={(event) => updateCustomConfig("maxSimultaneousDrivers", Number(event.target.value))} value={customConfig.maxSimultaneousDrivers}>
+                  <option value="2">2 drivers</option>
+                  <option value="3">3 drivers</option>
+                </select>
+              </label>
+              <label className={styles.controlField}>
+                <span>Reproducible seed</span>
+                <input aria-label="Random seed" max="999999999" min="1" onChange={(event) => updateCustomConfig("randomSeed", Number(event.target.value))} type="number" value={customConfig.randomSeed} />
+                <small>Reuse a seed to reproduce the same events.</small>
+              </label>
+            </div>
+            <div className={styles.customActions}>
+              <div className={styles.scenarioSummary}>
+                <strong>{customConfig.driversPerDay} drivers/day for {customConfig.bakeryCount} bakeries</strong>
+                <span>
+                  {customConfig.driversPerDay < customConfig.bakeryCount
+                    ? "Driver scarcity is built into this run, so some eligible pickups may remain unserved."
+                    : "Driver supply meets or exceeds the bakery count; lower it to stress-test scarcity."}
+                </span>
+              </div>
+              <button className={styles.runButton} disabled={isRunning} onClick={runCustomSimulation} type="button">
+                {isRunning ? "Gurobi is solving…" : "Run Gurobi simulation"}
+              </button>
+            </div>
+            <p className={styles.runStatus}>
+              {resultMode === "custom"
+                ? "The custom Gurobi result is loaded below. Change any setting and run again to create a new experiment."
+                : "The saved example remains visible below until you run this custom experiment."}
+            </p>
+            {runError ? <p className={styles.runError} role="alert">{runError}</p> : null}
+          </div>
+        ) : null}
+      </section>
+
       <section className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>ACADEMIC ROUTING LAB</p>
           <h1>See every recommendation. Then see what the driver selected.</h1>
           <p className={styles.lede}>
-            Replay five synthetic service days. At every decision time, BakedBoston generates feasible routes,
+            Replay {payload.scenario.horizonDays} synthetic service days. At every decision time, BakedBoston generates feasible routes,
             solves simultaneous driver conflicts with Gurobi, ranks each driver&apos;s remaining options, and selects
             the highest-scoring recommendation.
           </p>
         </div>
         <aside className={styles.heroCard}>
-          <span>EXPERIMENT</span>
+          <span>{resultMode === "saved" ? "SAVED EXAMPLE" : "CUSTOM RUN"}</span>
           <strong>{payload.scenario.horizonDays} days</strong>
           <p>{payload.scenario.driversPerDay} synthetic drivers per day</p>
+          <p>{payload.scenario.bakeryCount ?? payload.network.bakeries.length} bakeries · {payload.scenario.pantryCount ?? payload.network.pantries.length} pantries</p>
           <p>Up to {payload.scenario.maxSimultaneousDrivers} drivers in one decision window</p>
           <p>Seed {payload.scenario.seed} · reproducible</p>
         </aside>
@@ -614,7 +773,7 @@ export function SimulatorClient({ data }: Props) {
             <p className={styles.eyebrow}>POLICY COMPARISON</p>
             <h2>One scenario, six routing policies</h2>
           </div>
-          <p>Every policy receives the same five-day surplus, pantry, and driver events.</p>
+          <p>Every policy receives the same {payload.scenario.horizonDays}-day surplus, pantry, and driver events.</p>
         </div>
 
         <div className={styles.tradeoffCallout}>
@@ -691,7 +850,11 @@ export function SimulatorClient({ data }: Props) {
 
       <footer className={styles.footer}>
         <p>{payload.disclaimer}</p>
-        <p>This page replays a precomputed academic experiment; it does not run a licensed solver in your browser.</p>
+        <p>
+          {resultMode === "saved"
+            ? "This is a precomputed academic experiment; it does not run a licensed solver in your browser."
+            : "This custom experiment was generated by BakedBoston’s server-side licensed Gurobi service; the solver does not run in your browser."}
+        </p>
       </footer>
     </main>
   );
