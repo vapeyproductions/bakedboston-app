@@ -534,7 +534,7 @@ export function SimulatorClient({ data }: Props) {
                   <option value="2">2 drivers</option>
                   <option value="3">3 drivers</option>
                 </select>
-                <small>Each window randomly receives 1–{customConfig.maxSimultaneousDrivers} drivers.</small>
+                <small>Most decision times have one driver. Only one or two times per day may include up to {customConfig.maxSimultaneousDrivers} simultaneous drivers.</small>
               </label>
               <label className={styles.controlField}>
                 <span>Reproducible seed</span>
@@ -580,7 +580,7 @@ export function SimulatorClient({ data }: Props) {
           <strong>{payload.scenario.horizonDays} days</strong>
           <p>Up to {payload.scenario.driversPerDay} synthetic drivers per day</p>
           <p>{payload.scenario.bakeryCount ?? payload.network.bakeries.length} bakeries · {payload.scenario.pantryCount ?? payload.network.pantries.length} pantries</p>
-          <p>Each decision window samples 1–{payload.scenario.maxSimultaneousDrivers} drivers</p>
+          <p>Mostly solo arrivals · rare overlaps up to {payload.scenario.maxSimultaneousDrivers} drivers</p>
           <p>{actualDriverRequests} drivers actually entered this run</p>
           <p>Seed {payload.scenario.seed} · reproducible</p>
         </aside>
