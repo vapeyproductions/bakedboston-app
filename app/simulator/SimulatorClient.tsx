@@ -552,7 +552,7 @@ export function SimulatorClient({ data }: Props) {
       <section className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>ACADEMIC ROUTING LAB</p>
-          <h1>See every recommendation. Then see what the driver selected.</h1>
+          <h1 className={styles.heroTitle}>See every recommendation. Then see what the driver selected.</h1>
           <p className={styles.lede}>
             Replay {payload.scenario.horizonDays} synthetic service days. At every decision time, BakedBoston generates feasible routes,
             solves simultaneous driver conflicts with Gurobi, ranks each driver&apos;s remaining options, and selects

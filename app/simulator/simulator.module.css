@@ -98,7 +98,8 @@
   letter-spacing: 0.2em;
 }
 
-.hero h1 {
+.hero h1,
+.heroTitle {
   max-width: 980px;
   margin: 0;
   color: #ffffff;
