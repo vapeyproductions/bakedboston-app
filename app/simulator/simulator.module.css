@@ -223,6 +223,9 @@
 .routePath i { color: var(--orange); font-style: normal; }
 .routeDetails { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 7px; }
 .routeDetails span { padding: 4px 7px; border-radius: 7px; color: #687e75; background: #eff3ed; font-size: 11px; }
+.departurePlan { margin-top: 9px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.departurePlan strong { color: var(--forest); font-size: 14px; }
+.departurePlan span { color: #72867d; font-size: 11px; }
 .routeScore { display: grid; justify-items: end; }
 .routeScore small { color: #82948d; font-size: 9px; letter-spacing: .12em; font-weight: 900; }
 .routeScore strong { font-size: 28px; }

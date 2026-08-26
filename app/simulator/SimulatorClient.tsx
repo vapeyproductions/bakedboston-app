@@ -13,9 +13,15 @@ type RouteOption = {
   pantryWindowId: string;
   pantryName: string;
   departAt: string;
+  pickupAt: string;
+  pantryArrivalAt: string;
   finishAt: string;
   driveMinutes: number;
   waitingMinutes: number;
+  predepartureWaitMinutes: number;
+  facilityWaitingMinutes: number;
+  requestedTimeDeviationMinutes: number;
+  withinPreferredWindow: boolean;
   destinationMinutes: number;
   pantryPriority: number;
   routeScore: number;
@@ -40,8 +46,12 @@ type DriverRecommendation = {
 type DriverRequestTrace = {
   requestId: string;
   driverId: string;
-  earliestStart: string;
-  latestFinish: string;
+  loggedAt: string;
+  preferredStart: string;
+  preferredFinish: string;
+  searchUntil: string;
+  earliestStart?: string;
+  latestFinish?: string;
   hasPreferredDestination: boolean;
 };
 
@@ -245,7 +255,10 @@ const metricGroups: MetricGroup[] = [
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per completed route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per completed route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
-      { key: "averageWaitingMinutes", label: "Mean waiting time", explanation: "Average idle time before or between service windows.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averagePredepartureWaitMinutes", label: "Mean wait before departure", explanation: "Average time between opening the app and the optimizer's recommended departure.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averageFacilityWaitingMinutes", label: "Mean facility waiting", explanation: "Average avoidable idle time after leaving—at a bakery or pantry—not time spent waiting at the driver's origin.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averageRequestedTimeDeviationMinutes", label: "Mean requested-time deviation", explanation: "Average minutes a completed route falls outside the driver's preferred trip interval.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "preferredWindowFitRate", label: "Preferred-window fit", explanation: "Share of completed routes contained entirely within the driver's preferred trip interval.", direction: "higher", format: (value) => percent(value, 1) },
       { key: "averageTotalTripDurationMinutes", label: "Mean total trip duration", explanation: "Driving, waiting, pickup, and drop-off time combined.", direction: "lower", format: (value) => `${numeric(value)} min` },
     ],
   },
@@ -891,10 +904,26 @@ export function SimulatorClient({ data }: Props) {
                           <i>→</i>
                           <span>🥫 {route.pantryName}</span>
                         </div>
+                        <div className={styles.departurePlan}>
+                          <strong>
+                            Wait {route.predepartureWaitMinutes.toFixed(0)} min · leave {formatClock(route.departAt)}
+                          </strong>
+                          <span>
+                            Logged in {activeRequest ? formatClock(activeRequest.loggedAt) : "—"}
+                            {activeRequest ? ` · preferred ${formatClock(activeRequest.preferredStart)}–${formatClock(activeRequest.preferredFinish)}` : ""}
+                          </span>
+                        </div>
                         <div className={styles.routeDetails}>
-                          <span>Depart {formatClock(route.departAt)}</span>
+                          <span>Pickup {formatClock(route.pickupAt)}</span>
+                          <span>Pantry {formatClock(route.pantryArrivalAt)}</span>
+                          <span>Finish {formatClock(route.finishAt)}</span>
                           <span>{route.driveMinutes.toFixed(1)} drive min</span>
-                          <span>{route.waitingMinutes.toFixed(1)} wait min</span>
+                          <span>{route.facilityWaitingMinutes.toFixed(1)} facility wait min</span>
+                          <span>
+                            {route.withinPreferredWindow
+                              ? "Fits requested time"
+                              : `${route.requestedTimeDeviationMinutes.toFixed(0)} min outside request`}
+                          </span>
                           <span>Priority {route.pantryPriority.toFixed(2)}</span>
                         </div>
                       </div>
@@ -930,7 +959,7 @@ export function SimulatorClient({ data }: Props) {
                 <p>
                   This is not the model choosing to give another driver extra routes instead. At this decision time,
                   this driver had no time-feasible route or there were fewer distinct feasible bakery pickups than
-                  simultaneous drivers{activeRequest ? ` before the request ended at ${formatClock(activeRequest.latestFinish)}` : ""}.
+                  simultaneous drivers{activeRequest ? ` before the wider search ended at ${formatClock(activeRequest.searchUntil)}` : ""}.
                 </p>
               </div>
             )}
@@ -949,13 +978,20 @@ export function SimulatorClient({ data }: Props) {
           <i>−</i>
           <strong>{payload.objectiveWeights.drive_minute_penalty} × drive minutes</strong>
           <i>−</i>
-          <strong>{payload.objectiveWeights.waiting_minute_penalty} × wait minutes</strong>
+          <strong>{payload.objectiveWeights.waiting_minute_penalty} × wait before departure</strong>
+          <i>−</i>
+          <strong>{payload.objectiveWeights.facility_waiting_minute_penalty} × facility wait</strong>
+          <i>−</i>
+          <strong>{payload.objectiveWeights.requested_time_deviation_minute_penalty} × requested-time deviation</strong>
           <i>−</i>
           <strong>{payload.objectiveWeights.destination_minute_penalty} × destination deviation</strong>
         </div>
         <p className={styles.formulaNote}>
-          A raw score can be negative when travel and waiting penalties exceed the pantry-priority reward. That does
-          not make a route invalid—the model still ranks feasible routes by score and selects the highest one available.
+          Login time is the decision epoch—not a forced departure. Institution windows and the wider search horizon
+          are hard constraints. The driver&apos;s preferred start and finish are soft constraints: a slightly early or
+          late route may still be recommended, but every minute outside that interval lowers its score and modeled
+          acceptance. Waiting safely at the origin receives a small penalty; leaving early and waiting at a facility
+          receives a larger one. A negative raw score does not make an otherwise feasible route invalid.
         </p>
       </section>
 

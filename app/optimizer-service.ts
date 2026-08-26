@@ -12,6 +12,11 @@ export type OptimizedRoute = {
   finishAt: string;
   driveMinutes: number;
   waitingMinutes: number;
+  waitUntilDepartureMinutes: number;
+  predepartureWaitMinutes: number;
+  facilityWaitMinutes: number;
+  requestedTimeDeviationMinutes: number;
+  withinPreferredWindow: boolean;
   pantryPriority: number;
   score: number;
   explanation: string[];
@@ -46,6 +51,8 @@ const optimizerEndpoint = () => `${(process.env.OPTIMIZER_BASE_URL ?? "https://b
 export async function requestOptimizedRoutes(input: {
   earliestStart: Date;
   latestFinish: Date;
+  loggedAt?: Date;
+  searchUntil?: Date;
   startLocation: Coordinates;
   preferredDestination?: Coordinates | null;
 }): Promise<OptimizedRoute[] | null> {
@@ -64,6 +71,8 @@ export async function requestOptimizedRoutes(input: {
       body: JSON.stringify({
         earliestStart: input.earliestStart.toISOString(),
         latestFinish: input.latestFinish.toISOString(),
+        loggedAt: (input.loggedAt ?? new Date()).toISOString(),
+        searchUntil: (input.searchUntil ?? new Date(input.latestFinish.getTime() + 90 * 60_000)).toISOString(),
         startLocation: input.startLocation,
         preferredDestination: input.preferredDestination ?? null,
       }),

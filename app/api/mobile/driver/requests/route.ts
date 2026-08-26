@@ -156,9 +156,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const serviceDate = validDate(body.serviceDate);
-    const earliestStart = validDateTime(body.earliestStart, "Earliest start");
-    const latestFinish = validDateTime(body.latestFinish, "Latest finish");
-    if (latestFinish <= earliestStart) throw new Error("Latest finish must be after the earliest start.");
+    const earliestStart = validDateTime(body.earliestStart, "Preferred trip start");
+    const latestFinish = validDateTime(body.latestFinish, "Preferred trip finish");
+    if (latestFinish <= earliestStart) throw new Error("Preferred trip finish must be after the preferred trip start.");
     if (earliestStart <= new Date()) throw new Error("You can’t request a ride in the past. Choose a future date and starting time.");
     const startZip = optionalZip(body.startZip, "Starting ZIP");
     const endZip = optionalZip(body.endZip, "Destination ZIP");
@@ -255,6 +255,8 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
     const optimized = await requestOptimizedRoutes({
       earliestStart: now,
       latestFinish: horizon,
+      loggedAt: now,
+      searchUntil: horizon,
       startLocation: driverLocation,
     });
     // A successful optimizer response is authoritative, including an empty
@@ -301,6 +303,7 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
       const routeMiles = milesBetween(bakery.latitude!, bakery.longitude!, pantry.latitude, pantry.longitude);
       const routeMinutes = Math.max(5, Math.ceil(routeMiles / 25 * 60));
       const pantryArrival = new Date(bakeryArrival.getTime() + (5 + routeMinutes) * 60_000);
+      const finishAt = new Date(pantryArrival.getTime() + 5 * 60_000);
       const pantryServiceMode = confirmedPantryServiceModeAt(pantry, pantryArrival, pantryWindows, pantryConfirmations);
       if (!pantryServiceMode) return [];
       const priority = 1 / (1 + pantry.deliveriesSevenDays);
@@ -317,6 +320,11 @@ async function buildBrowseRoutes(driverLocation: { latitude: number; longitude: 
         departureWindowEndsAt: departureEnd.toISOString(),
         estimatedBakeryArrival: bakeryArrival.toISOString(),
         estimatedPantryArrival: pantryArrival.toISOString(),
+        finishAt: finishAt.toISOString(),
+        waitUntilDepartureMinutes: Math.max(0, (departureStart.getTime() - now.getTime()) / 60_000),
+        facilityWaitMinutes: 0,
+        requestedTimeDeviationMinutes: 0,
+        withinPreferredWindow: finishAt <= horizon,
         distanceToBakeryMiles: Math.round(driverMiles * 10) / 10,
         routeMiles: Math.round(routeMiles * 10) / 10,
         score,
@@ -349,6 +357,11 @@ function optimizedBrowseRoutes(routes: OptimizedRoute[]) {
     )).toISOString(),
     estimatedBakeryArrival: route.pickupAt,
     estimatedPantryArrival: route.pantryArrivalAt,
+    finishAt: route.finishAt,
+    waitUntilDepartureMinutes: route.waitUntilDepartureMinutes,
+    facilityWaitMinutes: route.facilityWaitMinutes,
+    requestedTimeDeviationMinutes: route.requestedTimeDeviationMinutes,
+    withinPreferredWindow: route.withinPreferredWindow,
     distanceToBakeryMiles: Math.round(route.driveMinutes * 22 / 60 * 10) / 10,
     routeMiles: Math.round(route.driveMinutes * 22 / 60 * 10) / 10,
     driveMinutes: Math.round(route.driveMinutes),
