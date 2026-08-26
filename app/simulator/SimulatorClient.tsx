@@ -178,12 +178,16 @@ type CustomConfig = {
   maxSimultaneousDrivers: 2 | 3;
 };
 
-const formatClock = (value: string) =>
-  new Intl.DateTimeFormat("en-US", {
+const formatClock = (value: string | null | undefined) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
     timeZone: "America/New_York",
-  }).format(new Date(value));
+  }).format(date);
+};
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("en-US", {
@@ -193,14 +197,15 @@ const formatDate = (value: string) =>
     timeZone: "America/New_York",
   }).format(new Date(`${value}T12:00:00-04:00`));
 
-const score = (value: number) => value.toFixed(2);
+const score = (value: number | null | undefined) =>
+  typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "—";
 const compactDriver = (driverId: string) => driverId.replace("synthetic-driver-", "Driver ");
 
 const percent = (value: number | null | undefined, digits = 0) =>
-  typeof value === "number" ? `${(value * 100).toFixed(digits)}%` : "—";
+  typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : "—";
 
 const numeric = (value: number | null | undefined, digits = 1) =>
-  typeof value === "number" ? value.toFixed(digits) : "—";
+  typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
 
 type MetricDefinition = {
   key: string;
@@ -688,7 +693,7 @@ export function SimulatorClient({ data }: Props) {
               <div className={styles.solveStats}>
                 <div><strong>{epoch.candidateCount}</strong><span>candidates</span></div>
                 <div><strong>{epoch.selectedCount}</strong><span>matches</span></div>
-                <div><strong>{(epoch.solver.runtimeSeconds * 1000).toFixed(1)} ms</strong><span>solve time</span></div>
+                <div><strong>{numeric(epoch.solver.runtimeSeconds * 1000, 1)} ms</strong><span>solve time</span></div>
               </div>
             </div>
 
@@ -906,7 +911,7 @@ export function SimulatorClient({ data }: Props) {
                         </div>
                         <div className={styles.departurePlan}>
                           <strong>
-                            Wait {route.predepartureWaitMinutes.toFixed(0)} min · leave {formatClock(route.departAt)}
+                            Wait {numeric(route.predepartureWaitMinutes, 0)} min · leave {formatClock(route.departAt)}
                           </strong>
                           <span>
                             Logged in {activeRequest ? formatClock(activeRequest.loggedAt) : "—"}
@@ -917,14 +922,14 @@ export function SimulatorClient({ data }: Props) {
                           <span>Pickup {formatClock(route.pickupAt)}</span>
                           <span>Pantry {formatClock(route.pantryArrivalAt)}</span>
                           <span>Finish {formatClock(route.finishAt)}</span>
-                          <span>{route.driveMinutes.toFixed(1)} drive min</span>
-                          <span>{route.facilityWaitingMinutes.toFixed(1)} facility wait min</span>
+                          <span>{numeric(route.driveMinutes, 1)} drive min</span>
+                          <span>{numeric(route.facilityWaitingMinutes, 1)} facility wait min</span>
                           <span>
                             {route.withinPreferredWindow
                               ? "Fits requested time"
-                              : `${route.requestedTimeDeviationMinutes.toFixed(0)} min outside request`}
+                              : `${numeric(route.requestedTimeDeviationMinutes, 0)} min outside request`}
                           </span>
-                          <span>Priority {route.pantryPriority.toFixed(2)}</span>
+                          <span>Priority {numeric(route.pantryPriority, 2)}</span>
                         </div>
                       </div>
                       <div className={styles.routeScore}>
