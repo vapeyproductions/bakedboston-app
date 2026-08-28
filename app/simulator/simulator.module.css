@@ -262,7 +262,7 @@
 
 .method { padding: clamp(60px, 8vw, 110px) clamp(24px, 7vw, 120px); color: white; background: var(--green); }
 .method h2 { color: white; }
-.objectiveExplainer { margin-top: 44px; display: grid; grid-template-columns: minmax(0, .92fr) minmax(380px, 1.08fr); gap: clamp(28px, 4vw, 64px); align-items: stretch; }
+.objectiveExplainer { margin-top: 44px; display: grid; grid-template-columns: minmax(0, .92fr) minmax(380px, 1.08fr); gap: clamp(44px, 5vw, 84px); align-items: stretch; }
 .objectiveFormulaCard { padding: clamp(24px, 3vw, 38px); display: grid; gap: 24px; border: 1px solid rgba(255,255,255,.25); border-radius: 24px; background: rgba(255,255,255,.06); }
 .objectiveStage { padding-bottom: 22px; border-bottom: 1px solid rgba(255,255,255,.17); }
 .objectiveStage small { display: block; margin-bottom: 10px; color: var(--gold); font-size: 10px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
@@ -271,6 +271,10 @@
 .objectiveWhy { padding: 18px 20px; border-left: 3px solid var(--gold); border-radius: 0 14px 14px 0; background: rgba(0,0,0,.13); }
 .objectiveWhy strong { display: block; margin-bottom: 7px; color: white; font-size: 15px; }
 .objectiveWhy p { margin: 0; color: #c4d4ce; line-height: 1.55; }
+.acceptanceFormula { padding: 18px 20px; border: 1px solid rgba(255,255,255,.17); border-radius: 14px; background: rgba(255,255,255,.05); }
+.acceptanceFormula small { display: block; margin-bottom: 8px; color: var(--gold); font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.acceptanceFormula strong { display: block; overflow-wrap: anywhere; font: 800 clamp(18px, 2vw, 25px)/1.25 Georgia, serif; }
+.acceptanceFormula p { margin: 8px 0 0; color: #c4d4ce; line-height: 1.5; }
 .formula { padding: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-radius: 16px; background: rgba(0,0,0,.13); }
 .formula span { color: var(--gold); font-size: 20px; font-weight: 900; }
 .formula strong { padding: 10px 13px; border-radius: 10px; background: rgba(255,255,255,.09); }
@@ -283,6 +287,15 @@
 .objectiveTerms dd { margin: 0; color: #526a60; line-height: 1.55; }
 .objectiveTerms dd b { color: var(--green); }
 .formulaNote { max-width: 1180px; margin: 34px 0 0; padding-top: 28px; border-top: 1px solid rgba(255,255,255,.2); color: #bed0c8; line-height: 1.7; }
+.researchFoundation { margin-top: 42px; padding-top: 34px; display: grid; grid-template-columns: minmax(230px,.7fr) minmax(0,1.5fr); gap: clamp(28px,4vw,60px); border-top: 1px solid rgba(255,255,255,.2); }
+.researchFoundation h3 { margin: 8px 0 10px; color: white; font: 800 clamp(25px,2.5vw,36px)/1.08 Georgia,serif; }
+.researchFoundation p { margin: 0; color: #bed0c8; line-height: 1.6; }
+.researchGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.researchGrid a { min-width: 0; padding: 17px; border: 1px solid rgba(255,255,255,.17); border-radius: 15px; color: white; background: rgba(255,255,255,.05); text-decoration: none; transition: transform .2s ease,border-color .2s ease; }
+.researchGrid a:hover { transform: translateY(-2px); border-color: var(--gold); }
+.researchGrid strong,.researchGrid span { display: block; }
+.researchGrid strong { margin-bottom: 6px; }
+.researchGrid span { color: #bed0c8; font-size: 12px; line-height: 1.5; }
 
 .comparisonSection { background: #fffaf0; }
 .tradeoffCallout { margin-bottom: 22px; padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; align-items: center; border: 1px solid #e2b74b; border-radius: 22px; background: #fff2ca; }
@@ -348,6 +361,7 @@
   .comparisonHeader, .comparisonRow { grid-template-columns: minmax(210px, 2fr) repeat(4, minmax(85px, .6fr)); }
   .policyCards { grid-template-columns: repeat(2, 1fr); }
   .objectiveExplainer { grid-template-columns: 1fr; }
+  .researchFoundation { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
@@ -383,6 +397,7 @@
   .selectionSummary { grid-template-columns: 42px 1fr; }
   .objectiveFormulaCard, .objectiveTerms { padding: 20px; }
   .objectiveTerms dl > div { grid-template-columns: 1fr; gap: 7px; }
+  .researchGrid { grid-template-columns: 1fr; }
   .formula { align-items: flex-start; flex-direction: column; }
   .formula i { transform: none; }
   .comparisonTable { overflow-x: auto; }

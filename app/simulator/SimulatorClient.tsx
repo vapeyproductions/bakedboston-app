@@ -35,6 +35,14 @@ type RouteOption = {
   routeScore: number;
   acceptanceProbability: number;
   distanceMiles: number;
+  estimatedFoodKg?: number;
+  usableFoodKg?: number;
+  avoidedProductionKgCO2e?: number;
+  avoidedDisposalKgCO2e?: number;
+  avoidedSystemKgCO2e?: number;
+  transportKgCO2e?: number;
+  residualWasteKgCO2e?: number;
+  netEnvironmentalBenefitKgCO2e?: number;
   totalTripMinutes: number;
   driverStart: Coordinate;
   bakeryLocation: Coordinate;
@@ -85,6 +93,12 @@ type DecisionEpoch = {
     routeQuality: number;
     runtimeSeconds: number;
     mipGap: number | null;
+    estimatedFoodKg?: number;
+    usableFoodKg?: number;
+    avoidedSystemKgCO2e?: number;
+    transportKgCO2e?: number;
+    residualWasteKgCO2e?: number;
+    netEnvironmentalBenefitKgCO2e?: number;
   };
 };
 
@@ -169,6 +183,14 @@ type SimulationPayload = {
     zeroRecommendationRule: string;
   };
   objectiveWeights: Record<string, number>;
+  environmentalAssumptions?: {
+    avoidedProductionKgCo2ePerKgUsableFood: number;
+    avoidedLandfillKgCo2ePerKgDonatedFood: number;
+    avoidedCompostKgCo2ePerKgDonatedFood: number;
+    redistributionResidualWasteKgCo2ePerKg: number;
+    vehicleKgCo2ePerMile: number;
+    interpretation: string;
+  };
   policyMetadata: Record<string, { label: string; description: string }>;
   network: {
     bakeries: NetworkNode[];
@@ -302,6 +324,19 @@ const metricGroups: MetricGroup[] = [
     ],
   },
   {
+    title: "Lifecycle environmental performance",
+    description: "Estimated lifecycle benefit—not mileage alone—after accounting for food usability, avoided production and disposal, driving, and residual redistribution waste.",
+    metrics: [
+      { key: "estimatedFoodKgRedistributed", label: "Food collected", explanation: "Estimated kilograms collected from completed bakery pickups.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "usableFoodKgDelivered", label: "Usable food delivered", explanation: "Estimated collected food remaining suitable for use at the pantry.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "avoidedSystemKgCO2e", label: "Avoided system emissions", explanation: "Estimated avoided production plus avoided donor-side disposal emissions.", direction: "higher", format: (value) => `${numeric(value, 1)} kg CO₂e` },
+      { key: "transportKgCO2e", label: "Transport emissions", explanation: "Estimated vehicle emissions from completed routes.", direction: "lower", format: (value) => `${numeric(value, 1)} kg CO₂e` },
+      { key: "residualWasteKgCO2e", label: "Residual-waste burden", explanation: "Estimated emissions from food that enters redistribution but is not usable at the pantry.", direction: "lower", format: (value) => `${numeric(value, 1)} kg CO₂e` },
+      { key: "netEnvironmentalBenefitKgCO2e", label: "Net environmental benefit", explanation: "Avoided system emissions minus transport and residual-waste burdens.", direction: "higher", format: (value) => `${numeric(value, 1)} kg CO₂e` },
+      { key: "averageNetEnvironmentalBenefitKgCO2ePerDelivery", label: "Net benefit per delivery", explanation: "Average estimated lifecycle benefit of a completed delivery.", direction: "higher", format: (value) => `${numeric(value, 2)} kg CO₂e` },
+    ],
+  },
+  {
     title: "Acceptance and rejection",
     description: "Selections are deterministic in this academic replay; behavioral measures remain model-based diagnostics.",
     metrics: [
@@ -320,7 +355,7 @@ const metricGroups: MetricGroup[] = [
     title: "Optimization performance",
     description: "The stated objective value and computational performance of each policy.",
     metrics: [
-      { key: "systemObjectiveValue", label: "System objective value", explanation: "Higher is better for the declared BakedBoston objective.", direction: "higher", format: (value) => numeric(value, 2) },
+      { key: "systemObjectiveValue", label: "Stage-2 quality total", explanation: "Unscaled total route quality after the expected-completion requirement is protected. Higher is better; negative values are valid.", direction: "higher", format: (value) => numeric(value, 2) },
       { key: "totalSolverRuntimeSeconds", label: "Total solve time", explanation: "Time across all decision epochs.", direction: "lower", format: (value) => `${numeric(value, 4)} s` },
       { key: "averageSolverRuntimeSeconds", label: "Mean solve time", explanation: "Average computation time per nonempty decision epoch.", direction: "lower", format: (value) => `${numeric(value, 6)} s` },
       {
@@ -1142,6 +1177,18 @@ export function SimulatorClient({ data }: Props) {
                             Spatial penalty input {numeric(route.normalizedSpatialDeviation * 100, 1)}%
                           </span>
                           <span>Priority {numeric(route.pantryPriority, 2)}</span>
+                          {route.netEnvironmentalBenefitKgCO2e !== undefined ? (
+                            <span>
+                              Net lifecycle benefit {numeric(route.netEnvironmentalBenefitKgCO2e, 2)} kg CO₂e
+                              {route.usableFoodKg !== undefined ? ` · ${numeric(route.usableFoodKg, 1)} kg usable food` : ""}
+                            </span>
+                          ) : null}
+                          {route.avoidedSystemKgCO2e !== undefined && route.transportKgCO2e !== undefined ? (
+                            <span>
+                              {numeric(route.avoidedSystemKgCO2e, 2)} kg CO₂e avoided − {numeric(route.transportKgCO2e, 2)} transport
+                              {route.residualWasteKgCO2e !== undefined ? ` − ${numeric(route.residualWasteKgCO2e, 2)} residual waste` : ""}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <div className={styles.routeScore}>
@@ -1188,23 +1235,28 @@ export function SimulatorClient({ data }: Props) {
       <section className={styles.method}>
         <div>
           <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
-          <h2>First fix maximum coverage. Then choose the best routes at that coverage.</h2>
+          <h2>First protect expected participation. Then choose the most sustainable, equitable routes.</h2>
         </div>
         <div className={styles.objectiveExplainer}>
           <div className={styles.objectiveFormulaCard}>
             <div className={styles.objectiveStage}>
-              <small>Stage 1 · find maximum coverage</small>
-              <strong>C* = max Σ yᵣ</strong>
-              <p>Find the greatest number of distinct feasible bakery pickup occurrences that can be assigned.</p>
+              <small>Stage 1 · protect expected completions</small>
+              <strong>A* = max Σ aᵣ yᵣ</strong>
+              <p>Maximize the expected number of completed pickups, recognizing that a feasible offer is not equally attractive to every volunteer.</p>
             </div>
             <div className={styles.objectiveStage}>
-              <small>Stage 2 · optimize quality at fixed coverage</small>
+              <small>Stage 2 · optimize sustainable quality</small>
               <strong>maximize Σ qᵣ yᵣ</strong>
-              <p>Choose the assignment with the greatest total route quality, subject to <b>Σ yᵣ = C*</b>.</p>
+              <p>Choose the strongest equity, travel, emissions, and preference-fit portfolio, subject to <b>Σ aᵣ yᵣ ≥ 0.99A*</b>.</p>
             </div>
             <div className={styles.objectiveWhy}>
-              <strong>Why is the first stage necessary?</strong>
-              <p>Because qᵣ can be negative. Utility alone could prefer selecting fewer routes—or no route—because an unselected route contributes zero. Stage 1 establishes the maximum feasible assignment count; Stage 2 cannot reduce it.</p>
+              <strong>Why use two stages?</strong>
+              <p>Stage 1 prevents a high-coverage plan from looking successful when its routes are burdensome enough that volunteers may not take them. Stage 2 allows at most a 1% loss in modeled participation when that small trade materially improves equity, mileage, or driver fit.</p>
+            </div>
+            <div className={styles.acceptanceFormula}>
+              <small>Synthetic route-acceptance estimate</small>
+              <strong>aᵣ = sigmoid(2.2 − 0.045Dᵣ − 1.8Oᵣ − 1.1Sᵣ)</strong>
+              <p>This is an explicit academic scenario assumption—not a trained or validated prediction of volunteer behavior.</p>
             </div>
             <div className={styles.formula}>
               <span>qᵣ =</span>
@@ -1215,28 +1267,52 @@ export function SimulatorClient({ data }: Props) {
               <strong>{payload.objectiveWeights.requested_time_deviation_ratio_penalty}Oᵣ</strong>
               <i>−</i>
               <strong>{payload.objectiveWeights.spatial_deviation_ratio_penalty}Sᵣ</strong>
+              <i>+</i>
+              <strong>{payload.objectiveWeights.environmental_benefit_reward ?? 1.5}Eᵣ</strong>
             </div>
           </div>
           <div className={styles.objectiveTerms}>
             <h3>What every symbol contributes</h3>
             <dl>
               <div><dt>yᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
+              <div><dt>aᵣ · modeled acceptance</dt><dd><b>Stage-1 contribution.</b> A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It can later be recalibrated with observed pilot choices.</dd></div>
               <div><dt>Pᵣ · pantry priority</dt><dd><b>Rewarded.</b> Priority is 1 − (recent services + 1) ÷ (recent receiving opportunities + 2). A pantry that was open but served less often receives a larger value; recent service lowers it.</dd></div>
               <div><dt>Dᵣ · drive minutes</dt><dd><b>Penalized.</b> Total driving from the driver&apos;s origin to the bakery and then from the bakery to the pantry. Five-minute loading and unloading service times are scheduled, but are not counted as driving.</dd></div>
               <div><dt>Oᵣ · outside-window ratio</dt><dd><b>Penalized.</b> Minutes that departure occurs before the requested start plus minutes that completion occurs after the requested finish, divided by the requested interval length. Time inside the interval adds no penalty.</dd></div>
               <div><dt>Sᵣ · spatial deviation ratio</dt><dd><b>Penalized.</b> Start- and destination-area misses are measured from each facility to the nearest edge of the requested ZIP radius, normalized against that driver&apos;s feasible alternatives, then averaged across the supplied location preferences.</dd></div>
+              <div><dt>Eᵣ · net lifecycle benefit</dt><dd><b>Rewarded.</b> Estimated avoided food-production and donor-disposal emissions minus vehicle emissions and the burden of food that becomes residual waste after redistribution. Usable food share and the donor&apos;s landfill-or-compost counterfactual therefore matter alongside distance.</dd></div>
             </dl>
           </div>
         </div>
         <p className={styles.formulaNote}>
-          This is a lexicographic objective, not two competing goals: Stage 1 computes C*, and Stage 2 optimizes route
-          quality under the hard constraint Σ yᵣ = C*. The coefficients are policy weights, not probabilities. Login
-          time is the decision epoch—not a forced departure—and planned lead time at the origin receives no objective penalty. The scheduler chooses a
+          This is a hierarchical objective: Stage 1 computes A*, and Stage 2 optimizes route quality while preserving at
+          least 99% of A*. The qᵣ coefficients are policy weights, while aᵣ is a synthetic probability used only for the
+          academic participation scenario. Login time is the decision epoch—not a forced departure—and planned lead time at the origin receives no objective penalty. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
           and ZIP areas are soft preferences. A negative qᵣ therefore means “lower quality than another feasible route,”
-          not “infeasible.”
+          not “infeasible.” The lifecycle coefficients are transparent academic scenario assumptions rather than a
+          Boston-calibrated LCA. They follow the accounting structure in Guo et al. (2026), whose eight scenarios all
+          produced net savings but showed that food usability, residual waste, disposal pathway, and production
+          substitution can matter as much as—or more than—route length. The study also evaluates acidification,
+          eutrophication, cumulative energy demand, and water use. Those categories remain visible research and future
+          sensitivity-analysis dimensions; the current MIP optimizes a declared CO₂e ledger rather than combining
+          unlike environmental units into one unsupported scalar.
         </p>
+        <div className={styles.researchFoundation}>
+          <div>
+            <p className={styles.eyebrow}>RESEARCH-TO-MODEL MAP</p>
+            <h3>Built from established OR problem families.</h3>
+            <p>The cited papers motivate the structure; they do not supply BakedBoston&apos;s weights, simulated schedules, or acceptance coefficients.</p>
+          </div>
+          <div className={styles.researchGrid}>
+            <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Allocation and routing with perishability and time constraints.</span></a>
+            <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equitable food rescue ↗</strong><span>Balancing operational efficiency with fair service across agencies.</span></a>
+            <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Occasional-driver menus ↗</strong><span>Offering coordinated route choices to volunteers instead of assuming a fixed fleet.</span></a>
+            <a href="https://doi.org/10.1016/j.trb.2011.07.010" target="_blank" rel="noreferrer"><strong>Pollution routing ↗</strong><span>Considering environmental cost alongside time and service performance.</span></a>
+            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution LCA ↗</strong><span>Guo et al. compare eight scenarios across climate, acidification, eutrophication, energy, and water impacts, showing why avoided production and disposal, usable food share, driving, and residual waste must be evaluated together.</span></a>
+          </div>
+        </div>
       </section>
 
       <section className={styles.comparisonSection} id="comparison">
@@ -1256,15 +1332,15 @@ export function SimulatorClient({ data }: Props) {
               <p>
                 Highest Pantry Priority can distribute service more evenly, while Shortest Route or Earliest Deadline
                 can minimize a particular travel measure. BakedBoston&apos;s Gurobi model is optimal for its declared
-                two-level objective: first maximize completed assignments, then maximize total weighted route quality
-                across the drivers entering together.
+                two-level objective: first protect expected completed pickups, then maximize total weighted route quality
+                across the drivers entering together while preserving at least 99% of that participation value.
               </p>
             </div>
           </div>
           <div className={styles.objectiveEvidence}>
-            <span>MIP objective</span>
+            <span>Stage-2 quality total</span>
             <strong>{numeric(mip.metrics.systemObjectiveValue, 2)}</strong>
-            <small>Best system objective in this run</small>
+            <small>Unscaled; negative values are valid</small>
           </div>
         </div>
 

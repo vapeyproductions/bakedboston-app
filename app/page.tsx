@@ -52,6 +52,14 @@ type DemoRoute = {
   normalizedOriginDeviation: number;
   normalizedDestinationDeviation: number;
   normalizedSpatialDeviation: number;
+  estimatedFoodKg?: number;
+  usableFoodKg?: number;
+  usableFraction?: number;
+  donorDisposalBaseline?: "landfill" | "compost";
+  avoidedSystemKgCO2e?: number;
+  transportKgCO2e?: number;
+  residualWasteKgCO2e?: number;
+  netEnvironmentalBenefitKgCO2e?: number;
   departureLabel: string;
   pickupLabel: string;
   arrivalLabel: string;
@@ -193,13 +201,31 @@ function getDemoRouteUtility(route: DemoRoute) {
   const drivePenalty = route.driveMinutes;
   const timePenalty = 24 * route.requestedTimeDeviationRatio;
   const spatialPenalty = 18 * route.normalizedSpatialDeviation;
+  const estimatedFoodKg = route.estimatedFoodKg ?? 20;
+  const usableFoodKg = route.usableFoodKg ?? estimatedFoodKg * (route.usableFraction ?? 0.8);
+  const avoidedSystemKgCO2e = route.avoidedSystemKgCO2e ?? (
+    usableFoodKg * 0.42 + estimatedFoodKg * (route.donorDisposalBaseline === "compost" ? 0.04 : 0.16)
+  );
+  const transportKgCO2e = route.transportKgCO2e ?? route.distanceMiles * 0.32;
+  const residualWasteKgCO2e = route.residualWasteKgCO2e ?? Math.max(estimatedFoodKg - usableFoodKg, 0) * 0.2;
+  const netEnvironmentalBenefitKgCO2e = route.netEnvironmentalBenefitKgCO2e ?? (
+    avoidedSystemKgCO2e - transportKgCO2e - residualWasteKgCO2e
+  );
+  const environmentalReward = 1.5 * netEnvironmentalBenefitKgCO2e;
 
   return {
     priorityPoints,
     drivePenalty,
     timePenalty,
     spatialPenalty,
-    total: priorityPoints - drivePenalty - timePenalty - spatialPenalty,
+    estimatedFoodKg,
+    usableFoodKg,
+    avoidedSystemKgCO2e,
+    transportKgCO2e,
+    residualWasteKgCO2e,
+    netEnvironmentalBenefitKgCO2e,
+    environmentalReward,
+    total: priorityPoints - drivePenalty - timePenalty - spatialPenalty + environmentalReward,
   };
 }
 
@@ -253,7 +279,7 @@ const demoSteps: DemoStep[] = [
     id: "utility",
     label: "3 · Route utility",
     title: "Every feasible timed route receives a utility score.",
-    description: "Priority is rewarded. Driving, proportional requested-time deviation, and normalized distance outside the requested start and destination ZIP areas are penalized. Exact ZIP-area fit receives no bonus; it simply contributes zero spatial penalty.",
+    description: "Priority and estimated net lifecycle climate benefit are rewarded. Driving time, proportional requested-time deviation, and normalized distance outside the requested start and destination ZIP areas are penalized. Exact ZIP-area fit receives no bonus; it simply contributes zero spatial penalty.",
     scoreTitle: "Unscaled utility",
     scoreValue: "Comparable—not a probability",
     scoreNote: "A negative score can still be feasible; it simply ranks below a higher-scoring alternative",
@@ -264,27 +290,30 @@ const demoSteps: DemoStep[] = [
       "−1.00 × driving minutes",
       "−24 × fraction of the requested interval missed",
       "−18 × normalized start/end ZIP-area deviation",
+      "+1.5 × estimated net lifecycle kg CO₂e benefit",
+      "lifecycle benefit = avoided production + avoided donor disposal − vehicle emissions − residual redistribution waste",
       "0 reward for exact or inside-area fit",
       "planned departure lead remains scheduling guidance only",
     ],
-    mipEquation: "qᵣ = 45Pᵣ − Dᵣ − 24Oᵣ − 18Sᵣ",
+    mipEquation: "qᵣ = 45Pᵣ − Dᵣ − 24Oᵣ − 18Sᵣ + 1.5Eᵣ",
   },
   {
     id: "assignment",
     label: "4 · Joint assignment",
-    title: "Gurobi optimizes all active drivers together.",
-    description: "The system first finds C*, the greatest number of bakery pickup occurrences that can be assigned. It then maximizes total route utility while requiring exactly C* assignments. This prevents route-quality tradeoffs from sacrificing feasible pickup coverage.",
-    scoreTitle: "Lexicographic objectives",
-    scoreValue: "1. Coverage  2. Quality",
-    scoreNote: "Route quality can be negative, so coverage must be fixed before quality is optimized",
+    title: "Gurobi protects expected participation, then optimizes logistics quality.",
+    description: "The first solve maximizes expected completed pickups using each route’s modeled acceptance probability. The second maximizes pantry equity and logistics quality while preserving at least 99% of that expected-completion value.",
+    scoreTitle: "Hierarchical objectives",
+    scoreValue: "1. Expected completions  2. Quality",
+    scoreNote: "The 1% tolerance permits a small participation tradeoff when it materially improves equity, lifecycle climate benefit, travel burden, or preference fit",
     mipTitle: "Network MIP",
     mipBody: "Binary selections are coordinated across the decision epoch so a driver and bakery pickup occurrence cannot be assigned twice. Pantries remain able to receive multiple deliveries while open.",
     mipLines: [
       "at most one selected route per driver request",
       "at most one selected route per bakery pickup occurrence",
       "pantry windows are not treated as single-capacity resources",
+      "acceptance is a transparent synthetic behavioral estimate—not observed volunteer data",
     ],
-    mipEquation: "① C* = max Σyᵣ   ② max Σqᵣyᵣ subject to Σyᵣ = C*",
+    mipEquation: "① A* = max Σaᵣyᵣ   ② max Σqᵣyᵣ subject to Σaᵣyᵣ ≥ 0.99A*",
   },
   {
     id: "recommendations",
@@ -528,7 +557,7 @@ export default function Home() {
         </div>
         <div className="steps">
           <div><span>01</span><div className="stepIcon">🥖</div><h3>Bakeries post surplus</h3><p>Pickup timing, confirmation status, and access details are added in under a minute.</p></div>
-          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>The MIP enforces partner windows, maximizes pickup coverage, then balances pantry priority, driving, and driver time and location fit.</p></div>
+          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>The MIP enforces partner windows, protects expected completed pickups, then balances pantry priority, driving, emissions, and driver time and location fit.</p></div>
           <div><span>03</span><div className="stepIcon">🚙</div><h3>Neighbors drive the loop</h3><p>Volunteers claim a route and deliver food while it’s still fresh.</p></div>
         </div>
       </section>
@@ -539,34 +568,41 @@ export default function Home() {
           <h2>Less waste is<br />a solvable problem.</h2>
         </div>
         <div className="modelCopy">
-          <p>BakedBoston uses a Gurobi mixed-integer model to choose among complete, feasible driver–bakery–pantry plans. Each alternative includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload.</p>
+          <p>BakedBoston uses a Gurobi mixed-integer model to choose among complete, feasible driver–bakery–pantry plans. Each alternative includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload. The formulation is a research-informed academic prototype: operational constraints are explicit, while volunteer acceptance remains a transparent synthetic assumption until real participation data exists.</p>
           <div className="modelObjective">
             <div className="modelObjectiveStage">
-              <small>Stage 1 · find maximum coverage</small>
-              <strong><b>C*</b> = max Σ yᵣ</strong>
-              <p>Find the greatest number of distinct eligible bakery pickup occurrences that can be assigned.</p>
+              <small>Stage 1 · protect participation</small>
+              <strong><b>A*</b> = max Σ aᵣyᵣ</strong>
+              <p>Maximize expected completed pickups rather than counting every offered route as equally likely to happen.</p>
             </div>
             <div className="modelObjectiveStage">
-              <small>Stage 2 · optimize quality at fixed coverage</small>
+              <small>Stage 2 · optimize sustainable quality</small>
               <strong>maximize <b>Σ qᵣ yᵣ</b></strong>
-              <p>Subject to <b>Σ yᵣ = C*</b>, choose the maximum-total-utility assignment.</p>
+              <p>Subject to <b>Σ aᵣyᵣ ≥ 0.99A*</b>, choose the strongest equity, travel, lifecycle-environmental, and preference-fit portfolio.</p>
             </div>
             <div className="modelObjectiveWhy">
               <strong>Why use two stages?</strong>
-              <p>Because qᵣ may be negative, maximizing utility alone could prefer fewer assignments—or none at all. Fixing the assignment count at C* makes pickup coverage the strict priority; utility then chooses the best solution among those maximum-coverage assignments.</p>
+              <p>Stage 1 prevents an elegant but volunteer-unfriendly route portfolio from looking successful merely because it covers many pickups on paper. Stage 2 allows at most a 1% loss in modeled participation when that trade materially improves pantry equity, travel burden, emissions, or driver fit.</p>
+            </div>
+            <div className="modelRouteUtility">
+              <small>Synthetic probability that route r is accepted</small>
+              <strong>aᵣ = sigmoid(2.2 − 0.045Dᵣ − 1.8Oᵣ − 1.1Sᵣ)</strong>
+              <p>This is an auditable scenario assumption—not a trained or validated behavioral model. Future pilot data can replace its coefficients.</p>
             </div>
             <div className="modelRouteUtility">
               <small>Utility of route r</small>
-              <strong>qᵣ = 45Pᵣ − Dᵣ − 24Oᵣ − 18Sᵣ</strong>
+              <strong>qᵣ = 45Pᵣ − Dᵣ − 24Oᵣ − 18Sᵣ + 1.5Eᵣ</strong>
             </div>
           </div>
           <p className="modelFactorIntro">The coefficients are policy weights, not percentages. Hard feasibility is enforced before scoring, so an attractive score can never override a closed window or missed deadline.</p>
           <div className="modelFactorGrid">
             <div className="modelFactor"><strong>yᵣ · assignment</strong><p>A binary variable: 1 when complete timed route r is selected, otherwise 0.</p></div>
+            <div className="modelFactor"><strong>aᵣ · modeled acceptance</strong><p>A synthetic probability based on driving burden and driver time/location fit. It converts an offered route into an estimate of whether the pickup is actually completed.</p></div>
             <div className="modelFactor"><strong>Pᵣ · pantry priority</strong><p>Priority is <b>1 − (recent deliveries + 1) ÷ (recent receiving opportunities + 2)</b>. A pantry that was available but less often served receives more credit.</p></div>
             <div className="modelFactor"><strong>Dᵣ · driving burden</strong><p>Total traffic-aware driving minutes from the driver’s origin to the bakery and from the bakery to the pantry.</p></div>
             <div className="modelFactor"><strong>Oᵣ · requested-time deviation</strong><p>Minutes the route begins before or finishes after the preferred interval, divided by requested-window minutes. A miss therefore matters more when the driver gave a tight window.</p></div>
             <div className="modelFactor"><strong>Sᵣ · requested-location deviation</strong><p>Distance outside the requested start and destination ZIP radii, normalized against the driver’s other feasible routes and averaged across supplied location preferences. Inside the area means zero penalty—not a bonus.</p></div>
+            <div className="modelFactor"><strong>Eᵣ · lifecycle environmental benefit</strong><p>Estimated avoided food-production and donor-disposal emissions minus vehicle emissions and residual redistribution-waste burdens. Food usability and the landfill-or-compost counterfactual therefore matter alongside mileage.</p></div>
           </div>
           <div className="modelDetails">
             <div><strong>Planned departure</strong><p>Login time is the decision epoch, not a forced departure. The model schedules the latest feasible departure, so planned lead time at the origin is not penalized.</p></div>
@@ -574,14 +610,25 @@ export default function Home() {
             <div><strong>Simultaneous drivers</strong><p>Recommendation menus are allocated with coverage-first fairness and then utility. Active menus never duplicate a bakery pickup, while pantries may receive more than one delivery.</p></div>
             <div><strong>What remains soft</strong><p>Requested time and ZIP areas influence utility and modeled acceptance. A route may fall outside them and still be recommended when it is feasible and comparatively strong.</p></div>
           </div>
-          <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Driver route-request matching</li></ul>
+          <div className="modelResearch">
+            <span className="kicker light">RESEARCH FOUNDATION</span>
+            <p>The formulation adapts established problem families rather than claiming a new one from scratch. The exact BakedBoston weights, simulated schedules, and acceptance coefficients are original prototype choices and are not estimates reported by these papers.</p>
+            <div className="modelResearchGrid">
+              <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Nair et al. model donor–agency allocation and routing with perishability and time constraints.</span></a>
+              <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equity in food rescue ↗</strong><span>Rey, Almi’ani, and Nair show why routing efficiency and fair agency service must be considered together.</span></a>
+              <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Volunteer route menus ↗</strong><span>Horner, Pazour, and Mitchell optimize menu-style assignments for occasional drivers rather than assuming a fixed fleet.</span></a>
+              <a href="https://doi.org/10.1016/j.trb.2011.07.010" target="_blank" rel="noreferrer"><strong>Sustainable routing ↗</strong><span>The pollution-routing literature motivates including distance and environmental consequences alongside service performance.</span></a>
+              <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution lifecycle assessment ↗</strong><span>Guo et al. assess global warming, acidification, eutrophication, energy demand, and water use. Their results show why the modeled climate benefit must combine avoided production and disposal with transport and residual-waste burdens—and why food usability can matter more than distance.</span></a>
+            </div>
+          </div>
+          <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Lifecycle climate accounting</li><li>Broader environmental-impact reporting roadmap</li><li>Driver route-request matching</li></ul>
           <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
         </div>
         <div className="demoSection" id="live-demo">
           <div className="demoIntro">
             <span className="kicker light">LIVE MATCH WALKTHROUGH</span>
             <h3>See a delivery get matched in five steps.</h3>
-            <p>{demoData.liveRouteContext} Step 1 captures the decision epoch and driver preferences. Step 2 removes routes that violate hard timing constraints. Step 3 calculates the exact unscaled route utility. Step 4 maximizes pickup coverage before system utility, and Step 5 turns the joint solution into a conflict-free recommendation menu.</p>
+            <p>{demoData.liveRouteContext} Step 1 captures the decision epoch and driver preferences. Step 2 removes routes that violate hard timing constraints. Step 3 calculates the exact unscaled route quality. Step 4 protects expected completed pickups before optimizing sustainable system quality, and Step 5 turns the joint solution into a conflict-free recommendation menu.</p>
           </div>
           <div className="demoStepTabs" role="tablist" aria-label="Optimization demo steps">
             {demoSteps.map((step, index) => (
@@ -700,10 +747,10 @@ export default function Home() {
                           </div>
                           <p>{route.bakery} → {route.pantry}</p>
                           <small className="demoRouteEquation">
-                            +{utility.priorityPoints.toFixed(1)} priority − {utility.drivePenalty.toFixed(1)} driving − {utility.timePenalty.toFixed(1)} time-window miss − {utility.spatialPenalty.toFixed(1)} location miss
+                            +{utility.priorityPoints.toFixed(1)} priority − {utility.drivePenalty.toFixed(1)} driving − {utility.timePenalty.toFixed(1)} time-window miss − {utility.spatialPenalty.toFixed(1)} location miss + {utility.environmentalReward.toFixed(1)} lifecycle benefit
                           </small>
                           <small className="demoRouteOperational">
-                            Depart {route.departureLabel} · {route.driveMinutes.toFixed(0)} drive min · {(route.requestedTimeDeviationRatio * 100).toFixed(0)}% outside requested time · {(route.normalizedSpatialDeviation * 100).toFixed(0)}% normalized spatial deviation
+                            Depart {route.departureLabel} · {route.driveMinutes.toFixed(0)} drive min · {(route.requestedTimeDeviationRatio * 100).toFixed(0)}% outside requested time · {(route.normalizedSpatialDeviation * 100).toFixed(0)}% normalized spatial deviation · {utility.netEnvironmentalBenefitKgCO2e.toFixed(1)} kg CO₂e net benefit
                           </small>
                         </div>
                       );

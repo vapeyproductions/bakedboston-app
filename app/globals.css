@@ -139,5 +139,14 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .modelObjectiveWhy{grid-column:1/-1;padding:16px 18px;border-left:3px solid var(--yellow);background:rgba(0,0,0,.12)}
 .modelObjectiveWhy strong{display:block;margin-bottom:6px;color:#fff;font-size:14px}
 .modelObjectiveWhy p{margin:0;color:#e4eee9;font-size:13px;line-height:1.55}
+.modelResearch{margin-top:36px;padding:30px;border:1px solid rgba(255,255,255,.2);border-radius:24px;background:rgba(255,255,255,.06)}
+.modelResearch>p{max-width:920px;margin:12px 0 22px;color:#d4e1dc;line-height:1.65}
+.modelResearchGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.modelResearchGrid a{min-width:0;padding:18px;border:1px solid rgba(255,255,255,.16);border-radius:16px;color:#fff;background:rgba(0,0,0,.1);text-decoration:none;transition:transform .2s ease,border-color .2s ease}
+.modelResearchGrid a:hover{transform:translateY(-2px);border-color:var(--yellow)}
+.modelResearchGrid strong,.modelResearchGrid span{display:block}
+.modelResearchGrid strong{margin-bottom:6px;color:#fff}
+.modelResearchGrid span{color:#c9d8d2;font-size:13px;line-height:1.5}
+@media(max-width:700px){.modelResearch{padding:22px}.modelResearchGrid{grid-template-columns:1fr}}
 @media(max-width:900px){.demoStepCard{padding:20px}.demoStepCard h4{font-size:clamp(24px,7vw,32px);line-height:1.08}}
 @media(max-width:420px){.demoRequestSummary{grid-template-columns:1fr}.demoRequestSummary>strong{grid-column:1;text-align:left;white-space:normal}.demoRequestSummary>small{grid-column:1}}
