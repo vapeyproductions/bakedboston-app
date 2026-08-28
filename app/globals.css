@@ -120,4 +120,10 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoFacilityZipArea small{margin-top:-13px;padding:2px 5px;border-radius:999px;background:rgba(243,239,228,.95);color:#365c4c;font:800 7px/1.2 Inter,system-ui,sans-serif;letter-spacing:.4px;white-space:nowrap}
 .demoSpatialDeviationLine{stroke:#fff;stroke-width:1.7;stroke-dasharray:2.5 2.5;stroke-linecap:round;opacity:.85;filter:drop-shadow(0 1px 2px rgba(22,61,45,.55))}
 .demoSpatialDeviationLineA{stroke:#fff0eb}.demoSpatialDeviationLineB{stroke:#d9fff0}.demoSpatialDeviationLineC{stroke:#fff0bd}.demoSpatialDeviationLineD{stroke:#eee7ff}.demoSpatialDeviationLineE{stroke:#d8fbff}
-@media(max-width:600px){.demoNode{width:32px;height:32px}.demoFacilityZipArea{width:54px;height:54px}.demoRouteScoreHeader{align-items:flex-start;flex-direction:column;gap:4px}.demoRouteScoreHeader small{text-align:left}.demoRouteScoreGrid{grid-template-columns:1fr}}
+.demoRequestArea{position:absolute;z-index:1;width:112px;height:112px;transform:translate(-50%,-50%);border:2px dashed rgba(22,61,45,.5);border-radius:999px;background:rgba(255,255,255,.15);pointer-events:none}
+.demoRequestAreaStart{border-color:rgba(239,101,72,.78);background:rgba(239,101,72,.09)}
+.demoRequestAreaDestination{border-color:rgba(47,107,86,.78);background:rgba(47,107,86,.09)}
+.demoRequestArea>span{position:absolute;left:50%;top:calc(100% + 7px);transform:translateX(-50%);width:max-content;max-width:170px;padding:6px 8px;background:rgba(255,255,255,.94);border:1px solid rgba(22,61,45,.14);box-shadow:0 4px 12px rgba(40,64,53,.1);color:var(--forest);text-align:center;white-space:normal}
+.demoRequestArea>span strong{display:block;font:800 9px/1.25 Inter,system-ui,sans-serif;letter-spacing:.35px;text-transform:uppercase}
+.demoRequestArea>span small{display:block;margin-top:2px;color:#647d71;font:700 8px/1.25 Inter,system-ui,sans-serif;letter-spacing:.2px}
+@media(max-width:600px){.demoNode{width:32px;height:32px}.demoFacilityZipArea{width:54px;height:54px}.demoRequestArea{width:82px;height:82px}.demoRequestArea>span{max-width:128px;padding:5px 6px}.demoRequestArea>span strong{font-size:8px}.demoRequestArea>span small{font-size:7px}.demoRouteScoreHeader{align-items:flex-start;flex-direction:column;gap:4px}.demoRouteScoreHeader small{text-align:left}.demoRouteScoreGrid{grid-template-columns:1fr}}

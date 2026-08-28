@@ -370,12 +370,12 @@ const fallbackDemoData: DemoDataset = {
     preferredStartLabel: "4:30 PM",
     preferredFinishLabel: "5:00 PM",
     requestedWindowMinutes: 30,
-    startLabel: "Requested start ZIP",
+    startLabel: "Requested start area",
     startZipCode: "02458",
     startRadiusMiles: 2,
     startLeft: "42%",
     startTop: "62%",
-    destinationLabel: "Requested destination ZIP",
+    destinationLabel: "Requested destination area",
     destinationZipCode: "02458",
     destinationRadiusMiles: 2,
     destinationLeft: "76%",
@@ -603,10 +603,10 @@ export default function Home() {
                   <div className="demoWater" />
                   <div className="demoPark" />
                   <div className="demoRequestArea demoRequestAreaStart" style={{ left: demoData.request.startLeft, top: demoData.request.startTop }}>
-                    <span>{demoData.request.startLabel}<small>ZIP {demoData.request.startZipCode} · {demoData.request.startRadiusMiles} mi requested area</small></span>
+                    <span><strong>{demoData.request.startLabel}</strong><small>ZIP {demoData.request.startZipCode} · {demoData.request.startRadiusMiles} mi radius</small></span>
                   </div>
                   <div className="demoRequestArea demoRequestAreaDestination" style={{ left: demoData.request.destinationLeft, top: demoData.request.destinationTop }}>
-                    <span>{demoData.request.destinationLabel}<small>ZIP {demoData.request.destinationZipCode} · {demoData.request.destinationRadiusMiles} mi requested area</small></span>
+                    <span><strong>{demoData.request.destinationLabel}</strong><small>ZIP {demoData.request.destinationZipCode} · {demoData.request.destinationRadiusMiles} mi radius</small></span>
                   </div>
                   <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                     {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
