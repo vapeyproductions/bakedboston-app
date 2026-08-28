@@ -127,3 +127,17 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoRequestArea>span strong{display:block;font:800 9px/1.25 Inter,system-ui,sans-serif;letter-spacing:.35px;text-transform:uppercase}
 .demoRequestArea>span small{display:block;margin-top:2px;color:#647d71;font:700 8px/1.25 Inter,system-ui,sans-serif;letter-spacing:.2px}
 @media(max-width:600px){.demoNode{width:32px;height:32px}.demoFacilityZipArea{width:54px;height:54px}.demoRequestArea{width:82px;height:82px}.demoRequestArea>span{max-width:128px;padding:5px 6px}.demoRequestArea>span strong{font-size:8px}.demoRequestArea>span small{font-size:7px}.demoRouteScoreHeader{align-items:flex-start;flex-direction:column;gap:4px}.demoRouteScoreHeader small{text-align:left}.demoRouteScoreGrid{grid-template-columns:1fr}}
+
+/* Keep live-demo explanations and driver-request details contained at every viewport. */
+.demoSection,.demoBoard,.demoSidebar,.demoStepCard{min-width:0}
+.demoStepCard{width:100%;box-sizing:border-box;overflow:hidden}
+.demoStepCard h4,.demoStepCard p{max-width:100%;overflow-wrap:anywhere}
+.demoRequestSummary{margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,.18);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px 12px;align-items:baseline;min-width:0}
+.demoRequestSummary>span{color:#ffe0d7;font-size:9px;font-weight:900;letter-spacing:1.1px;text-transform:uppercase}
+.demoRequestSummary>strong{color:#fff;font:700 17px/1.2 Georgia,serif;text-align:right;white-space:nowrap}
+.demoRequestSummary>small{grid-column:1/-1;color:#fff3ed;font-size:9px;line-height:1.45;letter-spacing:.6px;text-transform:uppercase;overflow-wrap:anywhere}
+.modelObjectiveWhy{grid-column:1/-1;padding:16px 18px;border-left:3px solid var(--yellow);background:rgba(0,0,0,.12)}
+.modelObjectiveWhy strong{display:block;margin-bottom:6px;color:#fff;font-size:14px}
+.modelObjectiveWhy p{margin:0;color:#e4eee9;font-size:13px;line-height:1.55}
+@media(max-width:900px){.demoStepCard{padding:20px}.demoStepCard h4{font-size:clamp(24px,7vw,32px);line-height:1.08}}
+@media(max-width:420px){.demoRequestSummary{grid-template-columns:1fr}.demoRequestSummary>strong{grid-column:1;text-align:left;white-space:normal}.demoRequestSummary>small{grid-column:1}}

@@ -1188,19 +1188,23 @@ export function SimulatorClient({ data }: Props) {
       <section className={styles.method}>
         <div>
           <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
-          <h2>Coverage comes first. Route quality decides among maximum-coverage solutions.</h2>
+          <h2>First fix maximum coverage. Then choose the best routes at that coverage.</h2>
         </div>
         <div className={styles.objectiveExplainer}>
           <div className={styles.objectiveFormulaCard}>
             <div className={styles.objectiveStage}>
-              <small>Objective 1 · strict priority</small>
-              <strong>maximize Σ yᵣ</strong>
-              <p>Select as many feasible bakery pickup occurrences as the available drivers can complete.</p>
+              <small>Stage 1 · find maximum coverage</small>
+              <strong>C* = max Σ yᵣ</strong>
+              <p>Find the greatest number of distinct feasible bakery pickup occurrences that can be assigned.</p>
             </div>
             <div className={styles.objectiveStage}>
-              <small>Objective 2 · among maximum-coverage solutions</small>
+              <small>Stage 2 · optimize quality at fixed coverage</small>
               <strong>maximize Σ qᵣ yᵣ</strong>
-              <p>Choose the maximum-coverage assignment with the greatest total route quality.</p>
+              <p>Choose the assignment with the greatest total route quality, subject to <b>Σ yᵣ = C*</b>.</p>
+            </div>
+            <div className={styles.objectiveWhy}>
+              <strong>Why is the first stage necessary?</strong>
+              <p>Because qᵣ can be negative. Utility alone could prefer selecting fewer routes—or no route—because an unselected route contributes zero. Stage 1 establishes the maximum feasible assignment count; Stage 2 cannot reduce it.</p>
             </div>
             <div className={styles.formula}>
               <span>qᵣ =</span>
@@ -1225,8 +1229,9 @@ export function SimulatorClient({ data }: Props) {
           </div>
         </div>
         <p className={styles.formulaNote}>
-          The coefficients are policy weights, not probabilities. Login time is the decision epoch—not a forced
-          departure—and planned lead time at the origin receives no objective penalty. The scheduler chooses a
+          This is a lexicographic objective, not two competing goals: Stage 1 computes C*, and Stage 2 optimizes route
+          quality under the hard constraint Σ yᵣ = C*. The coefficients are policy weights, not probabilities. Login
+          time is the decision epoch—not a forced departure—and planned lead time at the origin receives no objective penalty. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
           and ZIP areas are soft preferences. A negative qᵣ therefore means “lower quality than another feasible route,”

@@ -268,6 +268,9 @@
 .objectiveStage small { display: block; margin-bottom: 10px; color: var(--gold); font-size: 10px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
 .objectiveStage strong { display: block; font: 800 clamp(25px, 3vw, 39px)/1.05 Georgia, serif; }
 .objectiveStage p { margin: 10px 0 0; color: #c4d4ce; line-height: 1.5; }
+.objectiveWhy { padding: 18px 20px; border-left: 3px solid var(--gold); border-radius: 0 14px 14px 0; background: rgba(0,0,0,.13); }
+.objectiveWhy strong { display: block; margin-bottom: 7px; color: white; font-size: 15px; }
+.objectiveWhy p { margin: 0; color: #c4d4ce; line-height: 1.55; }
 .formula { padding: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-radius: 16px; background: rgba(0,0,0,.13); }
 .formula span { color: var(--gold); font-size: 20px; font-weight: 900; }
 .formula strong { padding: 10px 13px; border-radius: 10px; background: rgba(255,255,255,.09); }

@@ -273,10 +273,10 @@ const demoSteps: DemoStep[] = [
     id: "assignment",
     label: "4 · Joint assignment",
     title: "Gurobi optimizes all active drivers together.",
-    description: "The system first maximizes the number of completed pickups. Among those maximum-coverage solutions, it maximizes total route utility. This prevents a slightly better score from sacrificing a feasible donation.",
+    description: "The system first finds C*, the greatest number of bakery pickup occurrences that can be assigned. It then maximizes total route utility while requiring exactly C* assignments. This prevents route-quality tradeoffs from sacrificing feasible pickup coverage.",
     scoreTitle: "Lexicographic objectives",
     scoreValue: "1. Coverage  2. Quality",
-    scoreNote: "Coverage has strict priority over the utility tie-breaker",
+    scoreNote: "Route quality can be negative, so coverage must be fixed before quality is optimized",
     mipTitle: "Network MIP",
     mipBody: "Binary selections are coordinated across the decision epoch so a driver and bakery pickup occurrence cannot be assigned twice. Pantries remain able to receive multiple deliveries while open.",
     mipLines: [
@@ -284,7 +284,7 @@ const demoSteps: DemoStep[] = [
       "at most one selected route per bakery pickup occurrence",
       "pantry windows are not treated as single-capacity resources",
     ],
-    mipEquation: "lexicographic max: ① Σyᵣ  ② Σqᵣyᵣ",
+    mipEquation: "① C* = max Σyᵣ   ② max Σqᵣyᵣ subject to Σyᵣ = C*",
   },
   {
     id: "recommendations",
@@ -542,14 +542,18 @@ export default function Home() {
           <p>BakedBoston uses a Gurobi mixed-integer model to choose among complete, feasible driver–bakery–pantry plans. Each alternative includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload.</p>
           <div className="modelObjective">
             <div className="modelObjectiveStage">
-              <small>Objective 1 · strict priority</small>
-              <strong>maximize <b>Σ yᵣ</b></strong>
-              <p>Assign as many eligible bakery pickup occurrences as possible.</p>
+              <small>Stage 1 · find maximum coverage</small>
+              <strong><b>C*</b> = max Σ yᵣ</strong>
+              <p>Find the greatest number of distinct eligible bakery pickup occurrences that can be assigned.</p>
             </div>
             <div className="modelObjectiveStage">
-              <small>Objective 2 · among maximum-coverage solutions</small>
+              <small>Stage 2 · optimize quality at fixed coverage</small>
               <strong>maximize <b>Σ qᵣ yᵣ</b></strong>
-              <p>Choose the maximum-total-utility assignment without sacrificing pickup coverage.</p>
+              <p>Subject to <b>Σ yᵣ = C*</b>, choose the maximum-total-utility assignment.</p>
+            </div>
+            <div className="modelObjectiveWhy">
+              <strong>Why use two stages?</strong>
+              <p>Because qᵣ may be negative, maximizing utility alone could prefer fewer assignments—or none at all. Fixing the assignment count at C* makes pickup coverage the strict priority; utility then chooses the best solution among those maximum-coverage assignments.</p>
             </div>
             <div className="modelRouteUtility">
               <small>Utility of route r</small>
