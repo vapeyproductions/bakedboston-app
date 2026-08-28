@@ -9,6 +9,7 @@ type DemoNode = {
   short: string;
   left: string;
   top: string;
+  postalCode?: string;
   isClosed?: boolean;
 };
 
@@ -21,11 +22,44 @@ type CandidateRoute = {
   score: string;
   distanceMiles: number;
   driverDistanceMiles: number;
+  driveMinutes: number;
   priority: number;
-  waitingPenalty: number;
+  servedOpportunities: number;
+  receivingOpportunities: number;
+  originWaitMinutes: number;
+  facilityWaitMinutes: number;
+  requestedTimeDeviationMinutes: number;
+  requestedWindowMinutes: number;
+  requestedTimeDeviationRatio: number;
+  originDeviationMiles: number;
+  destinationDeviationMiles: number;
+  normalizedOriginDeviation: number;
+  normalizedDestinationDeviation: number;
+  normalizedSpatialDeviation: number;
+  departureLabel: string;
+  pickupLabel: string;
+  arrivalLabel: string;
+  finishLabel: string;
   points: string;
   labelLeft: string;
   labelTop: string;
+};
+
+type DemoRequest = {
+  loginLabel: string;
+  preferredStartLabel: string;
+  preferredFinishLabel: string;
+  requestedWindowMinutes: number;
+  startLabel: string;
+  startZipCode: string;
+  startRadiusMiles: number;
+  startLeft: string;
+  startTop: string;
+  destinationLabel: string;
+  destinationZipCode: string;
+  destinationRadiusMiles: number;
+  destinationLeft: string;
+  destinationTop: string;
 };
 
 type PartnerPoint = {
@@ -34,8 +68,13 @@ type PartnerPoint = {
   latitude: number;
   longitude: number;
   deliveriesSevenDays?: number;
+  postalCode: string;
   type: "Bakery" | "Pantry";
 };
+
+function extractPostalCode(address: string) {
+  return address.match(/\b\d{5}(?:-\d{4})?\b/)?.[0]?.slice(0, 5) ?? "Boston area";
+}
 
 function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
   const earthRadiusMiles = 3958.8;
@@ -49,6 +88,14 @@ function milesBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function formatClock(totalMinutes: number) {
+  const normalized = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
 }
 
 function normalizePoints(points: Array<{ latitude: number; longitude: number }>) {
@@ -89,6 +136,7 @@ export async function GET() {
       name: bakery.name,
       latitude: bakery.latitude as number,
       longitude: bakery.longitude as number,
+      postalCode: extractPostalCode(bakery.formattedAddress || bakery.address),
       type: "Bakery",
     }));
 
@@ -99,6 +147,7 @@ export async function GET() {
       name: pantry.name,
       latitude: pantry.latitude as number,
       longitude: pantry.longitude as number,
+      postalCode: extractPostalCode(pantry.formattedAddress || pantry.address),
       deliveriesSevenDays: pantry.deliveriesSevenDays,
       type: "Pantry",
     }));
@@ -124,14 +173,78 @@ export async function GET() {
   const driverLatitude = anchorBakery.latitude + (anchorPantry.latitude - anchorBakery.latitude) * 0.34 - 0.008;
   const driverLongitude = anchorBakery.longitude + (anchorPantry.longitude - anchorBakery.longitude) * 0.26 - 0.01;
 
-  const rankedPairs = operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
+  const loginMinutes = 14 * 60 + 17;
+  const preferredStartMinutes = 16 * 60 + 30;
+  const preferredFinishMinutes = 17 * 60;
+  const requestedWindowMinutes = preferredFinishMinutes - preferredStartMinutes;
+  const startRadiusMiles = 2;
+  const destinationRadiusMiles = 2;
+  const departureOffsets = [-10, -5, -20, -15, -25];
+
+  const rawPairs = operationalBakeries.flatMap((bakery, bakeryIndex) => operationalPantries.map((pantry, pantryIndex) => {
     const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
     const driverDistanceMiles = milesBetween(driverLatitude, driverLongitude, bakery.latitude, bakery.longitude);
     const priority = 1 / ((pantry.deliveriesSevenDays ?? 0) + 1);
-    const waitingPenalty = 0;
-    const rawScore = priority * 20 - driverDistanceMiles * 2.5 - distanceMiles - waitingPenalty;
-    return { bakery, pantry, distanceMiles, driverDistanceMiles, priority, waitingPenalty, rawScore };
-  })).sort((left, right) => right.rawScore - left.rawScore || left.distanceMiles - right.distanceMiles);
+    const driveMinutes = Math.max(8, (driverDistanceMiles + distanceMiles) * 3.5);
+    const departureMinutes = preferredStartMinutes + (departureOffsets[(bakeryIndex + pantryIndex) % departureOffsets.length] ?? -10);
+    const pickupMinutes = departureMinutes + Math.max(3, driverDistanceMiles * 3.5);
+    const arrivalMinutes = departureMinutes + driveMinutes + 5;
+    const finishMinutes = arrivalMinutes + 5;
+    const requestedTimeDeviationMinutes = Math.max(0, preferredStartMinutes - departureMinutes)
+      + Math.max(0, finishMinutes - preferredFinishMinutes);
+    const requestedTimeDeviationRatio = requestedTimeDeviationMinutes / requestedWindowMinutes;
+    const originDeviationMiles = Math.max(0, milesBetween(
+      bakery.latitude,
+      bakery.longitude,
+      anchorBakery.latitude,
+      anchorBakery.longitude,
+    ) - startRadiusMiles);
+    const destinationDeviationMiles = Math.max(0, milesBetween(
+      pantry.latitude,
+      pantry.longitude,
+      anchorPantry.latitude,
+      anchorPantry.longitude,
+    ) - destinationRadiusMiles);
+    return {
+      bakery,
+      pantry,
+      distanceMiles,
+      driverDistanceMiles,
+      driveMinutes,
+      priority,
+      departureMinutes,
+      pickupMinutes,
+      arrivalMinutes,
+      finishMinutes,
+      requestedTimeDeviationMinutes,
+      requestedTimeDeviationRatio,
+      originDeviationMiles,
+      destinationDeviationMiles,
+    };
+  }));
+
+  const maximumOriginDeviation = Math.max(0, ...rawPairs.map((pair) => pair.originDeviationMiles));
+  const maximumDestinationDeviation = Math.max(0, ...rawPairs.map((pair) => pair.destinationDeviationMiles));
+  const rankedPairs = rawPairs.map((pair) => {
+    const normalizedOriginDeviation = maximumOriginDeviation > 0
+      ? pair.originDeviationMiles / maximumOriginDeviation
+      : 0;
+    const normalizedDestinationDeviation = maximumDestinationDeviation > 0
+      ? pair.destinationDeviationMiles / maximumDestinationDeviation
+      : 0;
+    const normalizedSpatialDeviation = (normalizedOriginDeviation + normalizedDestinationDeviation) / 2;
+    const rawScore = 45 * pair.priority
+      - pair.driveMinutes
+      - 24 * pair.requestedTimeDeviationRatio
+      - 18 * normalizedSpatialDeviation;
+    return {
+      ...pair,
+      normalizedOriginDeviation,
+      normalizedDestinationDeviation,
+      normalizedSpatialDeviation,
+      rawScore,
+    };
+  }).sort((left, right) => right.rawScore - left.rawScore || left.distanceMiles - right.distanceMiles);
 
   const selectedPairs: typeof rankedPairs = [];
   const usedBakeryIds = new Set<number>();
@@ -178,6 +291,7 @@ export async function GET() {
         short: "🥖",
         left: point.left,
         top: point.top,
+        postalCode: bakery.postalCode,
       };
     }),
     ...operationalPantries.map((pantry) => {
@@ -189,6 +303,7 @@ export async function GET() {
         short: "🥫",
         left: point.left,
         top: point.top,
+        postalCode: pantry.postalCode,
       };
     }),
     {
@@ -230,11 +345,7 @@ export async function GET() {
     { x: 7, y: -7 },
   ];
 
-  const minimumRawScore = Math.min(...selectedPairs.map((pair) => pair.rawScore));
-  const maximumRawScore = Math.max(...selectedPairs.map((pair) => pair.rawScore));
-  const rawScoreRange = maximumRawScore - minimumRawScore;
-
-  const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, driverDistanceMiles, priority, waitingPenalty, rawScore }, index) => {
+  const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore }, index) => {
     const pantryPosition = toCanvasPosition(pantry.latitude, pantry.longitude);
     const bakeryPosition = toCanvasPosition(bakery.latitude, bakery.longitude);
     const bakeryLeft = Number(bakeryPosition.left.replace("%", ""));
@@ -249,11 +360,27 @@ export async function GET() {
       bakery: bakery.name,
       pantry: pantry.name,
       drive: `${distanceMiles.toFixed(1)} mi`,
-      score: (rawScoreRange > 0 ? 60 + ((rawScore - minimumRawScore) / rawScoreRange) * 35 : 85).toFixed(1),
+      score: rawScore.toFixed(1),
       distanceMiles,
       driverDistanceMiles,
+      driveMinutes,
       priority,
-      waitingPenalty,
+      servedOpportunities: pantry.deliveriesSevenDays ?? 0,
+      receivingOpportunities: Math.max(7, (pantry.deliveriesSevenDays ?? 0) + 5),
+      originWaitMinutes: Math.max(0, departureMinutes - loginMinutes),
+      facilityWaitMinutes: 0,
+      requestedTimeDeviationMinutes,
+      requestedWindowMinutes,
+      requestedTimeDeviationRatio,
+      originDeviationMiles,
+      destinationDeviationMiles,
+      normalizedOriginDeviation,
+      normalizedDestinationDeviation,
+      normalizedSpatialDeviation,
+      departureLabel: formatClock(departureMinutes),
+      pickupLabel: formatClock(pickupMinutes),
+      arrivalLabel: formatClock(arrivalMinutes),
+      finishLabel: formatClock(finishMinutes),
       points: `${clamp(driverLeft, 6, 94)},${clamp(driverTop, 6, 94)} ${clamp(bakeryLeft, 6, 94)},${clamp(bakeryTop, 6, 94)} ${clamp(pantryLeft, 6, 94)},${clamp(pantryTop, 6, 94)}`,
       labelLeft: `${labelLeft}%`,
       labelTop: `${labelTop}%`,
@@ -261,6 +388,24 @@ export async function GET() {
   });
 
   const highlightedRouteId = candidates[0]?.id ?? null;
+  const startPosition = toCanvasPosition(anchorBakery.latitude, anchorBakery.longitude);
+  const destinationPosition = toCanvasPosition(anchorPantry.latitude, anchorPantry.longitude);
+  const request: DemoRequest = {
+    loginLabel: formatClock(loginMinutes),
+    preferredStartLabel: formatClock(preferredStartMinutes),
+    preferredFinishLabel: formatClock(preferredFinishMinutes),
+    requestedWindowMinutes,
+    startLabel: `Requested start ZIP ${anchorBakery.postalCode}`,
+    startZipCode: anchorBakery.postalCode,
+    startRadiusMiles,
+    startLeft: startPosition.left,
+    startTop: startPosition.top,
+    destinationLabel: `Requested destination ZIP ${anchorPantry.postalCode}`,
+    destinationZipCode: anchorPantry.postalCode,
+    destinationRadiusMiles,
+    destinationLeft: destinationPosition.left,
+    destinationTop: destinationPosition.top,
+  };
   const completedAt = featuredCompletedRoute?.createdAt
     ? new Intl.DateTimeFormat("en-US", {
         month: "short",
@@ -279,6 +424,7 @@ export async function GET() {
     liveRouteContext: featuredCompletedRoute && completedAt
       ? `Based on the most recent completed delivery on ${completedAt}.`
       : "Based on the current registered bakery and pantry network.",
+    request,
   }, {
     headers: { "Cache-Control": "no-store" },
   });

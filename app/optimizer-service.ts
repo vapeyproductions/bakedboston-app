@@ -16,6 +16,8 @@ export type OptimizedRoute = {
   predepartureWaitMinutes: number;
   facilityWaitMinutes: number;
   requestedTimeDeviationMinutes: number;
+  requestedWindowMinutes: number;
+  requestedTimeDeviationRatio: number;
   withinPreferredWindow: boolean;
   pantryPriority: number;
   score: number;
@@ -154,7 +156,7 @@ export async function requestCustomSimulation(input: CustomSimulationInput): Pro
     },
     body: JSON.stringify({
       mode: "custom_experiment",
-      days: input.horizonDays,
+      days: 5,
       driversPerDay: input.driversPerDay,
       bakeryCount: input.bakeryCount,
       pantryCount: input.pantryCount,

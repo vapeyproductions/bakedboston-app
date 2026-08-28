@@ -19,10 +19,18 @@ type RouteOption = {
   driveMinutes: number;
   waitingMinutes: number;
   predepartureWaitMinutes: number;
-  facilityWaitingMinutes: number;
   requestedTimeDeviationMinutes: number;
+  requestedWindowMinutes: number;
+  requestedTimeDeviationRatio: number;
   withinPreferredWindow: boolean;
-  destinationMinutes: number;
+  destinationMinutes?: number;
+  originDeviationMiles: number;
+  destinationDeviationMiles: number;
+  normalizedOriginDeviation: number;
+  normalizedDestinationDeviation: number;
+  normalizedSpatialDeviation: number;
+  bakeryPostalCode?: string;
+  pantryPostalCode?: string;
   pantryPriority: number;
   routeScore: number;
   acceptanceProbability: number;
@@ -53,6 +61,13 @@ type DriverRequestTrace = {
   earliestStart?: string;
   latestFinish?: string;
   hasPreferredDestination: boolean;
+  requestedWindowMinutes?: number;
+  startLocation?: Coordinate;
+  startRadiusMiles?: number;
+  preferredDestination?: Coordinate | null;
+  destinationRadiusMiles?: number;
+  startZipCode?: string;
+  destinationZipCode?: string;
 };
 
 type DecisionEpoch = {
@@ -111,6 +126,8 @@ type PolicyResult = {
 type Coordinate = {
   latitude: number;
   longitude: number;
+  postalCode?: string;
+  formattedAddress?: string;
 };
 
 type MapTooltip = {
@@ -207,6 +224,23 @@ const percent = (value: number | null | undefined, digits = 0) =>
 const numeric = (value: number | null | undefined, digits = 1) =>
   typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
 
+type ProjectedPoint = { x: number; y: number };
+
+const pointAtRadiusBoundary = (
+  center: ProjectedPoint,
+  target: ProjectedPoint,
+  radius: number,
+): ProjectedPoint => {
+  const dx = target.x - center.x;
+  const dy = target.y - center.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= radius || distance === 0) return target;
+  return {
+    x: center.x + (dx / distance) * radius,
+    y: center.y + (dy / distance) * radius,
+  };
+};
+
 type MetricDefinition = {
   key: string;
   label: string;
@@ -260,9 +294,9 @@ const metricGroups: MetricGroup[] = [
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per completed route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per completed route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
-      { key: "averagePredepartureWaitMinutes", label: "Mean wait before departure", explanation: "Average time between opening the app and the optimizer's recommended departure.", direction: "lower", format: (value) => `${numeric(value)} min` },
-      { key: "averageFacilityWaitingMinutes", label: "Mean facility waiting", explanation: "Average avoidable idle time after leaving—at a bakery or pantry—not time spent waiting at the driver's origin.", direction: "lower", format: (value) => `${numeric(value)} min` },
-      { key: "averageRequestedTimeDeviationMinutes", label: "Mean requested-time deviation", explanation: "Average minutes a completed route falls outside the driver's preferred trip interval.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averagePredepartureWaitMinutes", label: "Mean planned departure lead", explanation: "Average time between opening the app and the optimizer's recommended departure. This is scheduling information, not a score penalty.", direction: "none", format: (value) => `${numeric(value)} min` },
+      { key: "averageRequestedTimeDeviationMinutes", label: "Mean minutes outside request", explanation: "Average minutes a completed route starts before or finishes after the driver's requested interval.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averageOutsideRequestedWindowRatio", label: "Mean outside-window share", explanation: "Outside-request minutes divided by the requested interval length. This normalized value is the time-fit penalty used in scoring.", direction: "lower", format: (value) => percent(value, 1) },
       { key: "preferredWindowFitRate", label: "Preferred-window fit", explanation: "Share of completed routes contained entirely within the driver's preferred trip interval.", direction: "higher", format: (value) => percent(value, 1) },
       { key: "averageTotalTripDurationMinutes", label: "Mean total trip duration", explanation: "Driving, waiting, pickup, and drop-off time combined.", direction: "lower", format: (value) => `${numeric(value)} min` },
     ],
@@ -272,7 +306,7 @@ const metricGroups: MetricGroup[] = [
     description: "Selections are deterministic in this academic replay; behavioral measures remain model-based diagnostics.",
     metrics: [
       { key: "driverAcceptanceRate", label: "Driver acceptance (simulated)", explanation: "Share selecting rank #1 in this replay.", direction: "higher", format: (value) => percent(value) },
-      { key: "expectedDriverAcceptanceRate", label: "Expected acceptance", explanation: "Behavioral estimate based on route burden and fit.", direction: "higher", format: (value) => percent(value, 1) },
+      { key: "expectedDriverAcceptanceRate", label: "Expected acceptance", explanation: "Behavioral estimate based on driving burden, normalized requested-time fit, and destination fit.", direction: "higher", format: (value) => percent(value, 1) },
       {
         key: "offersLikelyRejected",
         label: "Likely rejected offers",
@@ -386,22 +420,24 @@ export function SimulatorClient({ data }: Props) {
     return windows;
   }, [day.pantryWindows]);
 
-  const bakeryHoverLabel = (bakeryName: string, pickupId?: string) => {
+  const bakeryHoverLabel = (bakeryName: string, pickupId?: string, postalCode?: string) => {
     const available = pickupWindowsByBakery.get(bakeryName) ?? [];
     const exact = pickupId ? available.filter((item) => item.pickupId === pickupId) : available;
     const windows = exact.length ? exact : available;
-    if (!windows.length) return `${bakeryName} · bakery\nNo food-ready pickup window on ${formatDate(day.serviceDate)}`;
-    return `${bakeryName} · bakery\n${windows
+    const heading = `${bakeryName} · bakery${postalCode ? ` · ZIP ${postalCode}` : ""}`;
+    if (!windows.length) return `${heading}\nNo food-ready pickup window on ${formatDate(day.serviceDate)}`;
+    return `${heading}\n${windows
       .map((item) => `Pickup: ${formatClock(item.readyAt)}–${formatClock(item.pickupDeadline)}`)
       .join("\n")}`;
   };
 
-  const pantryHoverLabel = (pantryName: string, pantryWindowId?: string) => {
+  const pantryHoverLabel = (pantryName: string, pantryWindowId?: string, postalCode?: string) => {
     const available = pantryWindowsByPantry.get(pantryName) ?? [];
     const exact = pantryWindowId ? available.filter((item) => item.pantryWindowId === pantryWindowId) : available;
     const windows = exact.length ? exact : available;
-    if (!windows.length) return `${pantryName} · pantry\nNo receiving window on ${formatDate(day.serviceDate)}`;
-    return `${pantryName} · pantry\n${windows
+    const heading = `${pantryName} · pantry${postalCode ? ` · ZIP ${postalCode}` : ""}`;
+    if (!windows.length) return `${heading}\nNo receiving window on ${formatDate(day.serviceDate)}`;
+    return `${heading}\n${windows
       .map(
         (item) =>
           `Receiving: ${formatClock(item.receivingStart)}–${formatClock(item.receivingEnd)} · latest arrival ${formatClock(item.latestPermittedArrival)}`,
@@ -414,6 +450,8 @@ export function SimulatorClient({ data }: Props) {
       ...payload.network.bakeries,
       ...payload.network.pantries,
       ...mapRoutes.flatMap((route) => [route.driverStart, route.bakeryLocation, route.pantryLocation]),
+      ...(activeRequest?.startLocation ? [activeRequest.startLocation] : []),
+      ...(activeRequest?.preferredDestination ? [activeRequest.preferredDestination] : []),
     ];
     const latitudes = coordinates.map((point) => point.latitude);
     const longitudes = coordinates.map((point) => point.longitude);
@@ -427,7 +465,17 @@ export function SimulatorClient({ data }: Props) {
       x: 55 + ((point.longitude - minLongitude) / longitudeRange) * 890,
       y: 465 - ((point.latitude - minLatitude) / latitudeRange) * 410,
     });
-  }, [mapRoutes, payload.network]);
+  }, [activeRequest, mapRoutes, payload.network]);
+
+  const requestRadiusPixels = (center: Coordinate, radiusMiles: number) => {
+    const longitudeMilesPerDegree = Math.max(69 * Math.cos((center.latitude * Math.PI) / 180), 1);
+    const edge = mapProjection({
+      latitude: center.latitude,
+      longitude: center.longitude + radiusMiles / longitudeMilesPerDegree,
+    });
+    const centerPoint = mapProjection(center);
+    return Math.max(18, Math.min(170, Math.abs(edge.x - centerPoint.x)));
+  };
 
   const metricWinner = (metric: MetricDefinition, result: PolicyResult) => {
     if (metric.direction === "none") return false;
@@ -569,14 +617,11 @@ export function SimulatorClient({ data }: Props) {
                 <input aria-label="Number of pantries" max="9" min="2" onChange={(event) => updateCustomConfig("pantryCount", Number(event.target.value))} type="range" value={customConfig.pantryCount} />
                 <small>2–9 receiving sites</small>
               </label>
-              <label className={styles.controlField}>
+              <div className={styles.controlField}>
                 <span>Simulation days</span>
-                <select aria-label="Simulation days" onChange={(event) => updateCustomConfig("horizonDays", Number(event.target.value))} value={customConfig.horizonDays}>
-                  <option value="3">3 days</option>
-                  <option value="4">4 days</option>
-                  <option value="5">5 days</option>
-                </select>
-              </label>
+                <strong>5</strong>
+                <small>Every saved and custom comparison uses a five-day horizon.</small>
+              </div>
               <label className={styles.controlField}>
                 <span>Maximum drivers in one window</span>
                 <select aria-label="Maximum simultaneous drivers" onChange={(event) => updateCustomConfig("maxSimultaneousDrivers", Number(event.target.value))} value={customConfig.maxSimultaneousDrivers}>
@@ -711,6 +756,46 @@ export function SimulatorClient({ data }: Props) {
               ))}
             </div>
 
+            {activeRequest ? (
+              <section className={styles.requestSummary} aria-label="Selected driver request">
+                <div className={styles.requestSummaryHeader}>
+                  <div>
+                    <p className={styles.panelLabel}>DRIVER REQUEST</p>
+                    <h3>{compactDriver(activeRequest.driverId)} entered at {formatClock(activeRequest.loggedAt)}</h3>
+                  </div>
+                  <span>Soft preferences</span>
+                </div>
+                <div className={styles.requestSummaryGrid}>
+                  <div>
+                    <small>REQUESTED ROUTE INTERVAL</small>
+                    <strong>{formatClock(activeRequest.preferredStart)}–{formatClock(activeRequest.preferredFinish)}</strong>
+                    <span>{numeric(activeRequest.requestedWindowMinutes ?? 30, 0)} minutes signaled</span>
+                  </div>
+                  <div>
+                    <small>REQUESTED ORIGIN</small>
+                    <strong>
+                      ZIP {activeRequest.startZipCode ?? activeRequest.startLocation?.postalCode ?? "area"}
+                      {` · within ${numeric(activeRequest.startRadiusMiles ?? 2, 0)} miles`}
+                    </strong>
+                    <span>Bakery distance beyond the orange area is normalized across feasible routes</span>
+                  </div>
+                  <div>
+                    <small>PREFERRED DESTINATION</small>
+                    <strong>
+                      {activeRequest.preferredDestination
+                        ? `ZIP ${activeRequest.destinationZipCode ?? activeRequest.preferredDestination.postalCode ?? "area"} · within ${numeric(activeRequest.destinationRadiusMiles ?? 2, 0)} miles`
+                        : "No destination preference"}
+                    </strong>
+                    <span>{activeRequest.preferredDestination ? "Pantry distance beyond the green area is normalized across feasible routes" : "Destination fit is not scored"}</span>
+                  </div>
+                </div>
+                <p>
+                  These preferences guide ranking rather than feasibility. BakedBoston may still recommend a route
+                  outside the interval or radii when it is the strongest available option.
+                </p>
+              </section>
+            ) : null}
+
             <section className={styles.mapPanel} aria-label="Interactive recommendation map">
               <div className={styles.mapHeader}>
                 <div>
@@ -742,9 +827,38 @@ export function SimulatorClient({ data }: Props) {
                   </defs>
                   <rect width="1000" height="520" fill="url(#simulatorGrid)" />
                   <path d="M0 392 C190 330 270 435 455 365 S750 270 1000 320 V520 H0 Z" fill="#d4e8e3" opacity=".78" />
+                  {activeRequest?.startLocation ? (() => {
+                    const point = mapProjection(activeRequest.startLocation);
+                    const radius = requestRadiusPixels(activeRequest.startLocation, activeRequest.startRadiusMiles ?? 2);
+                    return (
+                      <g className={styles.requestMapLayer}>
+                        <circle className={`${styles.requestRadius} ${styles.requestOriginRadius}`} cx={point.x} cy={point.y} r={radius} />
+                        <circle className={`${styles.requestCenter} ${styles.requestOriginCenter}`} cx={point.x} cy={point.y} r="7" />
+                        <text className={styles.requestMapLabel} x={point.x + 12} y={point.y - radius - 8}>
+                          ZIP {activeRequest.startZipCode ?? activeRequest.startLocation.postalCode ?? "area"} · requested origin · {numeric(activeRequest.startRadiusMiles ?? 2, 0)} mi
+                        </text>
+                      </g>
+                    );
+                  })() : null}
+                  {activeRequest?.preferredDestination ? (() => {
+                    const point = mapProjection(activeRequest.preferredDestination);
+                    const radius = requestRadiusPixels(
+                      activeRequest.preferredDestination,
+                      activeRequest.destinationRadiusMiles ?? 2,
+                    );
+                    return (
+                      <g className={styles.requestMapLayer}>
+                        <circle className={`${styles.requestRadius} ${styles.requestDestinationRadius}`} cx={point.x} cy={point.y} r={radius} />
+                        <circle className={`${styles.requestCenter} ${styles.requestDestinationCenter}`} cx={point.x} cy={point.y} r="7" />
+                        <text className={styles.requestMapLabel} x={point.x + 12} y={point.y + radius + 18}>
+                          ZIP {activeRequest.destinationZipCode ?? activeRequest.preferredDestination.postalCode ?? "area"} · preferred destination · {numeric(activeRequest.destinationRadiusMiles ?? 2, 0)} mi
+                        </text>
+                      </g>
+                    );
+                  })() : null}
                   {payload.network.bakeries.map((node) => {
                     const point = mapProjection(node);
-                    const label = bakeryHoverLabel(node.name);
+                    const label = bakeryHoverLabel(node.name, undefined, node.postalCode);
                     return (
                       <g
                         aria-label={label.replaceAll("\n", ". ")}
@@ -758,6 +872,12 @@ export function SimulatorClient({ data }: Props) {
                         role="button"
                         tabIndex={0}
                       >
+                        {node.postalCode ? <>
+                          <circle className={`${styles.facilityZipArea} ${styles.facilityBakeryZipArea}`} cx={point.x} cy={point.y} r="31" />
+                          <text className={styles.facilityZipLabel} textAnchor="middle" x={point.x} y={point.y + 43}>
+                            ZIP {node.postalCode}
+                          </text>
+                        </> : null}
                         <circle className={styles.mapHitArea} cx={point.x} cy={point.y} r="18" />
                         <circle className={styles.networkBakery} cx={point.x} cy={point.y} r="6" />
                       </g>
@@ -765,7 +885,7 @@ export function SimulatorClient({ data }: Props) {
                   })}
                   {payload.network.pantries.map((node) => {
                     const point = mapProjection(node);
-                    const label = pantryHoverLabel(node.name);
+                    const label = pantryHoverLabel(node.name, undefined, node.postalCode);
                     return (
                       <g
                         aria-label={label.replaceAll("\n", ". ")}
@@ -779,11 +899,76 @@ export function SimulatorClient({ data }: Props) {
                         role="button"
                         tabIndex={0}
                       >
+                        {node.postalCode ? <>
+                          <circle className={`${styles.facilityZipArea} ${styles.facilityPantryZipArea}`} cx={point.x} cy={point.y} r="31" />
+                          <text className={styles.facilityZipLabel} textAnchor="middle" x={point.x} y={point.y + 43}>
+                            ZIP {node.postalCode}
+                          </text>
+                        </> : null}
                         <circle className={styles.mapHitArea} cx={point.x} cy={point.y} r="18" />
                         <rect className={styles.networkPantry} height="10" rx="2" width="10" x={point.x - 5} y={point.y - 5} />
                       </g>
                     );
                   })}
+                  {mapMode === "driver" && activeRequest ? mapRoutes.map((route, index) => {
+                    const bakery = mapProjection(route.bakeryLocation);
+                    const pantry = mapProjection(route.pantryLocation);
+                    const colors = ["#f56447", "#286b59", "#b87d08", "#654b9b", "#167b88"];
+                    const color = route.selected ? "#f56447" : colors[index % colors.length];
+                    const originCenter = activeRequest.startLocation
+                      ? mapProjection(activeRequest.startLocation)
+                      : null;
+                    const destinationCenter = activeRequest.preferredDestination
+                      ? mapProjection(activeRequest.preferredDestination)
+                      : null;
+                    const originBoundary = originCenter
+                      ? pointAtRadiusBoundary(
+                        originCenter,
+                        bakery,
+                        requestRadiusPixels(activeRequest.startLocation!, activeRequest.startRadiusMiles ?? 2),
+                      )
+                      : null;
+                    const destinationBoundary = destinationCenter
+                      ? pointAtRadiusBoundary(
+                        destinationCenter,
+                        pantry,
+                        requestRadiusPixels(activeRequest.preferredDestination!, activeRequest.destinationRadiusMiles ?? 2),
+                      )
+                      : null;
+
+                    return (
+                      <g key={`spatial-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
+                        {originBoundary && route.originDeviationMiles > 0.01 ? (
+                          <line
+                            className={styles.spatialDeviationLine}
+                            stroke={color}
+                            x1={bakery.x}
+                            x2={originBoundary.x}
+                            y1={bakery.y}
+                            y2={originBoundary.y}
+                          >
+                            <title>
+                              Start ZIP deviation: {numeric(route.originDeviationMiles, 2)} miles outside the requested area
+                            </title>
+                          </line>
+                        ) : null}
+                        {destinationBoundary && route.destinationDeviationMiles > 0.01 ? (
+                          <line
+                            className={styles.spatialDeviationLine}
+                            stroke={color}
+                            x1={pantry.x}
+                            x2={destinationBoundary.x}
+                            y1={pantry.y}
+                            y2={destinationBoundary.y}
+                          >
+                            <title>
+                              Destination ZIP deviation: {numeric(route.destinationDeviationMiles, 2)} miles outside the requested area
+                            </title>
+                          </line>
+                        ) : null}
+                      </g>
+                    );
+                  }) : null}
                   {mapRoutes.map((route, index) => {
                     const driver = mapProjection(route.driverStart);
                     const bakery = mapProjection(route.bakeryLocation);
@@ -814,8 +999,16 @@ export function SimulatorClient({ data }: Props) {
                     const driver = mapProjection(route.driverStart);
                     const bakery = mapProjection(route.bakeryLocation);
                     const pantry = mapProjection(route.pantryLocation);
-                    const bakeryLabel = bakeryHoverLabel(route.bakeryName, route.pickupId);
-                    const pantryLabel = pantryHoverLabel(route.pantryName, route.pantryWindowId);
+                    const bakeryLabel = bakeryHoverLabel(
+                      route.bakeryName,
+                      route.pickupId,
+                      route.bakeryPostalCode ?? route.bakeryLocation.postalCode,
+                    );
+                    const pantryLabel = pantryHoverLabel(
+                      route.pantryName,
+                      route.pantryWindowId,
+                      route.pantryPostalCode ?? route.pantryLocation.postalCode,
+                    );
                     return (
                       <g key={`nodes-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
                         <g transform={`translate(${driver.x} ${driver.y})`}><circle className={styles.driverNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🚗</text><title>{compactDriver(route.driverId)}</title></g>
@@ -898,7 +1091,14 @@ export function SimulatorClient({ data }: Props) {
                 </div>
 
                 <div className={styles.routeList}>
-                  {activeDriver.routes.map((route) => (
+                  {activeDriver.routes.map((route) => {
+                    const requestedWindowMinutes = route.requestedWindowMinutes
+                      ?? activeRequest?.requestedWindowMinutes
+                      ?? 30;
+                    const outsideWindowRatio = route.requestedTimeDeviationRatio
+                      ?? route.requestedTimeDeviationMinutes / requestedWindowMinutes;
+
+                    return (
                     <article className={`${styles.routeCard} ${route.selected ? styles.selectedRoute : ""}`} key={`${route.pickupId}-${route.pantryWindowId}`}>
                       <div className={styles.rank}>#{route.recommendationRank}</div>
                       <div className={styles.routeMain}>
@@ -911,11 +1111,13 @@ export function SimulatorClient({ data }: Props) {
                         </div>
                         <div className={styles.departurePlan}>
                           <strong>
-                            Wait {numeric(route.predepartureWaitMinutes, 0)} min · leave {formatClock(route.departAt)}
+                            {route.predepartureWaitMinutes > 0.5
+                              ? `Planned departure in ${numeric(route.predepartureWaitMinutes, 0)} min · leave ${formatClock(route.departAt)}`
+                              : `Leave now · depart ${formatClock(route.departAt)}`}
                           </strong>
                           <span>
                             Logged in {activeRequest ? formatClock(activeRequest.loggedAt) : "—"}
-                            {activeRequest ? ` · preferred ${formatClock(activeRequest.preferredStart)}–${formatClock(activeRequest.preferredFinish)}` : ""}
+                            {activeRequest ? ` · requested ${formatClock(activeRequest.preferredStart)}–${formatClock(activeRequest.preferredFinish)}` : ""}
                           </span>
                         </div>
                         <div className={styles.routeDetails}>
@@ -923,11 +1125,21 @@ export function SimulatorClient({ data }: Props) {
                           <span>Pantry {formatClock(route.pantryArrivalAt)}</span>
                           <span>Finish {formatClock(route.finishAt)}</span>
                           <span>{numeric(route.driveMinutes, 1)} drive min</span>
-                          <span>{numeric(route.facilityWaitingMinutes, 1)} facility wait min</span>
                           <span>
                             {route.withinPreferredWindow
-                              ? "Fits requested time"
-                              : `${numeric(route.requestedTimeDeviationMinutes, 0)} min outside request`}
+                              ? "Inside requested interval"
+                              : `${numeric(route.requestedTimeDeviationMinutes, 0)} min outside · ${numeric(outsideWindowRatio * 100, 1)}% of ${numeric(requestedWindowMinutes, 0)}-min request`}
+                          </span>
+                          <span>
+                            Start ZIP miss {numeric(route.originDeviationMiles, 2)} mi · {numeric(route.normalizedOriginDeviation * 100, 1)}% normalized
+                          </span>
+                          {activeRequest?.hasPreferredDestination ? (
+                            <span>
+                              Destination ZIP miss {numeric(route.destinationDeviationMiles, 2)} mi · {numeric(route.normalizedDestinationDeviation * 100, 1)}% normalized
+                            </span>
+                          ) : null}
+                          <span>
+                            Spatial penalty input {numeric(route.normalizedSpatialDeviation * 100, 1)}%
                           </span>
                           <span>Priority {numeric(route.pantryPriority, 2)}</span>
                         </div>
@@ -938,7 +1150,8 @@ export function SimulatorClient({ data }: Props) {
                         {route.selected ? <span>SELECTED · HIGHEST</span> : null}
                       </div>
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {selectedRoute ? (
@@ -948,7 +1161,7 @@ export function SimulatorClient({ data }: Props) {
                       <p className={styles.panelLabel}>DRIVER SELECTION</p>
                       <h3>{selectedRoute.bakeryName} → {selectedRoute.pantryName}</h3>
                       <p>
-                        Rank #1 was selected because its score of {score(selectedRoute.routeScore)} is the highest among
+                        Rank #1 was selected because its score of {score(selectedRoute.routeScore)}{" "}is the highest among
                         this driver&apos;s conflict-free recommendations. Pantry destinations may repeat across drivers,
                         but bakery pickups cannot. The other recommendations remain unselected alternatives—not four
                         additional trips that the driver rejected.
@@ -963,7 +1176,7 @@ export function SimulatorClient({ data }: Props) {
                 <h3>No route was recommended to {activeDriver ? compactDriver(activeDriver.driverId) : "this driver"}.</h3>
                 <p>
                   This is not the model choosing to give another driver extra routes instead. At this decision time,
-                  this driver had no time-feasible route or there were fewer distinct feasible bakery pickups than
+                  this driver had no institution-window-feasible route or there were fewer distinct feasible bakery pickups than
                   simultaneous drivers{activeRequest ? ` before the wider search ended at ${formatClock(activeRequest.searchUntil)}` : ""}.
                 </p>
               </div>
@@ -974,29 +1187,50 @@ export function SimulatorClient({ data }: Props) {
 
       <section className={styles.method}>
         <div>
-          <p className={styles.eyebrow}>WHAT THE SCORE MEANS</p>
-          <h2>Priority is rewarded. Route burden is penalized.</h2>
+          <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
+          <h2>Coverage comes first. Route quality decides among maximum-coverage solutions.</h2>
         </div>
-        <div className={styles.formula}>
-          <span>route score =</span>
-          <strong>{payload.objectiveWeights.pantry_priority_reward} × pantry priority</strong>
-          <i>−</i>
-          <strong>{payload.objectiveWeights.drive_minute_penalty} × drive minutes</strong>
-          <i>−</i>
-          <strong>{payload.objectiveWeights.waiting_minute_penalty} × wait before departure</strong>
-          <i>−</i>
-          <strong>{payload.objectiveWeights.facility_waiting_minute_penalty} × facility wait</strong>
-          <i>−</i>
-          <strong>{payload.objectiveWeights.requested_time_deviation_minute_penalty} × requested-time deviation</strong>
-          <i>−</i>
-          <strong>{payload.objectiveWeights.destination_minute_penalty} × destination deviation</strong>
+        <div className={styles.objectiveExplainer}>
+          <div className={styles.objectiveFormulaCard}>
+            <div className={styles.objectiveStage}>
+              <small>Objective 1 · strict priority</small>
+              <strong>maximize Σ yᵣ</strong>
+              <p>Select as many feasible bakery pickup occurrences as the available drivers can complete.</p>
+            </div>
+            <div className={styles.objectiveStage}>
+              <small>Objective 2 · among maximum-coverage solutions</small>
+              <strong>maximize Σ qᵣ yᵣ</strong>
+              <p>Choose the maximum-coverage assignment with the greatest total route quality.</p>
+            </div>
+            <div className={styles.formula}>
+              <span>qᵣ =</span>
+              <strong>{payload.objectiveWeights.pantry_priority_reward}Pᵣ</strong>
+              <i>−</i>
+              <strong>{payload.objectiveWeights.drive_minute_penalty}Dᵣ</strong>
+              <i>−</i>
+              <strong>{payload.objectiveWeights.requested_time_deviation_ratio_penalty}Oᵣ</strong>
+              <i>−</i>
+              <strong>{payload.objectiveWeights.spatial_deviation_ratio_penalty}Sᵣ</strong>
+            </div>
+          </div>
+          <div className={styles.objectiveTerms}>
+            <h3>What every symbol contributes</h3>
+            <dl>
+              <div><dt>yᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
+              <div><dt>Pᵣ · pantry priority</dt><dd><b>Rewarded.</b> Priority is 1 − (recent services + 1) ÷ (recent receiving opportunities + 2). A pantry that was open but served less often receives a larger value; recent service lowers it.</dd></div>
+              <div><dt>Dᵣ · drive minutes</dt><dd><b>Penalized.</b> Total driving from the driver&apos;s origin to the bakery and then from the bakery to the pantry. Five-minute loading and unloading service times are scheduled, but are not counted as driving.</dd></div>
+              <div><dt>Oᵣ · outside-window ratio</dt><dd><b>Penalized.</b> Minutes that departure occurs before the requested start plus minutes that completion occurs after the requested finish, divided by the requested interval length. Time inside the interval adds no penalty.</dd></div>
+              <div><dt>Sᵣ · spatial deviation ratio</dt><dd><b>Penalized.</b> Start- and destination-area misses are measured from each facility to the nearest edge of the requested ZIP radius, normalized against that driver&apos;s feasible alternatives, then averaged across the supplied location preferences.</dd></div>
+            </dl>
+          </div>
         </div>
         <p className={styles.formulaNote}>
-          Login time is the decision epoch—not a forced departure. Institution windows and the wider search horizon
-          are hard constraints. The driver&apos;s preferred start and finish are soft constraints: a slightly early or
-          late route may still be recommended, but every minute outside that interval lowers its score and modeled
-          acceptance. Waiting safely at the origin receives a small penalty; leaving early and waiting at a facility
-          receives a larger one. A negative raw score does not make an otherwise feasible route invalid.
+          The coefficients are policy weights, not probabilities. Login time is the decision epoch—not a forced
+          departure—and planned lead time at the origin receives no objective penalty. The scheduler chooses a
+          just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
+          arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
+          and ZIP areas are soft preferences. A negative qᵣ therefore means “lower quality than another feasible route,”
+          not “infeasible.”
         </p>
       </section>
 

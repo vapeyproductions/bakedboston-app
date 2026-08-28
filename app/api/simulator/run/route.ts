@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       driversPerDay: boundedInteger(body.driversPerDay, "Drivers per day", 1, 12),
       bakeryCount: boundedInteger(body.bakeryCount, "Bakeries", 2, 9),
       pantryCount: boundedInteger(body.pantryCount, "Pantries", 2, 9),
-      horizonDays: boundedInteger(body.horizonDays, "Simulation days", 3, 5),
+      horizonDays: 5,
       randomSeed: boundedInteger(body.randomSeed, "Random seed", 1, 999_999_999),
       maxSimultaneousDrivers: boundedInteger(
         body.maxSimultaneousDrivers,
