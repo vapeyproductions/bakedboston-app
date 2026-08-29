@@ -287,7 +287,7 @@ type MetricGroup = {
 const metricGroups: MetricGroup[] = [
   {
     title: "Pickup service and pantry reach",
-    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for both models.",
+    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for all three models.",
     metrics: [
       { key: "bakeryPickupCoverage", label: "Bakery pickup coverage", explanation: "Eligible food-ready pickup occurrences completed.", direction: "higher", format: (value) => percent(value) },
       { key: "completedDeliveries", label: "Completed deliveries", explanation: "Successful bakery-to-pantry deliveries.", direction: "higher", format: (value) => numeric(value, 0) },
@@ -314,7 +314,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Environmental result",
-    description: "These values are shared post-run accounting. The Nair adaptation does not receive any CO₂e value as an optimization input.",
+    description: "These values use one shared ledger. Xue–Zou minimizes direct CO₂e, BakedBoston balances net benefit with other goals, and Nair receives no CO₂e input.",
     metrics: [
       { key: "totalDirectKgCO2e", label: "Total direct CO₂e", explanation: "Transport plus the fixed waste-pathway results for both uncollected and residual food.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
       { key: "transportKgCO2e", label: "Transportation CO₂e", explanation: "Route cargo mass × route kilometres × the fixed transport coefficient.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
@@ -324,7 +324,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Driver burden and projected selection",
-    description: "Assigned and rank-one routes are evaluated afterward with the same transparent sigmoid; it influences BakedBoston but not the Nair adaptation.",
+    description: "Assigned and rank-one routes are evaluated afterward with the same transparent sigmoid; it influences BakedBoston but neither direct-assignment comparator.",
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per selected route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per selected route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
@@ -1209,9 +1209,9 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>MODEL COMPARISON</p>
-            <h2>One realized scenario, two different formulations</h2>
+            <h2>One realized scenario, three different formulations</h2>
           </div>
-          <p>Both models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
+          <p>All three models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
         </div>
 
         <div className={styles.tradeoffCallout}>
@@ -1220,9 +1220,9 @@ export function SimulatorClient({ data }: Props) {
             <div>
               <h3>Shared events and feasibility; different decision inputs.</h3>
               <p>
-                BakedBoston can use food, fairness, environmental, preference, and sigmoid values. The paper-derived
-                comparator sees current driver origin, hard timing feasibility, facility windows, and route distance only.
-                All food, CO₂e, travel, and likely-selection measures beneath are then calculated by one shared evaluator.
+                BakedBoston balances participation, food, fairness, environment, and driver fit. Nair is distance-first.
+                Xue–Zou is direct-emissions-first and uses the existing food-waste and transport ledger. Every selected
+                route is then measured by one shared evaluator.
               </p>
             </div>
           </div>

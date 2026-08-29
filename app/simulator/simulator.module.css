@@ -308,7 +308,7 @@
 .objectiveEvidence { padding: 17px; display: grid; border-radius: 16px; color: white; background: var(--green); }
 .objectiveEvidence span, .objectiveEvidence small { color: #bed0c8; }
 .objectiveEvidence strong { margin: 3px 0; font-size: 32px; }
-.policyCards { margin-bottom: 34px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.policyCards { margin-bottom: 34px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .policyCards article { padding: 17px; border: 1px solid var(--line); border-radius: 16px; background: white; }
 .policyCards article > span { color: #85978f; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
 .policyCards h3 { margin: 8px 0 5px; font-size: 18px; }
@@ -323,7 +323,7 @@
 .metricGroupHeading h3 { margin: 0; font-size: 26px; }
 .metricGroupHeading p { max-width: 560px; margin: 0; color: #74887f; text-align: right; }
 .metricTable { overflow-x: auto; border: 1px solid var(--line); border-radius: 17px; background: white; }
-.metricHeader, .metricRow { min-width: 720px; display: grid; grid-template-columns: minmax(220px, 1.35fr) repeat(2, minmax(220px, 1fr)); gap: 8px; align-items: stretch; }
+.metricHeader, .metricRow { min-width: 960px; display: grid; grid-template-columns: minmax(220px, 1.35fr) repeat(3, minmax(220px, 1fr)); gap: 8px; align-items: stretch; }
 .metricHeader { color: #647b72; background: #eaf0ea; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
 .metricHeader > span { padding: 12px; display: flex; align-items: center; }
 .metricRow { border-top: 1px solid var(--line); }
