@@ -314,7 +314,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Environmental result",
-    description: "These values use one shared ledger. Xue–Zou minimizes direct CO₂e, BakedBoston balances net benefit with other goals, and Nair receives no CO₂e input.",
+    description: "These values use one shared ledger. Xue–Zou minimizes direct CO₂e, BakedBoston balances net benefit with other goals, and neither Nair nor Horner receives CO₂e as a decision input.",
     metrics: [
       { key: "totalDirectKgCO2e", label: "Total direct CO₂e", explanation: "Transport plus the fixed waste-pathway results for both uncollected and residual food.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
       { key: "transportKgCO2e", label: "Transportation CO₂e", explanation: "Route cargo mass × route kilometres × the fixed transport coefficient.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
@@ -324,7 +324,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Driver burden and projected selection",
-    description: "Assigned and rank-one routes are evaluated afterward with the same transparent sigmoid; it influences BakedBoston but neither direct-assignment comparator.",
+    description: "All final routes use the same transparent sigmoid. It influences BakedBoston's expected-completion objective and Horner's stochastic menus, but not the Nair or Xue–Zou selectors.",
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per selected route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per selected route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
@@ -1209,9 +1209,9 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>MODEL COMPARISON</p>
-            <h2>One realized scenario, three different formulations</h2>
+            <h2>One realized scenario, four different formulations</h2>
           </div>
-          <p>All three models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
+          <p>All four models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
         </div>
 
         <div className={styles.tradeoffCallout}>
@@ -1221,8 +1221,8 @@ export function SimulatorClient({ data }: Props) {
               <h3>Shared events and feasibility; different decision inputs.</h3>
               <p>
                 BakedBoston balances participation, food, fairness, environment, and driver fit. Nair is distance-first.
-                Xue–Zou is direct-emissions-first and uses the existing food-waste and transport ledger. Every selected
-                route is then measured by one shared evaluator.
+                Xue–Zou is direct-emissions-first. Horner optimizes personalized menus under stochastic driver willingness
+                before making a recourse assignment. Every selected route is then measured by one shared evaluator.
               </p>
             </div>
           </div>
@@ -1241,6 +1241,14 @@ export function SimulatorClient({ data }: Props) {
               <p>{payload.policyMetadata[result.policy]?.description}</p>
               <p className={styles.policyDetail}><strong>Objective:</strong> {payload.policyMetadata[result.policy]?.objective}</p>
               <p className={styles.policyDetail}><strong>Driver selection:</strong> {payload.policyMetadata[result.policy]?.selectionDescription}</p>
+              {result.policy === "horner_2021_slsf_noz" ? (
+                <p className={styles.policyTrace}>
+                  <strong>Observed menu trace:</strong>{" "}
+                  {numeric(result.metrics.averageMenuSize, 2)} options per driver on average ·{" "}
+                  {numeric(result.metrics.menuOptionsOffered, 0)} total menu options ·{" "}
+                  {numeric(result.metrics.unhappyDrivers, 0)} willing drivers without a final assignment.
+                </p>
+              ) : null}
               {payload.policyMetadata[result.policy]?.inputsExcluded?.length ? (
                 <p className={styles.policyBoundary}>
                   <strong>Not used to choose its routes:</strong>{" "}

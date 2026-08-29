@@ -43,9 +43,10 @@ food × bakery usability × pantry distribution. It tracks bakery food not picke
 up and collected food not ultimately distributed. Fixed institution inputs and
 environmental coefficients live with the optimizer source in
 [`docs/institutions.md`](https://github.com/vapeyproductions/bakedboston-optimizer/blob/main/docs/institutions.md)
-instead of being duplicated on the website. Comparison panels are hidden while
-comparison policies are revised. The simulator does not create or change live
-organization records.
+instead of being duplicated on the website. The comparison panels evaluate
+BakedBoston, Nair distance-first, Xue–Zou Total-Curb, and Horner stochastic-menu
+policies on the same seeded scenario. The simulator does not create or change
+live organization records.
 
 ## Native app
 
