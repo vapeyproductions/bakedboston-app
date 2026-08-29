@@ -35,13 +35,10 @@ type RouteOption = {
   routeScore: number;
   acceptanceProbability: number;
   distanceMiles: number;
-  estimatedFoodKg?: number;
-  usableFoodKg?: number;
-  avoidedProductionKgCO2e?: number;
-  avoidedDisposalKgCO2e?: number;
-  avoidedSystemKgCO2e?: number;
-  transportKgCO2e?: number;
-  residualWasteKgCO2e?: number;
+  bakeryUsableFraction?: number;
+  pantryDistributionFraction?: number;
+  foodSavedKg?: number;
+  collectedNotDistributedKg?: number;
   netEnvironmentalBenefitKgCO2e?: number;
   totalTripMinutes: number;
   driverStart: Coordinate;
@@ -93,11 +90,8 @@ type DecisionEpoch = {
     routeQuality: number;
     runtimeSeconds: number;
     mipGap: number | null;
-    estimatedFoodKg?: number;
-    usableFoodKg?: number;
-    avoidedSystemKgCO2e?: number;
-    transportKgCO2e?: number;
-    residualWasteKgCO2e?: number;
+    foodSavedKg?: number;
+    collectedNotDistributedKg?: number;
     netEnvironmentalBenefitKgCO2e?: number;
   };
 };
@@ -126,6 +120,9 @@ type SimulationDay = {
   feasibleCandidatesEvaluated: number;
   routesOffered: number;
   routesAccepted: number;
+  foodSavedKg?: number;
+  uncollectedBakeryFoodKg?: number;
+  collectedNotDistributedKg?: number;
   pickupWindows?: PickupWindow[];
   pantryWindows?: PantryWindow[];
   decisionEpochs: DecisionEpoch[];
@@ -154,7 +151,14 @@ type NetworkNode = Coordinate & {
   id: string;
   name: string;
   kind: "bakery" | "pantry";
+  schedule: Record<string, unknown>;
+  foodAmountDistributionKg?: TriangularDistribution | null;
+  usableFractionDistribution?: TriangularDistribution | null;
+  wasteAllocation?: { landfill: number; pig_farm: number; compost: number } | null;
+  distributionFraction?: number | null;
 };
+
+type TriangularDistribution = { minimum: number; mode: number; maximum: number };
 
 type SimulationPayload = {
   disclaimer: string;
@@ -184,11 +188,12 @@ type SimulationPayload = {
   };
   objectiveWeights: Record<string, number>;
   environmentalAssumptions?: {
-    avoidedProductionKgCo2ePerKgUsableFood: number;
-    avoidedLandfillKgCo2ePerKgDonatedFood: number;
-    avoidedCompostKgCo2ePerKgDonatedFood: number;
-    redistributionResidualWasteKgCo2ePerKg: number;
-    vehicleKgCo2ePerMile: number;
+    landfillKgCo2ePerKgWaste: number;
+    pigFarmKgCo2ePerKgWaste: number;
+    compostKgCo2ePerKgWaste: number;
+    transportKgCo2ePerTonneKm: number;
+    avoidedProductionKgCo2ePerKgFood: number;
+    productionSubstitutionFraction: number;
     interpretation: string;
   };
   policyMetadata: Record<string, { label: string; description: string }>;
@@ -245,6 +250,32 @@ const percent = (value: number | null | undefined, digits = 0) =>
 
 const numeric = (value: number | null | undefined, digits = 1) =>
   typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
+
+const parsedScheduleValue = (value: unknown): unknown => {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value) as unknown; } catch { return value; }
+};
+
+const scheduleTimes = (value: unknown) => {
+  const parsed = parsedScheduleValue(value);
+  const values = Array.isArray(parsed)
+    ? parsed.map((item) => typeof item === "object" && item !== null ? (item as { time?: unknown }).time : item)
+    : typeof parsed === "object" && parsed !== null ? Object.values(parsed) : [parsed];
+  return [...new Set(values.filter((item): item is string => typeof item === "string" && item.length > 0))].join("/") || "—";
+};
+
+const institutionWindow = (node: NetworkNode) => {
+  const days = String(node.schedule.recurringDays ?? "—").replaceAll(",", "/");
+  if (node.kind === "bakery") return `${days} · ${scheduleTimes(node.schedule.readyTime)}–${scheduleTimes(node.schedule.pickupDeadline)}`;
+  return `${days} · ${scheduleTimes(node.schedule.openTime)}–${scheduleTimes(node.schedule.closeTime)} · latest ${scheduleTimes(node.schedule.latestPermittedArrival)}`;
+};
+
+const triangularLabel = (value: TriangularDistribution | null | undefined, percentValues = false) => {
+  if (!value) return "—";
+  const multiplier = percentValues ? 100 : 1;
+  const suffix = percentValues ? "%" : "";
+  return `${numeric(value.minimum * multiplier, percentValues ? 1 : 2)} / ${numeric(value.mode * multiplier, percentValues ? 1 : 2)} / ${numeric(value.maximum * multiplier, percentValues ? 1 : 2)}${suffix}`;
+};
 
 type ProjectedPoint = { x: number; y: number };
 
@@ -324,16 +355,13 @@ const metricGroups: MetricGroup[] = [
     ],
   },
   {
-    title: "Lifecycle environmental performance",
-    description: "Estimated lifecycle benefit—not mileage alone—after accounting for food usability, avoided production and disposal, driving, and residual redistribution waste.",
+    title: "Food rescue and environmental result",
+    description: "Concise accounting for bakery waste, ultimate distribution, and the final direct CO₂e balance.",
     metrics: [
-      { key: "estimatedFoodKgRedistributed", label: "Food collected", explanation: "Estimated kilograms collected from completed bakery pickups.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "usableFoodKgDelivered", label: "Usable food delivered", explanation: "Estimated collected food remaining suitable for use at the pantry.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "avoidedSystemKgCO2e", label: "Avoided system emissions", explanation: "Estimated avoided production plus avoided donor-side disposal emissions.", direction: "higher", format: (value) => `${numeric(value, 1)} kg CO₂e` },
-      { key: "transportKgCO2e", label: "Transport emissions", explanation: "Estimated vehicle emissions from completed routes.", direction: "lower", format: (value) => `${numeric(value, 1)} kg CO₂e` },
-      { key: "residualWasteKgCO2e", label: "Residual-waste burden", explanation: "Estimated emissions from food that enters redistribution but is not usable at the pantry.", direction: "lower", format: (value) => `${numeric(value, 1)} kg CO₂e` },
-      { key: "netEnvironmentalBenefitKgCO2e", label: "Net environmental benefit", explanation: "Avoided system emissions minus transport and residual-waste burdens.", direction: "higher", format: (value) => `${numeric(value, 1)} kg CO₂e` },
-      { key: "averageNetEnvironmentalBenefitKgCO2ePerDelivery", label: "Net benefit per delivery", explanation: "Average estimated lifecycle benefit of a completed delivery.", direction: "higher", format: (value) => `${numeric(value, 2)} kg CO₂e` },
+      { key: "foodSavedKg", label: "Food saved", explanation: "Route food × bakery usability × selected pantry distribution fraction.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "uncollectedBakeryFoodKg", label: "Bakery food not picked up", explanation: "Food at available bakery occurrences with no completed delivery.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "collectedNotDistributedKg", label: "Collected, not distributed", explanation: "Collected bakery food minus ultimately saved food.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "netEnvironmentalBenefitKgCO2e", label: "Net environmental benefit", explanation: "Avoided waste result minus tonne-kilometre transport emissions.", direction: "higher", format: (value) => `${numeric(value, 1)} kg CO₂e` },
     ],
   },
   {
@@ -605,7 +633,8 @@ export function SimulatorClient({ data }: Props) {
         </Link>
         <nav className={styles.nav} aria-label="Simulator navigation">
           <a href="#replay">Replay</a>
-          <a href="#comparison">Compare policies</a>
+          <a href="#methodology">Methodology</a>
+          <a href="#institutions">Institution inputs</a>
           <a href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">
             GitHub ↗
           </a>
@@ -619,7 +648,7 @@ export function SimulatorClient({ data }: Props) {
           <p>
             {viewMode === "saved"
               ? "This reproducible five-day study is ready to explore immediately."
-              : "Choose the network size and driver supply. Every policy receives the exact same seeded scenario."}
+              : "Choose the network size and driver supply for a reproducible BakedBoston run."}
           </p>
         </div>
         <div className={styles.modeTabs} role="group" aria-label="Experiment mode">
@@ -655,7 +684,7 @@ export function SimulatorClient({ data }: Props) {
               <div className={styles.controlField}>
                 <span>Simulation days</span>
                 <strong>5</strong>
-                <small>Every saved and custom comparison uses a five-day horizon.</small>
+                <small>Every saved and custom run uses a five-day horizon.</small>
               </div>
               <label className={styles.controlField}>
                 <span>Maximum drivers in one window</span>
@@ -1099,7 +1128,7 @@ export function SimulatorClient({ data }: Props) {
               </div>
 
               <div className={styles.mapLegend}>
-                {mapRoutes.map((route, index) => (
+                {mapRoutes.map((route) => (
                   <button
                     className={route.selected ? styles.selectedLegendRoute : ""}
                     key={`legend-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}
@@ -1179,20 +1208,19 @@ export function SimulatorClient({ data }: Props) {
                           <span>Priority {numeric(route.pantryPriority, 2)}</span>
                           {route.netEnvironmentalBenefitKgCO2e !== undefined ? (
                             <span>
-                              Net lifecycle benefit {numeric(route.netEnvironmentalBenefitKgCO2e, 2)} kg CO₂e
-                              {route.usableFoodKg !== undefined ? ` · ${numeric(route.usableFoodKg, 1)} kg usable food` : ""}
+                              Net direct benefit {numeric(route.netEnvironmentalBenefitKgCO2e, 2)} kg CO₂e
                             </span>
                           ) : null}
-                          {route.avoidedSystemKgCO2e !== undefined && route.transportKgCO2e !== undefined ? (
+                          {route.foodSavedKg !== undefined ? (
                             <span>
-                              {numeric(route.avoidedSystemKgCO2e, 2)} kg CO₂e avoided − {numeric(route.transportKgCO2e, 2)} transport
-                              {route.residualWasteKgCO2e !== undefined ? ` − ${numeric(route.residualWasteKgCO2e, 2)} residual waste` : ""}
+                              Food saved {numeric(route.foodSavedKg, 1)} kg = bakery food × {percent(route.bakeryUsableFraction, 1)} usability × {percent(route.pantryDistributionFraction, 1)} pantry distribution
                             </span>
                           ) : null}
+                          {route.collectedNotDistributedKg !== undefined ? <span>Collected but not ultimately distributed {numeric(route.collectedNotDistributedKg, 1)} kg</span> : null}
                         </div>
                       </div>
                       <div className={styles.routeScore}>
-                        <small>ROUTE SCORE</small>
+                        <small>MENU SCORE</small>
                         <strong>{score(route.routeScore)}</strong>
                         {route.selected ? <span>SELECTED · HIGHEST</span> : null}
                       </div>
@@ -1232,7 +1260,7 @@ export function SimulatorClient({ data }: Props) {
         </div>
       </section>
 
-      <section className={styles.method}>
+      <section className={styles.method} id="methodology">
         <div>
           <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
           <h2>First protect expected participation. Then choose the most sustainable, equitable routes.</h2>
@@ -1245,13 +1273,13 @@ export function SimulatorClient({ data }: Props) {
               <p>Maximize the expected number of completed pickups, recognizing that a feasible offer is not equally attractive to every volunteer.</p>
             </div>
             <div className={styles.objectiveStage}>
-              <small>Stage 2 · optimize sustainable quality</small>
-              <strong>maximize Σ qᵣ yᵣ</strong>
-              <p>Choose the strongest equity, travel, emissions, and preference-fit portfolio, subject to <b>Σ aᵣ yᵣ ≥ 0.99A*</b>.</p>
+              <small>Stage 2 · normalized 100-point balance</small>
+              <strong>maximize 10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D</strong>
+              <p>Balance pantry reach, raw and saved-food volume/evenness, opportunity priority, net direct CO₂ benefit, and driver fit, subject to <b>Σ aᵣ yᵣ ≥ 0.99A*</b>.</p>
             </div>
             <div className={styles.objectiveWhy}>
               <strong>Why use two stages?</strong>
-              <p>Stage 1 prevents a high-coverage plan from looking successful when its routes are burdensome enough that volunteers may not take them. Stage 2 allows at most a 1% loss in modeled participation when that small trade materially improves equity, mileage, or driver fit.</p>
+              <p>Stage 1 protects modeled completion. Stage 2 permits at most a 1% loss when food rescue, distribution balance, environment, pantry reach, or driver fit improves.</p>
             </div>
             <div className={styles.acceptanceFormula}>
               <small>Synthetic route-acceptance estimate</small>
@@ -1259,16 +1287,8 @@ export function SimulatorClient({ data }: Props) {
               <p>This is an explicit academic scenario assumption—not a trained or validated prediction of volunteer behavior.</p>
             </div>
             <div className={styles.formula}>
-              <span>qᵣ =</span>
-              <strong>{payload.objectiveWeights.pantry_priority_reward}Pᵣ</strong>
-              <i>−</i>
-              <strong>{payload.objectiveWeights.drive_minute_penalty}Dᵣ</strong>
-              <i>−</i>
-              <strong>{payload.objectiveWeights.requested_time_deviation_ratio_penalty}Oᵣ</strong>
-              <i>−</i>
-              <strong>{payload.objectiveWeights.spatial_deviation_ratio_penalty}Sᵣ</strong>
-              <i>+</i>
-              <strong>{payload.objectiveWeights.environmental_benefit_reward ?? 1.5}Eᵣ</strong>
+              <span>Food saved:</span><strong>Hᵦₚd = Qᵦd × Uᵦd × Dₚ</strong>
+              <span>Route remainder:</span><strong>Wᵦₚd = Qᵦd − Hᵦₚd</strong>
             </div>
           </div>
           <div className={styles.objectiveTerms}>
@@ -1276,28 +1296,21 @@ export function SimulatorClient({ data }: Props) {
             <dl>
               <div><dt>yᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
               <div><dt>aᵣ · modeled acceptance</dt><dd><b>Stage-1 contribution.</b> A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It can later be recalibrated with observed pilot choices.</dd></div>
-              <div><dt>Pᵣ · pantry priority</dt><dd><b>Rewarded.</b> Priority is 1 − (recent services + 1) ÷ (recent receiving opportunities + 2). A pantry that was open but served less often receives a larger value; recent service lowers it.</dd></div>
-              <div><dt>Dᵣ · drive minutes</dt><dd><b>Penalized.</b> Total driving from the driver&apos;s origin to the bakery and then from the bakery to the pantry. Five-minute loading and unloading service times are scheduled, but are not counted as driving.</dd></div>
-              <div><dt>Oᵣ · outside-window ratio</dt><dd><b>Penalized.</b> Minutes that departure occurs before the requested start plus minutes that completion occurs after the requested finish, divided by the requested interval length. Time inside the interval adds no penalty.</dd></div>
-              <div><dt>Sᵣ · spatial deviation ratio</dt><dd><b>Penalized.</b> Start- and destination-area misses are measured from each facility to the nearest edge of the requested ZIP radius, normalized against that driver&apos;s feasible alternatives, then averaged across the supplied location preferences.</dd></div>
-              <div><dt>Eᵣ · net lifecycle benefit</dt><dd><b>Rewarded.</b> Estimated avoided food-production and donor-disposal emissions minus vehicle emissions and the burden of food that becomes residual waste after redistribution. Usable food share and the donor&apos;s landfill-or-compost counterfactual therefore matter alongside distance.</dd></div>
+              <div><dt>C · pantry coverage</dt><dd><b>10 points.</b> Unique pantry identities served divided by those available.</dd></div>
+              <div><dt>VQ and FQ · raw donations</dt><dd><b>10 + 10 points.</b> Selected bakery-food volume and one minus normalized pairwise gaps in cumulative raw donations.</dd></div>
+              <div><dt>VH and FH · food saved</dt><dd><b>10 + 10 points.</b> Ultimate food saved and one minus normalized pairwise cumulative saved-food gaps. H = Q × U × D.</dd></div>
+              <div><dt>P · pantry priority</dt><dd><b>10 points.</b> Selected opportunity-history priority, summed and normalized by the epoch&apos;s maximum feasible assignment count.</dd></div>
+              <div><dt>E · net direct CO₂ benefit</dt><dd><b>20 points.</b> Route net benefits are min–max normalized within the epoch, then selected values are summed and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
+              <div><dt>D · driver fit</dt><dd><b>20 points.</b> Each route gets one minus its mean normalized drive-time, requested-window, and requested-area burdens; selected values are normalized by maximum assignments.</dd></div>
+              <div><dt>Q, U, and Dₚ</dt><dd>Q and U are reproducible daily draws from each bakery&apos;s fixed triangular distributions. Dₚ is a fixed pantry distribution fraction.</dd></div>
             </dl>
           </div>
         </div>
         <p className={styles.formulaNote}>
-          This is a hierarchical objective: Stage 1 computes A*, and Stage 2 optimizes route quality while preserving at
-          least 99% of A*. The qᵣ coefficients are policy weights, while aᵣ is a synthetic probability used only for the
-          academic participation scenario. Login time is the decision epoch—not a forced departure—and planned lead time at the origin receives no objective penalty. The scheduler chooses a
+          Stage 1 computes A*. Stage 2 optimizes eight components normalized to [0,1] while preserving at least 99% of A*. Food-evenness terms use cumulative pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
-          and ZIP areas are soft preferences. A negative qᵣ therefore means “lower quality than another feasible route,”
-          not “infeasible.” The lifecycle coefficients are transparent academic scenario assumptions rather than a
-          Boston-calibrated LCA. They follow the accounting structure in Guo et al. (2026), whose eight scenarios all
-          produced net savings but showed that food usability, residual waste, disposal pathway, and production
-          substitution can matter as much as—or more than—route length. The study also evaluates acidification,
-          eutrophication, cumulative energy demand, and water use. Those categories remain visible research and future
-          sensitivity-analysis dimensions; the current MIP optimizes a declared CO₂e ledger rather than combining
-          unlike environmental units into one unsupported scalar.
+          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all Q to bakery waste; a completed route contributes Q − H to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from Guo et al. (2026), not a Boston-calibrated inventory.
         </p>
         <div className={styles.researchFoundation}>
           <div>
@@ -1309,13 +1322,42 @@ export function SimulatorClient({ data }: Props) {
             <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Allocation and routing with perishability and time constraints.</span></a>
             <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equitable food rescue ↗</strong><span>Balancing operational efficiency with fair service across agencies.</span></a>
             <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Occasional-driver menus ↗</strong><span>Offering coordinated route choices to volunteers instead of assuming a fixed fleet.</span></a>
-            <a href="https://doi.org/10.1016/j.trb.2011.07.010" target="_blank" rel="noreferrer"><strong>Pollution routing ↗</strong><span>Considering environmental cost alongside time and service performance.</span></a>
-            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution LCA ↗</strong><span>Guo et al. compare eight scenarios across climate, acidification, eutrophication, energy, and water impacts, showing why avoided production and disposal, usable food share, driving, and residual waste must be evaluated together.</span></a>
+            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline ↗</strong><span>Guo et al. motivate food-quality, distribution-loss, waste-pathway, and transport accounting.</span></a>
           </div>
         </div>
       </section>
 
-      <section className={styles.comparisonSection} id="comparison">
+      <section className={styles.institutionSection} id="institutions">
+        <div className={styles.sectionHeading}>
+          <div><p className={styles.eyebrow}>FIXED ACADEMIC INPUTS</p><h2>Every institution parameter used by the simulator</h2></div>
+          <p>These are fictional academic-fixture values. Distribution parameters remain fixed; only seeded daily bakery draws vary.</p>
+        </div>
+        <div className={styles.institutionIntro}>
+          <strong>Triangular distributions: minimum / mode / maximum.</strong>
+          <span>Waste allocations are fixed bakery shares. Pantry distribution is the share of bakery-usable food ultimately distributed.</span>
+        </div>
+        <div className={styles.institutionTableWrap}>
+          <table><caption>Bakery parameters</caption>
+            <thead><tr><th>Bakery</th><th>Coordinates / ZIP</th><th>Availability</th><th>Food kg distribution</th><th>Usability distribution</th><th>Waste L / P / C</th></tr></thead>
+            <tbody>{payload.network.bakeries.map((node) => (
+              <tr key={`bakery-input-${node.id}`}><th scope="row">{node.name}</th><td>{numeric(node.latitude, 4)}, {numeric(node.longitude, 4)}<br />ZIP {node.postalCode ?? "—"}</td><td>{institutionWindow(node)}</td><td>{triangularLabel(node.foodAmountDistributionKg)}</td><td>{triangularLabel(node.usableFractionDistribution, true)}</td><td>{node.wasteAllocation ? `${percent(node.wasteAllocation.landfill, 1)} / ${percent(node.wasteAllocation.pig_farm, 1)} / ${percent(node.wasteAllocation.compost, 1)}` : "—"}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <div className={styles.institutionTableWrap}>
+          <table><caption>Pantry parameters</caption>
+            <thead><tr><th>Pantry</th><th>Coordinates / ZIP</th><th>Receiving availability</th><th>Distribution fraction</th></tr></thead>
+            <tbody>{payload.network.pantries.map((node) => (
+              <tr key={`pantry-input-${node.id}`}><th scope="row">{node.name}</th><td>{numeric(node.latitude, 4)}, {numeric(node.longitude, 4)}<br />ZIP {node.postalCode ?? "—"}</td><td>{institutionWindow(node)}</td><td>{percent(node.distributionFraction, 1)}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+        <div className={styles.coefficientNote}><h3>Fixed environmental coefficients</h3><p>
+          Landfill {numeric(payload.environmentalAssumptions?.landfillKgCo2ePerKgWaste, 5)}, pig farm {numeric(payload.environmentalAssumptions?.pigFarmKgCo2ePerKgWaste, 5)}, and compost {numeric(payload.environmentalAssumptions?.compostKgCo2ePerKgWaste, 5)} kg CO₂e/kg waste; transport {numeric(payload.environmentalAssumptions?.transportKgCo2ePerTonneKm, 5)} kg CO₂e/tonne-km. Primary avoided-production substitution is {percent(payload.environmentalAssumptions?.productionSubstitutionFraction, 0)}.
+        </p></div>
+      </section>
+
+      <section className={styles.comparisonSection} hidden id="comparison">
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>POLICY COMPARISON</p>

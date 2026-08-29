@@ -18,8 +18,9 @@ notifications, and impact tracking.
 Production matching is delegated to the separate `bakedboston-optimizer`
 service. It builds a Gurobi mixed-integer model over active driver requests,
 confirmed bakery pickups, and eligible pantry windows. The primary objective
-maximizes completed pickups; the secondary objective balances pantry priority,
-traffic-aware travel, waiting, and destination fit. Each driver and bakery
+maximizes expected completed pickups; the normalized secondary objective balances
+pantry coverage, raw and saved-food volume/evenness, opportunity priority, net
+direct CO₂e benefit, and driver fit. Each driver and bakery
 pickup can be assigned at most once, while open pantries may receive multiple
 deliveries.
 
@@ -37,10 +38,11 @@ After the joint Gurobi solve resolves bakery conflicts, the selected route is
 always rank #1—the highest-scoring route in the conflict-free list shown to
 that driver.
 
-The simulator also compares the Gurobi policy with random feasible, shortest
-route, earliest deadline, highest pantry priority, and driver-fit policies on
-the same five-day event stream. It is an academic demonstration and does not
-create or change live organization records.
+The page documents the complete objective, shows every fixed institution input,
+and reports route food saved as bakery food × bakery usability × pantry
+distribution. It tracks bakery food not picked up and collected food not
+ultimately distributed. Comparison panels are hidden while comparison policies
+are revised. It does not create or change live organization records.
 
 ## Native app
 
