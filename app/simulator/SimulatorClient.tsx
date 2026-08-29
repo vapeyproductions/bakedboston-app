@@ -190,7 +190,15 @@ type SimulationPayload = {
     productionSubstitutionFraction: number;
     interpretation: string;
   };
-  policyMetadata: Record<string, { label: string; description: string }>;
+  policyMetadata: Record<string, {
+    label: string;
+    description: string;
+    selectionMode?: "rank_one_choice" | "direct_assignment";
+    selectionDescription?: string;
+    objective?: string;
+    inputsUsed?: string[];
+    inputsExcluded?: string[];
+  }>;
   network: {
     bakeries: NetworkNode[];
     pantries: NetworkNode[];
@@ -278,18 +286,12 @@ type MetricGroup = {
 
 const metricGroups: MetricGroup[] = [
   {
-    title: "Service completion",
-    description: "Whether available bakery surplus actually becomes a completed delivery.",
+    title: "Pickup service and pantry reach",
+    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for both models.",
     metrics: [
       { key: "bakeryPickupCoverage", label: "Bakery pickup coverage", explanation: "Eligible food-ready pickup occurrences completed.", direction: "higher", format: (value) => percent(value) },
       { key: "completedDeliveries", label: "Completed deliveries", explanation: "Successful bakery-to-pantry deliveries.", direction: "higher", format: (value) => numeric(value, 0) },
       { key: "unservedPickups", label: "Unserved pickups", explanation: "Food-ready bakery windows that expired without assignment.", direction: "lower", format: (value) => numeric(value, 0) },
-    ],
-  },
-  {
-    title: "Pantry reach and fairness",
-    description: "How broadly and evenly deliveries are distributed across available pantries.",
-    metrics: [
       {
         key: "pantryCoverageCount",
         label: "Pantry coverage",
@@ -297,69 +299,50 @@ const metricGroups: MetricGroup[] = [
         direction: "higher",
         format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.pantryCoveragePercentage)})`,
       },
-      {
-        key: "pantriesNeverServedCount",
-        label: "Pantries never served",
-        explanation: "Available pantries receiving no deliveries.",
-        direction: "lower",
-        format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.pantriesNeverServedPercentage)})`,
-      },
       { key: "pantryServiceGini", label: "Distribution fairness (Gini)", explanation: "Zero is perfectly even; lower is fairer.", direction: "lower", format: (value) => numeric(value, 3) },
-      { key: "pantryServiceGap", label: "Pantry service gap", explanation: "Difference between the most- and least-served pantries.", direction: "lower", format: (value) => numeric(value, 0) },
-      { key: "averagePantryPriorityServed", label: "Mean priority served", explanation: "Average priority of the pantries receiving deliveries.", direction: "higher", format: (value) => numeric(value, 3) },
     ],
   },
   {
-    title: "Driver and route burden",
-    description: "The time and travel asked of volunteers on completed routes.",
+    title: "Food recovery and waste",
+    description: "Recovered food always uses Q × bakery usability × pantry distribution; waste combines uncollected bakery food with food not ultimately distributed after collection.",
     metrics: [
-      { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per completed route.", direction: "lower", format: (value) => `${numeric(value)} min` },
-      { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per completed route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
-      { key: "averagePredepartureWaitMinutes", label: "Mean planned departure lead", explanation: "Average time between opening the app and the optimizer's recommended departure. This is scheduling information, not a score penalty.", direction: "none", format: (value) => `${numeric(value)} min` },
-      { key: "averageRequestedTimeDeviationMinutes", label: "Mean minutes outside request", explanation: "Average minutes a completed route starts before or finishes after the driver's requested interval.", direction: "lower", format: (value) => `${numeric(value)} min` },
-      { key: "averageOutsideRequestedWindowRatio", label: "Mean outside-window share", explanation: "Outside-request minutes divided by the requested interval length. This normalized value is the time-fit penalty used in scoring.", direction: "lower", format: (value) => percent(value, 1) },
-      { key: "preferredWindowFitRate", label: "Preferred-window fit", explanation: "Share of completed routes contained entirely within the driver's preferred trip interval.", direction: "higher", format: (value) => percent(value, 1) },
-      { key: "averageTotalTripDurationMinutes", label: "Mean total trip duration", explanation: "Driving, waiting, pickup, and drop-off time combined.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "foodSavedKg", label: "Food recovered", explanation: "Selected route food × bakery usability × pantry distribution fraction.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "foodWastedKg", label: "Food wasted", explanation: "Uncollected bakery food plus collected food not ultimately distributed.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "uncollectedBakeryFoodKg", label: "Not picked up", explanation: "Food at available bakery occurrences with no completed delivery.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "collectedNotDistributedKg", label: "Collected, not distributed", explanation: "Collected bakery food minus ultimately recovered food.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
     ],
   },
   {
-    title: "Food rescue and environmental result",
-    description: "Concise accounting for bakery waste, ultimate distribution, and the final direct CO₂e balance.",
+    title: "Environmental result",
+    description: "These values are shared post-run accounting. The Nair adaptation does not receive any CO₂e value as an optimization input.",
     metrics: [
-      { key: "foodSavedKg", label: "Food saved", explanation: "Route food × bakery usability × selected pantry distribution fraction.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "uncollectedBakeryFoodKg", label: "Bakery food not picked up", explanation: "Food at available bakery occurrences with no completed delivery.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "collectedNotDistributedKg", label: "Collected, not distributed", explanation: "Collected bakery food minus ultimately saved food.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "totalDirectKgCO2e", label: "Total direct CO₂e", explanation: "Transport plus the fixed waste-pathway results for both uncollected and residual food.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
+      { key: "transportKgCO2e", label: "Transportation CO₂e", explanation: "Route cargo mass × route kilometres × the fixed transport coefficient.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
+      { key: "wastePathwayKgCO2e", label: "Waste-pathway CO₂e", explanation: "Net landfill, pig-farm, and compost pathway result; a negative value represents a modeled credit.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
       { key: "netEnvironmentalBenefitKgCO2e", label: "Net environmental benefit", explanation: "Avoided waste result minus tonne-kilometre transport emissions.", direction: "higher", format: (value) => `${numeric(value, 1)} kg CO₂e` },
     ],
   },
   {
-    title: "Acceptance and rejection",
-    description: "Selections are deterministic in this academic replay; behavioral measures remain model-based diagnostics.",
+    title: "Driver burden and projected selection",
+    description: "Assigned and rank-one routes are evaluated afterward with the same transparent sigmoid; it influences BakedBoston but not the Nair adaptation.",
     metrics: [
-      { key: "driverAcceptanceRate", label: "Driver acceptance (simulated)", explanation: "Share selecting rank #1 in this replay.", direction: "higher", format: (value) => percent(value) },
-      { key: "expectedDriverAcceptanceRate", label: "Expected acceptance", explanation: "Behavioral estimate based on driving burden, normalized requested-time fit, and destination fit.", direction: "higher", format: (value) => percent(value, 1) },
+      { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per selected route.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per selected route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
+      { key: "averageTotalTripDurationMinutes", label: "Mean total trip duration", explanation: "Driving, waiting at facilities, pickup, and drop-off time combined.", direction: "lower", format: (value) => `${numeric(value)} min` },
+      { key: "expectedDriverAcceptanceRate", label: "Mean sigmoid acceptance", explanation: "Mean predicted probability based on drive burden and requested time/location fit.", direction: "higher", format: (value) => percent(value, 1) },
+      {
+        key: "offersLikelyAccepted",
+        label: "Likely accepted routes",
+        explanation: "Count and percentage with sigmoid probability at least 50%.",
+        direction: "higher",
+        format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.likelyAcceptanceRate, 1)})`,
+      },
       {
         key: "offersLikelyRejected",
-        label: "Likely rejected offers",
-        explanation: "Count and percentage predicted unlikely to be accepted.",
+        label: "Likely rejected routes",
+        explanation: "Count and percentage with sigmoid probability below 50%.",
         direction: "lower",
         format: (value, result) => `${numeric(value, 0)} (${percent(result.metrics.likelyRejectionRate, 1)})`,
-      },
-    ],
-  },
-  {
-    title: "Optimization performance",
-    description: "The stated objective value and computational performance of each policy.",
-    metrics: [
-      { key: "systemObjectiveValue", label: "Stage-2 quality total", explanation: "Unscaled total route quality after the expected-completion requirement is protected. Higher is better; negative values are valid.", direction: "higher", format: (value) => numeric(value, 2) },
-      { key: "totalSolverRuntimeSeconds", label: "Total solve time", explanation: "Time across all decision epochs.", direction: "lower", format: (value) => `${numeric(value, 4)} s` },
-      { key: "averageSolverRuntimeSeconds", label: "Mean solve time", explanation: "Average computation time per nonempty decision epoch.", direction: "lower", format: (value) => `${numeric(value, 6)} s` },
-      {
-        key: "averageOptimalityGap",
-        label: "Gurobi optimality gap",
-        explanation: "Zero means a proven optimum. Baseline heuristics do not have a MIP gap.",
-        direction: "lower",
-        format: (value, result) => result.policy === "bakedboston_mip" && value === null ? "Optimal" : value === null ? "n/a" : percent(value, 2),
       },
     ],
   },
@@ -601,6 +584,7 @@ export function SimulatorClient({ data }: Props) {
         </Link>
         <nav className={styles.nav} aria-label="Simulator navigation">
           <a href="#replay">Replay</a>
+          <a href="#comparison">Comparison</a>
           <a href="#methodology">Methodology</a>
           <a href="#institutions">Institution inputs</a>
           <a href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">
@@ -972,31 +956,25 @@ export function SimulatorClient({ data }: Props) {
                       <g key={`spatial-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
                         {originBoundary && route.originDeviationMiles > 0.01 ? (
                           <line
+                            aria-label={`Start ZIP deviation: ${numeric(route.originDeviationMiles, 2)} miles outside the requested area`}
                             className={styles.spatialDeviationLine}
                             stroke={color}
                             x1={bakery.x}
                             x2={originBoundary.x}
                             y1={bakery.y}
                             y2={originBoundary.y}
-                          >
-                            <title>
-                              Start ZIP deviation: {numeric(route.originDeviationMiles, 2)} miles outside the requested area
-                            </title>
-                          </line>
+                          />
                         ) : null}
                         {destinationBoundary && route.destinationDeviationMiles > 0.01 ? (
                           <line
+                            aria-label={`Destination ZIP deviation: ${numeric(route.destinationDeviationMiles, 2)} miles outside the requested area`}
                             className={styles.spatialDeviationLine}
                             stroke={color}
                             x1={pantry.x}
                             x2={destinationBoundary.x}
                             y1={pantry.y}
                             y2={destinationBoundary.y}
-                          >
-                            <title>
-                              Destination ZIP deviation: {numeric(route.destinationDeviationMiles, 2)} miles outside the requested area
-                            </title>
-                          </line>
+                          />
                         ) : null}
                       </g>
                     );
@@ -1013,13 +991,12 @@ export function SimulatorClient({ data }: Props) {
                     return (
                       <g key={`${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
                         <polyline
+                          aria-label={`${compactDriver(route.driverId)}: ${route.bakeryName} to ${route.pantryName}, score ${score(route.routeScore)}`}
                           className={selected && mapMode === "driver" ? styles.chosenMapRoute : styles.alternativeMapRoute}
                           fill="none"
                           points={`${driver.x},${driver.y} ${bakery.x},${bakery.y} ${pantry.x},${pantry.y}`}
                           stroke={color}
-                        >
-                          <title>{compactDriver(route.driverId)}: {route.bakeryName} to {route.pantryName}, score {score(route.routeScore)}</title>
-                        </polyline>
+                        />
                         <circle cx={labelX} cy={labelY} fill="#fffdf8" r="15" stroke={color} strokeWidth="3" />
                         <text className={styles.mapRankLabel} dominantBaseline="central" textAnchor="middle" x={labelX} y={labelY}>
                           {mapMode === "driver" ? route.recommendationRank : index + 1}
@@ -1043,7 +1020,7 @@ export function SimulatorClient({ data }: Props) {
                     );
                     return (
                       <g key={`nodes-${route.requestId}-${route.pickupId}-${route.pantryWindowId}`}>
-                        <g transform={`translate(${driver.x} ${driver.y})`}><circle className={styles.driverNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🚗</text><title>{compactDriver(route.driverId)}</title></g>
+                        <g aria-label={compactDriver(route.driverId)} transform={`translate(${driver.x} ${driver.y})`}><circle className={styles.driverNode} r="17" /><text className={styles.mapEmoji} textAnchor="middle" y="7">🚗</text></g>
                         <g
                           aria-label={bakeryLabel.replaceAll("\n", ". ")}
                           className={styles.mapInteractiveNode}
@@ -1228,6 +1205,98 @@ export function SimulatorClient({ data }: Props) {
         </div>
       </section>
 
+      <section className={styles.comparisonSection} data-placement="after-walkthrough" id="comparison">
+        <div className={styles.sectionHeading}>
+          <div>
+            <p className={styles.eyebrow}>MODEL COMPARISON</p>
+            <h2>One realized scenario, two different formulations</h2>
+          </div>
+          <p>Both models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
+        </div>
+
+        <div className={styles.tradeoffCallout}>
+          <div>
+            <span className={styles.calloutIcon}>↔</span>
+            <div>
+              <h3>Shared events and feasibility; different decision inputs.</h3>
+              <p>
+                BakedBoston can use food, fairness, environmental, preference, and sigmoid values. The paper-derived
+                comparator sees current driver origin, hard timing feasibility, facility windows, and route distance only.
+                All food, CO₂e, travel, and likely-selection measures beneath are then calculated by one shared evaluator.
+              </p>
+            </div>
+          </div>
+          <div className={styles.objectiveEvidence}>
+            <span>Models compared</span>
+            <strong>{payload.results.length}</strong>
+            <small>Seed {payload.scenario.seed} · identical events</small>
+          </div>
+        </div>
+
+        <div className={styles.policyCards}>
+          {payload.results.map((result) => (
+            <article className={result.policy === "bakedboston_mip" ? styles.primaryPolicyCard : ""} key={`policy-${result.policy}`}>
+              <span>{result.policy === "bakedboston_mip" ? "OPTIMIZATION POLICY" : "COMPARISON POLICY"}</span>
+              <h3>{payload.policyMetadata[result.policy]?.label ?? result.policy}</h3>
+              <p>{payload.policyMetadata[result.policy]?.description}</p>
+              <p className={styles.policyDetail}><strong>Objective:</strong> {payload.policyMetadata[result.policy]?.objective}</p>
+              <p className={styles.policyDetail}><strong>Driver selection:</strong> {payload.policyMetadata[result.policy]?.selectionDescription}</p>
+              {payload.policyMetadata[result.policy]?.inputsExcluded?.length ? (
+                <p className={styles.policyBoundary}>
+                  <strong>Not used to choose its routes:</strong>{" "}
+                  {payload.policyMetadata[result.policy]?.inputsExcluded?.join(", ")}.
+                </p>
+              ) : null}
+            </article>
+          ))}
+        </div>
+
+        <div className={styles.metricGroups}>
+          {metricGroups.map((group) => (
+            <section className={styles.metricGroup} key={group.title}>
+              <div className={styles.metricGroupHeading}>
+                <h3>{group.title}</h3>
+                <p>{group.description}</p>
+              </div>
+              <div className={styles.metricTable} role="table" aria-label={`${group.title} policy comparison`}>
+                <div className={styles.metricHeader} role="row">
+                  <span>Measure</span>
+                  {payload.results.map((result) => <span key={`header-${group.title}-${result.policy}`}>{payload.policyMetadata[result.policy]?.label ?? result.policy}</span>)}
+                </div>
+                {group.metrics.map((metric) => (
+                  <div className={styles.metricRow} role="row" key={metric.key}>
+                    <div><strong>{metric.label}</strong><small>{metric.explanation}</small></div>
+                    {payload.results.map((result) => (
+                      <span className={metricWinner(metric, result) ? styles.bestMetric : ""} key={`${metric.key}-${result.policy}`}>
+                        {metric.format(result.metrics[metric.key], result)}
+                        {metricWinner(metric, result) ? <small>best</small> : null}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+
+        <div className={styles.methodologyNote}>
+          <h3>How to interpret the comparison</h3>
+          <p><strong>BakedBoston allocation:</strong> {payload.selectionRule}</p>
+          {payload.recommendationAllocation?.zeroRecommendationRule ? (
+            <p>{payload.recommendationAllocation.zeroRecommendationRule}</p>
+          ) : null}
+          <p>{payload.metricMethodology?.actualSelection ?? "Every simulated driver selects rank #1."}</p>
+          <p>{payload.metricMethodology?.acceptanceModel}</p>
+          <p>{payload.metricMethodology?.comparison}</p>
+          <div className={styles.experimentScale}>
+            <div><strong>{payload.network.bakeries.length}</strong><span>bakeries</span></div>
+            <div><strong>{payload.network.pantries.length}</strong><span>pantries</span></div>
+            <div><strong>{actualDriverRequests}</strong><span>actual driver requests</span></div>
+            <div><strong>1–{payload.scenario.maxSimultaneousDrivers}</strong><span>drivers sampled per window</span></div>
+          </div>
+        </div>
+      </section>
+
       <section className={styles.method} id="methodology">
         <div>
           <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
@@ -1295,91 +1364,6 @@ export function SimulatorClient({ data }: Props) {
             <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equitable food rescue ↗</strong><span>Balancing operational efficiency with fair service across agencies.</span></a>
             <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Occasional-driver menus ↗</strong><span>Offering coordinated route choices to volunteers instead of assuming a fixed fleet.</span></a>
             <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline ↗</strong><span>Guo et al. motivate food-quality, distribution-loss, waste-pathway, and transport accounting.</span></a>
-          </div>
-        </div>
-      </section>
-
-      <section className={styles.comparisonSection} hidden id="comparison">
-        <div className={styles.sectionHeading}>
-          <div>
-            <p className={styles.eyebrow}>POLICY COMPARISON</p>
-            <h2>One scenario, six routing policies</h2>
-          </div>
-          <p>Every policy receives the same {payload.scenario.horizonDays}-day surplus, pantry, and driver events.</p>
-        </div>
-
-        <div className={styles.tradeoffCallout}>
-          <div>
-            <span className={styles.calloutIcon}>↔</span>
-            <div>
-              <h3>The MIP is not supposed to win every column.</h3>
-              <p>
-                Highest Pantry Priority can distribute service more evenly, while Shortest Route or Earliest Deadline
-                can minimize a particular travel measure. BakedBoston&apos;s Gurobi model is optimal for its declared
-                two-level objective: first protect expected completed pickups, then maximize total weighted route quality
-                across the drivers entering together while preserving at least 99% of that participation value.
-              </p>
-            </div>
-          </div>
-          <div className={styles.objectiveEvidence}>
-            <span>Stage-2 quality total</span>
-            <strong>{numeric(mip.metrics.systemObjectiveValue, 2)}</strong>
-            <small>Unscaled; negative values are valid</small>
-          </div>
-        </div>
-
-        <div className={styles.policyCards}>
-          {payload.results.map((result) => (
-            <article className={result.policy === "bakedboston_mip" ? styles.primaryPolicyCard : ""} key={`policy-${result.policy}`}>
-              <span>{result.policy === "bakedboston_mip" ? "OPTIMIZATION POLICY" : "COMPARISON POLICY"}</span>
-              <h3>{payload.policyMetadata[result.policy]?.label ?? result.policy}</h3>
-              <p>{payload.policyMetadata[result.policy]?.description}</p>
-            </article>
-          ))}
-        </div>
-
-        <div className={styles.metricGroups}>
-          {metricGroups.map((group) => (
-            <section className={styles.metricGroup} key={group.title}>
-              <div className={styles.metricGroupHeading}>
-                <h3>{group.title}</h3>
-                <p>{group.description}</p>
-              </div>
-              <div className={styles.metricTable} role="table" aria-label={`${group.title} policy comparison`}>
-                <div className={styles.metricHeader} role="row">
-                  <span>Measure</span>
-                  {payload.results.map((result) => <span key={`header-${group.title}-${result.policy}`}>{payload.policyMetadata[result.policy]?.label ?? result.policy}</span>)}
-                </div>
-                {group.metrics.map((metric) => (
-                  <div className={styles.metricRow} role="row" key={metric.key}>
-                    <div><strong>{metric.label}</strong><small>{metric.explanation}</small></div>
-                    {payload.results.map((result) => (
-                      <span className={metricWinner(metric, result) ? styles.bestMetric : ""} key={`${metric.key}-${result.policy}`}>
-                        {metric.format(result.metrics[metric.key], result)}
-                        {metricWinner(metric, result) ? <small>best</small> : null}
-                      </span>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        <div className={styles.methodologyNote}>
-          <h3>How to interpret acceptance and rejection</h3>
-          <p><strong>How simultaneous recommendation menus are shared:</strong> {payload.selectionRule}</p>
-          {payload.recommendationAllocation?.zeroRecommendationRule ? (
-            <p>{payload.recommendationAllocation.zeroRecommendationRule}</p>
-          ) : null}
-          <p>{payload.metricMethodology?.actualSelection ?? "Every simulated driver selects rank #1."}</p>
-          <p>{payload.metricMethodology?.acceptanceModel}</p>
-          <p>{payload.metricMethodology?.comparison}</p>
-          <div className={styles.experimentScale}>
-            <div><strong>{payload.network.bakeries.length}</strong><span>bakeries</span></div>
-            <div><strong>{payload.network.pantries.length}</strong><span>pantries</span></div>
-            <div><strong>{actualDriverRequests}</strong><span>actual driver requests</span></div>
-            <div><strong>1–{payload.scenario.maxSimultaneousDrivers}</strong><span>drivers sampled per window</span></div>
           </div>
         </div>
       </section>
