@@ -152,13 +152,7 @@ type NetworkNode = Coordinate & {
   name: string;
   kind: "bakery" | "pantry";
   schedule: Record<string, unknown>;
-  foodAmountDistributionKg?: TriangularDistribution | null;
-  usableFractionDistribution?: TriangularDistribution | null;
-  wasteAllocation?: { landfill: number; pig_farm: number; compost: number } | null;
-  distributionFraction?: number | null;
 };
-
-type TriangularDistribution = { minimum: number; mode: number; maximum: number };
 
 type SimulationPayload = {
   disclaimer: string;
@@ -250,32 +244,6 @@ const percent = (value: number | null | undefined, digits = 0) =>
 
 const numeric = (value: number | null | undefined, digits = 1) =>
   typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
-
-const parsedScheduleValue = (value: unknown): unknown => {
-  if (typeof value !== "string") return value;
-  try { return JSON.parse(value) as unknown; } catch { return value; }
-};
-
-const scheduleTimes = (value: unknown) => {
-  const parsed = parsedScheduleValue(value);
-  const values = Array.isArray(parsed)
-    ? parsed.map((item) => typeof item === "object" && item !== null ? (item as { time?: unknown }).time : item)
-    : typeof parsed === "object" && parsed !== null ? Object.values(parsed) : [parsed];
-  return [...new Set(values.filter((item): item is string => typeof item === "string" && item.length > 0))].join("/") || "—";
-};
-
-const institutionWindow = (node: NetworkNode) => {
-  const days = String(node.schedule.recurringDays ?? "—").replaceAll(",", "/");
-  if (node.kind === "bakery") return `${days} · ${scheduleTimes(node.schedule.readyTime)}–${scheduleTimes(node.schedule.pickupDeadline)}`;
-  return `${days} · ${scheduleTimes(node.schedule.openTime)}–${scheduleTimes(node.schedule.closeTime)} · latest ${scheduleTimes(node.schedule.latestPermittedArrival)}`;
-};
-
-const triangularLabel = (value: TriangularDistribution | null | undefined, percentValues = false) => {
-  if (!value) return "—";
-  const multiplier = percentValues ? 100 : 1;
-  const suffix = percentValues ? "%" : "";
-  return `${numeric(value.minimum * multiplier, percentValues ? 1 : 2)} / ${numeric(value.mode * multiplier, percentValues ? 1 : 2)} / ${numeric(value.maximum * multiplier, percentValues ? 1 : 2)}${suffix}`;
-};
 
 type ProjectedPoint = { x: number; y: number };
 
@@ -1312,6 +1280,10 @@ export function SimulatorClient({ data }: Props) {
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
           and ZIP areas are soft preferences. An uncollected food-available bakery contributes all Q to bakery waste; a completed route contributes Q − H to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from Guo et al. (2026), not a Boston-calibrated inventory.
         </p>
+        <p className={styles.githubInputsNote}>
+          The complete fixed bakery, pantry, distribution, waste-allocation, and environmental-coefficient tables are maintained with the model source in the{" "}
+          <a href="https://github.com/vapeyproductions/bakedboston-optimizer/blob/main/docs/institutions.md" target="_blank" rel="noreferrer">optimizer GitHub documentation ↗</a>.
+        </p>
         <div className={styles.researchFoundation}>
           <div>
             <p className={styles.eyebrow}>RESEARCH-TO-MODEL MAP</p>
@@ -1325,36 +1297,6 @@ export function SimulatorClient({ data }: Props) {
             <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline ↗</strong><span>Guo et al. motivate food-quality, distribution-loss, waste-pathway, and transport accounting.</span></a>
           </div>
         </div>
-      </section>
-
-      <section className={styles.institutionSection} id="institutions">
-        <div className={styles.sectionHeading}>
-          <div><p className={styles.eyebrow}>FIXED ACADEMIC INPUTS</p><h2>Every institution parameter used by the simulator</h2></div>
-          <p>These are fictional academic-fixture values. Distribution parameters remain fixed; only seeded daily bakery draws vary.</p>
-        </div>
-        <div className={styles.institutionIntro}>
-          <strong>Triangular distributions: minimum / mode / maximum.</strong>
-          <span>Waste allocations are fixed bakery shares. Pantry distribution is the share of bakery-usable food ultimately distributed.</span>
-        </div>
-        <div className={styles.institutionTableWrap}>
-          <table><caption>Bakery parameters</caption>
-            <thead><tr><th>Bakery</th><th>Coordinates / ZIP</th><th>Availability</th><th>Food kg distribution</th><th>Usability distribution</th><th>Waste L / P / C</th></tr></thead>
-            <tbody>{payload.network.bakeries.map((node) => (
-              <tr key={`bakery-input-${node.id}`}><th scope="row">{node.name}</th><td>{numeric(node.latitude, 4)}, {numeric(node.longitude, 4)}<br />ZIP {node.postalCode ?? "—"}</td><td>{institutionWindow(node)}</td><td>{triangularLabel(node.foodAmountDistributionKg)}</td><td>{triangularLabel(node.usableFractionDistribution, true)}</td><td>{node.wasteAllocation ? `${percent(node.wasteAllocation.landfill, 1)} / ${percent(node.wasteAllocation.pig_farm, 1)} / ${percent(node.wasteAllocation.compost, 1)}` : "—"}</td></tr>
-            ))}</tbody>
-          </table>
-        </div>
-        <div className={styles.institutionTableWrap}>
-          <table><caption>Pantry parameters</caption>
-            <thead><tr><th>Pantry</th><th>Coordinates / ZIP</th><th>Receiving availability</th><th>Distribution fraction</th></tr></thead>
-            <tbody>{payload.network.pantries.map((node) => (
-              <tr key={`pantry-input-${node.id}`}><th scope="row">{node.name}</th><td>{numeric(node.latitude, 4)}, {numeric(node.longitude, 4)}<br />ZIP {node.postalCode ?? "—"}</td><td>{institutionWindow(node)}</td><td>{percent(node.distributionFraction, 1)}</td></tr>
-            ))}</tbody>
-          </table>
-        </div>
-        <div className={styles.coefficientNote}><h3>Fixed environmental coefficients</h3><p>
-          Landfill {numeric(payload.environmentalAssumptions?.landfillKgCo2ePerKgWaste, 5)}, pig farm {numeric(payload.environmentalAssumptions?.pigFarmKgCo2ePerKgWaste, 5)}, and compost {numeric(payload.environmentalAssumptions?.compostKgCo2ePerKgWaste, 5)} kg CO₂e/kg waste; transport {numeric(payload.environmentalAssumptions?.transportKgCo2ePerTonneKm, 5)} kg CO₂e/tonne-km. Primary avoided-production substitution is {percent(payload.environmentalAssumptions?.productionSubstitutionFraction, 0)}.
-        </p></div>
       </section>
 
       <section className={styles.comparisonSection} hidden id="comparison">

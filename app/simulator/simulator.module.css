@@ -126,7 +126,7 @@
 .heroCard strong { display: block; margin: 12px 0; font-size: 44px; }
 .heroCard p { margin: 5px 0; color: #bed0c8; }
 
-.replay, .comparisonSection, .institutionSection { padding: clamp(60px, 8vw, 110px) clamp(20px, 5vw, 80px); }
+.replay, .comparisonSection { padding: clamp(60px, 8vw, 110px) clamp(20px, 5vw, 80px); }
 .sectionHeading { display: flex; align-items: end; justify-content: space-between; gap: 28px; margin-bottom: 30px; }
 .sectionHeading h2, .method h2 { max-width: 900px; margin: 0; font-size: clamp(36px, 5vw, 64px); line-height: 1; letter-spacing: -.045em; }
 .sectionHeading > p { max-width: 360px; margin: 0; color: #668177; line-height: 1.5; }
@@ -287,6 +287,8 @@
 .objectiveTerms dd { margin: 0; color: #526a60; line-height: 1.55; }
 .objectiveTerms dd b { color: var(--green); }
 .formulaNote { max-width: 1180px; margin: 34px 0 0; padding-top: 28px; border-top: 1px solid rgba(255,255,255,.2); color: #bed0c8; line-height: 1.7; }
+.githubInputsNote { max-width: 900px; margin: 16px 0 0; color: #bed0c8; line-height: 1.6; }
+.githubInputsNote a { color: white; font-weight: 800; text-underline-offset: 3px; }
 .researchFoundation { margin-top: 42px; padding-top: 34px; display: grid; grid-template-columns: minmax(230px,.7fr) minmax(0,1.5fr); gap: clamp(28px,4vw,60px); border-top: 1px solid rgba(255,255,255,.2); }
 .researchFoundation h3 { margin: 8px 0 10px; color: white; font: 800 clamp(25px,2.5vw,36px)/1.08 Georgia,serif; }
 .researchFoundation p { margin: 0; color: #bed0c8; line-height: 1.6; }
@@ -298,18 +300,6 @@
 .researchGrid span { color: #bed0c8; font-size: 12px; line-height: 1.5; }
 
 .comparisonSection { background: #fffaf0; }
-.institutionSection { background: #fffaf0; }
-.institutionIntro { margin: 30px 0 20px; padding: 20px 24px; display: grid; gap: 6px; border-left: 4px solid var(--orange); border-radius: 0 16px 16px 0; background: white; color: var(--green); }
-.institutionIntro span { color: #5d6d65; line-height: 1.5; }
-.institutionTableWrap { margin-top: 24px; overflow-x: auto; border: 1px solid var(--line); border-radius: 18px; background: white; }
-.institutionTableWrap table { width: 100%; min-width: 940px; border-collapse: collapse; }
-.institutionTableWrap caption { padding: 20px 22px 14px; color: var(--green); font: 800 25px/1.1 Georgia, serif; text-align: left; }
-.institutionTableWrap th, .institutionTableWrap td { padding: 15px 18px; border-top: 1px solid var(--line); color: #50625a; font-size: 13px; line-height: 1.45; text-align: left; vertical-align: top; }
-.institutionTableWrap thead th { color: var(--green); background: #f3f0e6; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-.institutionTableWrap tbody th { min-width: 190px; color: var(--green); font-size: 14px; }
-.coefficientNote { margin-top: 24px; padding: 24px; border-radius: 18px; color: white; background: var(--green); }
-.coefficientNote h3 { margin: 0 0 8px; font: 800 24px/1.1 Georgia, serif; }
-.coefficientNote p { max-width: 1050px; margin: 0; color: #c1d2cb; line-height: 1.65; }
 .tradeoffCallout { margin-bottom: 22px; padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 24px; align-items: center; border: 1px solid #e2b74b; border-radius: 22px; background: #fff2ca; }
 .tradeoffCallout > div:first-child { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 16px; align-items: start; }
 .tradeoffCallout h3 { margin: 0 0 7px; font-size: 23px; }

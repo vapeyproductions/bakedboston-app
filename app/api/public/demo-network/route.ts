@@ -10,7 +10,18 @@ type DemoNode = {
   left: string;
   top: string;
   postalCode?: string;
-  isClosed?: boolean;
+  eligibilityLabel?: string;
+};
+
+type DemoObjectiveComponents = {
+  pantryCoverage: number;
+  rawFoodVolume: number;
+  rawFoodEvenness: number;
+  savedFoodVolume: number;
+  savedFoodEvenness: number;
+  pantryPriority: number;
+  environmentalBenefit: number;
+  driverFit: number;
 };
 
 type CandidateRoute = {
@@ -36,6 +47,21 @@ type CandidateRoute = {
   normalizedOriginDeviation: number;
   normalizedDestinationDeviation: number;
   normalizedSpatialDeviation: number;
+  rawFoodKg: number;
+  usableFoodKg: number;
+  usableFraction: number;
+  pantryDistributionFraction: number;
+  foodSavedKg: number;
+  collectedNotDistributedKg: number;
+  uncollectedFoodKg: number;
+  counterfactualWasteKgCO2e: number;
+  routeWasteKgCO2e: number;
+  transportKgCO2e: number;
+  netEnvironmentalBenefitKgCO2e: number;
+  acceptanceProbability: number;
+  driverFit: number;
+  secondaryObjectiveValue: number;
+  objectiveComponents: DemoObjectiveComponents;
   departureLabel: string;
   pickupLabel: string;
   arrivalLabel: string;
@@ -70,6 +96,11 @@ type PartnerPoint = {
   deliveriesSevenDays?: number;
   postalCode: string;
   type: "Bakery" | "Pantry";
+  readyMinutes?: number;
+  deadlineMinutes?: number;
+  openMinutes?: number;
+  closeMinutes?: number;
+  latestArrivalMinutes?: number;
 };
 
 function extractPostalCode(address: string) {
@@ -98,6 +129,73 @@ function formatClock(totalMinutes: number) {
   return `${displayHour}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
 }
 
+const LANDFILL_KG_CO2E_PER_KG = 0.36;
+const PIG_FARM_KG_CO2E_PER_KG = -0.12;
+const COMPOST_KG_CO2E_PER_KG = 0.00581;
+const TRANSPORT_KG_CO2E_PER_TONNE_KM = 0.41947;
+
+function round(value: number, digits = 4) {
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
+}
+
+function deterministicUnit(id: number, salt: number) {
+  const mixed = (Math.imul(id + 1, 1_664_525) + Math.imul(salt + 1, 1_013_904_223)) >>> 0;
+  return (mixed % 10_000) / 10_000;
+}
+
+function firstScheduleMinute(value: string, fallback: number) {
+  const parseClock = (clock: string) => {
+    const match = clock.match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    return hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60 ? hours * 60 + minutes : null;
+  };
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    const queue: unknown[] = [parsed];
+    while (queue.length) {
+      const current = queue.shift();
+      if (typeof current === "string") {
+        const minute = parseClock(current);
+        if (minute !== null) return minute;
+      } else if (Array.isArray(current)) queue.push(...current);
+      else if (typeof current === "object" && current !== null) queue.push(...Object.values(current));
+    }
+  } catch {
+    const minute = parseClock(value);
+    if (minute !== null) return minute;
+  }
+  return fallback;
+}
+
+function bakeryDemoInputs(id: number) {
+  const rawFoodKg = round(12 + 14 * deterministicUnit(id, 1), 2);
+  const usableFraction = round(0.66 + 0.28 * deterministicUnit(id, 2), 4);
+  const landfill = 0.28 + 0.38 * deterministicUnit(id, 3);
+  const pigFarm = Math.min(0.42, 0.08 + 0.28 * deterministicUnit(id, 4), 0.9 - landfill);
+  const compost = 1 - landfill - pigFarm;
+  return { rawFoodKg, usableFraction, landfill, pigFarm, compost };
+}
+
+function pantryDemoDistribution(id: number) {
+  return round(0.64 + 0.22 * deterministicUnit(id, 5), 4);
+}
+
+function sigmoid(value: number) {
+  return 1 / (1 + Math.exp(-value));
+}
+
+function evenness(values: number[], denominator: number) {
+  if (values.length < 2) return 1;
+  let gaps = 0;
+  for (let left = 0; left < values.length; left += 1) {
+    for (let right = left + 1; right < values.length; right += 1) gaps += Math.abs(values[left] - values[right]);
+  }
+  return clamp(1 - gaps / Math.max(1, (values.length - 1) * denominator), 0, 1);
+}
+
 function normalizePoints(points: Array<{ latitude: number; longitude: number }>) {
   const lats = points.map((point) => point.latitude);
   const lngs = points.map((point) => point.longitude);
@@ -115,6 +213,7 @@ function normalizePoints(points: Array<{ latitude: number; longitude: number }>)
 }
 
 export async function GET() {
+  try {
   const db = getDb();
   const [bakeryRows, pantryRows, accountRows, routeRows] = await Promise.all([
     db.select().from(bakeries).where(eq(bakeries.active, true)),
@@ -138,6 +237,8 @@ export async function GET() {
       longitude: bakery.longitude as number,
       postalCode: extractPostalCode(bakery.formattedAddress || bakery.address),
       type: "Bakery",
+      readyMinutes: firstScheduleMinute(bakery.readyTime, 16 * 60),
+      deadlineMinutes: firstScheduleMinute(bakery.arrivalDeadline, 17 * 60),
     }));
 
   const operationalPantries: PartnerPoint[] = pantryRows
@@ -150,10 +251,14 @@ export async function GET() {
       postalCode: extractPostalCode(pantry.formattedAddress || pantry.address),
       deliveriesSevenDays: pantry.deliveriesSevenDays,
       type: "Pantry",
+      openMinutes: firstScheduleMinute(pantry.openTime, 16 * 60),
+      closeMinutes: firstScheduleMinute(pantry.closeTime, 19 * 60),
+      latestArrivalMinutes: firstScheduleMinute(pantry.latestArrival, 18 * 60 + 45),
     }));
 
   if (!operationalBakeries.length || !operationalPantries.length) {
-    return Response.json({ nodes: [], candidates: [], highlightedRouteId: null, liveRouteLabel: "", liveRouteContext: "" }, {
+    return Response.json({ status: "unavailable", nodes: [], candidates: [], highlightedRouteId: null, liveRouteLabel: "", liveRouteContext: "No eligible database partners are available for the walkthrough." }, {
+      status: 503,
       headers: { "Cache-Control": "no-store" },
     });
   }
@@ -173,23 +278,50 @@ export async function GET() {
   const driverLatitude = anchorBakery.latitude + (anchorPantry.latitude - anchorBakery.latitude) * 0.34 - 0.008;
   const driverLongitude = anchorBakery.longitude + (anchorPantry.longitude - anchorBakery.longitude) * 0.26 - 0.01;
 
-  const loginMinutes = 14 * 60 + 17;
-  const preferredStartMinutes = 16 * 60 + 30;
-  const preferredFinishMinutes = 17 * 60;
+  const preferredStartMinutes = anchorBakery.readyMinutes ?? 16 * 60 + 30;
+  const preferredFinishMinutes = Math.max(preferredStartMinutes + 90, Math.min(anchorPantry.latestArrivalMinutes ?? 18 * 60 + 30, preferredStartMinutes + 150));
+  const loginMinutes = Math.max(0, preferredStartMinutes - 120);
+  const searchUntilMinutes = preferredFinishMinutes + 90;
   const requestedWindowMinutes = preferredFinishMinutes - preferredStartMinutes;
   const startRadiusMiles = 2;
   const destinationRadiusMiles = 2;
-  const departureOffsets = [-10, -5, -20, -15, -25];
 
-  const rawPairs = operationalBakeries.flatMap((bakery, bakeryIndex) => operationalPantries.map((pantry, pantryIndex) => {
-    const distanceMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
+  const generatedCombinationCount = operationalBakeries.length * operationalPantries.length;
+  const rawPairs = operationalBakeries.flatMap((bakery) => operationalPantries.flatMap((pantry) => {
+    const bakeryToPantryMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
     const driverDistanceMiles = milesBetween(driverLatitude, driverLongitude, bakery.latitude, bakery.longitude);
-    const priority = 1 / ((pantry.deliveriesSevenDays ?? 0) + 1);
-    const driveMinutes = Math.max(8, (driverDistanceMiles + distanceMiles) * 3.5);
-    const departureMinutes = preferredStartMinutes + (departureOffsets[(bakeryIndex + pantryIndex) % departureOffsets.length] ?? -10);
-    const pickupMinutes = departureMinutes + Math.max(3, driverDistanceMiles * 3.5);
-    const arrivalMinutes = departureMinutes + driveMinutes + 5;
+    const routeDistanceMiles = driverDistanceMiles + bakeryToPantryMiles;
+    const driverToBakeryMinutes = Math.max(3, driverDistanceMiles * 3.5);
+    const bakeryToPantryMinutes = Math.max(5, bakeryToPantryMiles * 3.5);
+    const driveMinutes = driverToBakeryMinutes + bakeryToPantryMinutes;
+    const readyMinutes = bakery.readyMinutes ?? 16 * 60;
+    const deadlineMinutes = Math.max(readyMinutes + 30, bakery.deadlineMinutes ?? readyMinutes + 45);
+    const pantryOpenMinutes = pantry.openMinutes ?? 16 * 60;
+    const pantryCloseMinutes = Math.max(pantryOpenMinutes + 30, pantry.closeMinutes ?? 19 * 60);
+    const latestArrivalMinutes = Math.min(pantryCloseMinutes, pantry.latestArrivalMinutes ?? pantryCloseMinutes - 10);
+    const departureMinutes = Math.max(loginMinutes, Math.min(preferredStartMinutes, deadlineMinutes - driverToBakeryMinutes));
+    const arrivalAtBakeryMinutes = departureMinutes + driverToBakeryMinutes;
+    const pickupMinutes = Math.max(readyMinutes, arrivalAtBakeryMinutes);
+    const leaveBakeryMinutes = pickupMinutes + 5;
+    const unadjustedArrivalMinutes = leaveBakeryMinutes + bakeryToPantryMinutes;
+    const arrivalMinutes = Math.max(pantryOpenMinutes, unadjustedArrivalMinutes);
     const finishMinutes = arrivalMinutes + 5;
+    if (pickupMinutes > deadlineMinutes || arrivalMinutes > latestArrivalMinutes || finishMinutes > pantryCloseMinutes || finishMinutes > searchUntilMinutes) return [];
+    const deliveries = pantry.deliveriesSevenDays ?? 0;
+    const receivingOpportunities = Math.max(7, deliveries + 5);
+    const priority = 1 - (deliveries + 1) / (receivingOpportunities + 2);
+    const bakeryInputs = bakeryDemoInputs(bakery.id);
+    const pantryDistributionFraction = pantryDemoDistribution(pantry.id);
+    const usableFoodKg = bakeryInputs.rawFoodKg * bakeryInputs.usableFraction;
+    const foodSavedKg = usableFoodKg * pantryDistributionFraction;
+    const collectedNotDistributedKg = bakeryInputs.rawFoodKg - foodSavedKg;
+    const pathwayCoefficient = bakeryInputs.landfill * LANDFILL_KG_CO2E_PER_KG
+      + bakeryInputs.pigFarm * PIG_FARM_KG_CO2E_PER_KG
+      + bakeryInputs.compost * COMPOST_KG_CO2E_PER_KG;
+    const counterfactualWasteKgCO2e = bakeryInputs.rawFoodKg * pathwayCoefficient;
+    const routeWasteKgCO2e = collectedNotDistributedKg * pathwayCoefficient;
+    const transportKgCO2e = TRANSPORT_KG_CO2E_PER_TONNE_KM * (bakeryInputs.rawFoodKg / 1000) * (routeDistanceMiles * 1.60934);
+    const netEnvironmentalBenefitKgCO2e = counterfactualWasteKgCO2e - routeWasteKgCO2e - transportKgCO2e;
     const requestedTimeDeviationMinutes = Math.max(0, preferredStartMinutes - departureMinutes)
       + Math.max(0, finishMinutes - preferredFinishMinutes);
     const requestedTimeDeviationRatio = requestedTimeDeviationMinutes / requestedWindowMinutes;
@@ -208,14 +340,29 @@ export async function GET() {
     return {
       bakery,
       pantry,
-      distanceMiles,
+      distanceMiles: routeDistanceMiles,
       driverDistanceMiles,
       driveMinutes,
       priority,
+      servedOpportunities: deliveries,
+      receivingOpportunities,
+      facilityWaitMinutes: Math.max(0, pickupMinutes - arrivalAtBakeryMinutes) + Math.max(0, arrivalMinutes - unadjustedArrivalMinutes),
       departureMinutes,
       pickupMinutes,
       arrivalMinutes,
       finishMinutes,
+      rawFoodKg: bakeryInputs.rawFoodKg,
+      usableFraction: bakeryInputs.usableFraction,
+      usableFoodKg,
+      pantryDistributionFraction,
+      foodSavedKg,
+      collectedNotDistributedKg,
+      counterfactualWasteKgCO2e,
+      routeWasteKgCO2e,
+      transportKgCO2e,
+      netEnvironmentalBenefitKgCO2e,
+      historicalRawFoodKg: deliveries * (14 + 5 * deterministicUnit(pantry.id, 6)),
+      historicalSavedFoodKg: deliveries * (9 + 4 * deterministicUnit(pantry.id, 7)),
       requestedTimeDeviationMinutes,
       requestedTimeDeviationRatio,
       originDeviationMiles,
@@ -223,9 +370,16 @@ export async function GET() {
     };
   }));
 
+  if (!rawPairs.length) {
+    return Response.json({ status: "unavailable", nodes: [], candidates: [], highlightedRouteId: null, liveRouteLabel: "", liveRouteContext: "The database partners do not produce a feasible one-driver demonstration window." }, {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
   const maximumOriginDeviation = Math.max(0, ...rawPairs.map((pair) => pair.originDeviationMiles));
   const maximumDestinationDeviation = Math.max(0, ...rawPairs.map((pair) => pair.destinationDeviationMiles));
-  const rankedPairs = rawPairs.map((pair) => {
+  const normalizedPairs = rawPairs.map((pair) => {
     const normalizedOriginDeviation = maximumOriginDeviation > 0
       ? pair.originDeviationMiles / maximumOriginDeviation
       : 0;
@@ -233,22 +387,66 @@ export async function GET() {
       ? pair.destinationDeviationMiles / maximumDestinationDeviation
       : 0;
     const normalizedSpatialDeviation = (normalizedOriginDeviation + normalizedDestinationDeviation) / 2;
-    const rawScore = 45 * pair.priority
-      - pair.driveMinutes
-      - 24 * pair.requestedTimeDeviationRatio
-      - 18 * normalizedSpatialDeviation;
+    const acceptanceProbability = clamp(sigmoid(2.2 - 0.045 * pair.driveMinutes - 1.8 * pair.requestedTimeDeviationRatio - 1.1 * normalizedSpatialDeviation), 0.02, 0.98);
     return {
       ...pair,
       normalizedOriginDeviation,
       normalizedDestinationDeviation,
       normalizedSpatialDeviation,
-      rawScore,
+      acceptanceProbability,
     };
-  }).sort((left, right) => right.rawScore - left.rawScore || left.distanceMiles - right.distanceMiles);
+  });
 
-  const selectedPairs: typeof rankedPairs = [];
-  const usedBakeryIds = new Set<number>();
-  const usedPantryIds = new Set<number>();
+  const uniqueBakeryFood = new Map<number, number>();
+  const uniqueBakerySaved = new Map<number, number>();
+  const pantryHistory = new Map<number, { raw: number; saved: number }>();
+  for (const pair of normalizedPairs) {
+    uniqueBakeryFood.set(pair.bakery.id, pair.rawFoodKg);
+    uniqueBakerySaved.set(pair.bakery.id, Math.max(uniqueBakerySaved.get(pair.bakery.id) ?? 0, pair.foodSavedKg));
+    pantryHistory.set(pair.pantry.id, { raw: pair.historicalRawFoodKg, saved: pair.historicalSavedFoodKg });
+  }
+  const rawCapacity = Math.max(1, [...uniqueBakeryFood.values()].reduce((sum, value) => sum + value, 0));
+  const savedCapacity = Math.max(1, [...uniqueBakerySaved.values()].reduce((sum, value) => sum + value, 0));
+  const historyRaw = [...pantryHistory.values()].reduce((sum, value) => sum + value.raw, 0);
+  const historySaved = [...pantryHistory.values()].reduce((sum, value) => sum + value.saved, 0);
+  const pantryIds = [...pantryHistory.keys()];
+  const environmentValues = normalizedPairs.map((pair) => pair.netEnvironmentalBenefitKgCO2e);
+  const environmentMinimum = Math.min(...environmentValues);
+  const environmentSpan = Math.max(...environmentValues) - environmentMinimum;
+  const maximumDriveMinutes = Math.max(1, ...normalizedPairs.map((pair) => pair.driveMinutes));
+  const rankedPairs = normalizedPairs.map((pair) => {
+    const rawTotals = pantryIds.map((id) => (pantryHistory.get(id)?.raw ?? 0) + (id === pair.pantry.id ? pair.rawFoodKg : 0));
+    const savedTotals = pantryIds.map((id) => (pantryHistory.get(id)?.saved ?? 0) + (id === pair.pantry.id ? pair.foodSavedKg : 0));
+    const driverFit = clamp(1 - (Math.min(1, pair.driveMinutes / maximumDriveMinutes) + Math.min(1, pair.requestedTimeDeviationRatio) + Math.min(1, pair.normalizedSpatialDeviation)) / 3, 0, 1);
+    const objectiveComponents: DemoObjectiveComponents = {
+      pantryCoverage: 1 / Math.max(1, pantryIds.length),
+      rawFoodVolume: pair.rawFoodKg / rawCapacity,
+      rawFoodEvenness: evenness(rawTotals, historyRaw + rawCapacity),
+      savedFoodVolume: pair.foodSavedKg / savedCapacity,
+      savedFoodEvenness: evenness(savedTotals, historySaved + savedCapacity),
+      pantryPriority: pair.priority,
+      environmentalBenefit: environmentSpan > 1e-9 ? (pair.netEnvironmentalBenefitKgCO2e - environmentMinimum) / environmentSpan : 0.5,
+      driverFit,
+    };
+    const secondaryObjectiveValue = 10 * objectiveComponents.pantryCoverage
+      + 10 * objectiveComponents.rawFoodVolume
+      + 10 * objectiveComponents.rawFoodEvenness
+      + 10 * objectiveComponents.savedFoodVolume
+      + 10 * objectiveComponents.savedFoodEvenness
+      + 10 * objectiveComponents.pantryPriority
+      + 20 * objectiveComponents.environmentalBenefit
+      + 20 * objectiveComponents.driverFit;
+    return { ...pair, driverFit, objectiveComponents, secondaryObjectiveValue, rawScore: secondaryObjectiveValue };
+  }).sort((left, right) => right.acceptanceProbability - left.acceptanceProbability || right.secondaryObjectiveValue - left.secondaryObjectiveValue);
+
+  const maximumAcceptance = Math.max(...rankedPairs.map((pair) => pair.acceptanceProbability));
+  const chosenPair = [...rankedPairs]
+    .filter((pair) => pair.acceptanceProbability + 1e-9 >= 0.99 * maximumAcceptance)
+    .sort((left, right) => right.secondaryObjectiveValue - left.secondaryObjectiveValue || right.acceptanceProbability - left.acceptanceProbability)[0];
+
+  const selectedPairs: typeof rankedPairs = [chosenPair];
+  const usedBakeryIds = new Set<number>([chosenPair.bakery.id]);
+  const usedPantryIds = new Set<number>([chosenPair.pantry.id]);
   const candidateLimit = Math.min(5, rankedPairs.length);
 
   while (selectedPairs.length < candidateLimit) {
@@ -256,7 +454,7 @@ export async function GET() {
     const nextPair = remainingPairs.sort((left, right) => {
       const leftCoverage = Number(!usedBakeryIds.has(left.bakery.id)) + Number(!usedPantryIds.has(left.pantry.id));
       const rightCoverage = Number(!usedBakeryIds.has(right.bakery.id)) + Number(!usedPantryIds.has(right.pantry.id));
-      return rightCoverage - leftCoverage || right.rawScore - left.rawScore || left.distanceMiles - right.distanceMiles;
+      return rightCoverage - leftCoverage || right.secondaryObjectiveValue - left.secondaryObjectiveValue || right.acceptanceProbability - left.acceptanceProbability;
     })[0];
 
     if (!nextPair) break;
@@ -264,25 +462,22 @@ export async function GET() {
     usedBakeryIds.add(nextPair.bakery.id);
     usedPantryIds.add(nextPair.pantry.id);
   }
-  const chosenPair = selectedPairs[0];
 
+  const displayedBakeryIds = new Set(selectedPairs.map((pair) => pair.bakery.id));
+  const displayedPantryIds = new Set(selectedPairs.map((pair) => pair.pantry.id));
+  const displayedBakeries = operationalBakeries.filter((item) => displayedBakeryIds.has(item.id));
+  const displayedPantries = operationalPantries.filter((item) => displayedPantryIds.has(item.id));
   const referencePoints = [
-    ...operationalBakeries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
-    ...operationalPantries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
+    ...displayedBakeries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
+    ...displayedPantries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
+    { latitude: driverLatitude, longitude: driverLongitude },
   ];
   const toCanvasPosition = normalizePoints(referencePoints);
 
-  const closedBakeryLatitude = chosenPair.bakery.latitude + 0.04;
-  const closedBakeryLongitude = chosenPair.bakery.longitude - 0.07;
-  const closedPantryLatitude = chosenPair.pantry.latitude + 0.06;
-  const closedPantryLongitude = chosenPair.pantry.longitude - 0.09;
-
   const driverPosition = toCanvasPosition(driverLatitude, driverLongitude);
-  const closedBakeryPosition = toCanvasPosition(closedBakeryLatitude, closedBakeryLongitude);
-  const closedPantryPosition = toCanvasPosition(closedPantryLatitude, closedPantryLongitude);
 
   const actualNodes: DemoNode[] = [
-    ...operationalBakeries.map((bakery) => {
+    ...displayedBakeries.map((bakery) => {
       const point = toCanvasPosition(bakery.latitude, bakery.longitude);
       return {
         id: `bakery-${bakery.id}`,
@@ -292,9 +487,10 @@ export async function GET() {
         left: point.left,
         top: point.top,
         postalCode: bakery.postalCode,
+        eligibilityLabel: "registered + validated",
       };
     }),
-    ...operationalPantries.map((pantry) => {
+    ...displayedPantries.map((pantry) => {
       const point = toCanvasPosition(pantry.latitude, pantry.longitude);
       return {
         id: `pantry-${pantry.id}`,
@@ -304,6 +500,7 @@ export async function GET() {
         left: point.left,
         top: point.top,
         postalCode: pantry.postalCode,
+        eligibilityLabel: "registered + validated",
       };
     }),
     {
@@ -313,24 +510,6 @@ export async function GET() {
       short: "🚗",
       left: driverPosition.left,
       top: driverPosition.top,
-    },
-    {
-      id: "closed-bakery",
-      label: "North Station Bakes",
-      type: "Bakery",
-      short: "🥖",
-      left: "8%",
-      top: "10%",
-      isClosed: true,
-    },
-    {
-      id: "closed-pantry",
-      label: "Harbor Shelf Pantry",
-      type: "Pantry",
-      short: "🥫",
-      left: "93%",
-      top: "90%",
-      isClosed: true,
     },
   ];
 
@@ -345,7 +524,8 @@ export async function GET() {
     { x: 7, y: -7 },
   ];
 
-  const candidates: CandidateRoute[] = selectedPairs.map(({ bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore }, index) => {
+  const candidates: CandidateRoute[] = selectedPairs.map((pair, index) => {
+    const { bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, servedOpportunities, receivingOpportunities, facilityWaitMinutes, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, rawFoodKg, usableFoodKg, usableFraction, pantryDistributionFraction, foodSavedKg, collectedNotDistributedKg, counterfactualWasteKgCO2e, routeWasteKgCO2e, transportKgCO2e, netEnvironmentalBenefitKgCO2e, acceptanceProbability, driverFit, secondaryObjectiveValue, objectiveComponents, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore } = pair;
     const pantryPosition = toCanvasPosition(pantry.latitude, pantry.longitude);
     const bakeryPosition = toCanvasPosition(bakery.latitude, bakery.longitude);
     const bakeryLeft = Number(bakeryPosition.left.replace("%", ""));
@@ -365,10 +545,10 @@ export async function GET() {
       driverDistanceMiles,
       driveMinutes,
       priority,
-      servedOpportunities: pantry.deliveriesSevenDays ?? 0,
-      receivingOpportunities: Math.max(7, (pantry.deliveriesSevenDays ?? 0) + 5),
+      servedOpportunities,
+      receivingOpportunities,
       originWaitMinutes: Math.max(0, departureMinutes - loginMinutes),
-      facilityWaitMinutes: 0,
+      facilityWaitMinutes,
       requestedTimeDeviationMinutes,
       requestedWindowMinutes,
       requestedTimeDeviationRatio,
@@ -377,6 +557,21 @@ export async function GET() {
       normalizedOriginDeviation,
       normalizedDestinationDeviation,
       normalizedSpatialDeviation,
+      rawFoodKg: round(rawFoodKg, 2),
+      usableFoodKg: round(usableFoodKg, 2),
+      usableFraction,
+      pantryDistributionFraction,
+      foodSavedKg: round(foodSavedKg, 2),
+      collectedNotDistributedKg: round(collectedNotDistributedKg, 2),
+      uncollectedFoodKg: round(rawFoodKg, 2),
+      counterfactualWasteKgCO2e: round(counterfactualWasteKgCO2e, 4),
+      routeWasteKgCO2e: round(routeWasteKgCO2e, 4),
+      transportKgCO2e: round(transportKgCO2e, 4),
+      netEnvironmentalBenefitKgCO2e: round(netEnvironmentalBenefitKgCO2e, 4),
+      acceptanceProbability: round(acceptanceProbability, 4),
+      driverFit: round(driverFit, 4),
+      secondaryObjectiveValue: round(secondaryObjectiveValue, 3),
+      objectiveComponents: Object.fromEntries(Object.entries(objectiveComponents).map(([key, value]) => [key, round(value, 4)])) as DemoObjectiveComponents,
       departureLabel: formatClock(departureMinutes),
       pickupLabel: formatClock(pickupMinutes),
       arrivalLabel: formatClock(arrivalMinutes),
@@ -417,15 +612,36 @@ export async function GET() {
     : null;
 
   return Response.json({
+    status: "ready",
     nodes: actualNodes,
     candidates,
     highlightedRouteId,
     liveRouteLabel: `${chosenPair.bakery.name} → ${chosenPair.pantry.name}`,
     liveRouteContext: featuredCompletedRoute && completedAt
-      ? `Based on the most recent completed delivery on ${completedAt}.`
-      : "Based on the current registered bakery and pantry network.",
+      ? `Database partner selection is anchored to the most recent completed delivery on ${completedAt}; all driver, food, and timing events shown here are synthetic.`
+      : "Partner names and locations come from the current registered, validated database network; all driver, food, and timing events shown here are synthetic.",
+    databaseSnapshot: {
+      bakeriesConsidered: operationalBakeries.length,
+      pantriesConsidered: operationalPantries.length,
+      generatedCombinations: generatedCombinationCount,
+      feasibleCandidates: rankedPairs.length,
+    },
     request,
   }, {
     headers: { "Cache-Control": "no-store" },
   });
+  } catch (error) {
+    console.error("Homepage model trace could not read the partner database", error);
+    return Response.json({
+      status: "unavailable",
+      nodes: [],
+      candidates: [],
+      highlightedRouteId: null,
+      liveRouteLabel: "",
+      liveRouteContext: "The live partner database is temporarily unavailable.",
+    }, {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
 }

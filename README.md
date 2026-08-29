@@ -38,11 +38,14 @@ After the joint Gurobi solve resolves bakery conflicts, the selected route is
 always rank #1—the highest-scoring route in the conflict-free list shown to
 that driver.
 
-The page documents the complete objective, shows every fixed institution input,
-and reports route food saved as bakery food × bakery usability × pantry
-distribution. It tracks bakery food not picked up and collected food not
-ultimately distributed. Comparison panels are hidden while comparison policies
-are revised. It does not create or change live organization records.
+The page documents the complete objective and reports route food saved as bakery
+food × bakery usability × pantry distribution. It tracks bakery food not picked
+up and collected food not ultimately distributed. Fixed institution inputs and
+environmental coefficients live with the optimizer source in
+[`docs/institutions.md`](https://github.com/vapeyproductions/bakedboston-optimizer/blob/main/docs/institutions.md)
+instead of being duplicated on the website. Comparison panels are hidden while
+comparison policies are revised. The simulator does not create or change live
+organization records.
 
 ## Native app
 

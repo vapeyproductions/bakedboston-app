@@ -10,9 +10,6 @@ type DemoStep = {
   label: string;
   title: string;
   description: string;
-  scoreTitle: string;
-  scoreValue: string;
-  scoreNote: string;
   mipTitle: string;
   mipBody: string;
   mipLines: string[];
@@ -27,7 +24,18 @@ type DemoNode = {
   left: string;
   top: string;
   postalCode?: string;
-  isClosed?: boolean;
+  eligibilityLabel?: string;
+};
+
+type DemoObjectiveComponents = {
+  pantryCoverage: number;
+  rawFoodVolume: number;
+  rawFoodEvenness: number;
+  savedFoodVolume: number;
+  savedFoodEvenness: number;
+  pantryPriority: number;
+  environmentalBenefit: number;
+  driverFit: number;
 };
 
 type DemoRoute = {
@@ -52,14 +60,21 @@ type DemoRoute = {
   normalizedOriginDeviation: number;
   normalizedDestinationDeviation: number;
   normalizedSpatialDeviation: number;
-  estimatedFoodKg?: number;
-  usableFoodKg?: number;
-  usableFraction?: number;
-  donorDisposalBaseline?: "landfill" | "compost";
-  avoidedSystemKgCO2e?: number;
-  transportKgCO2e?: number;
-  residualWasteKgCO2e?: number;
-  netEnvironmentalBenefitKgCO2e?: number;
+  rawFoodKg: number;
+  usableFoodKg: number;
+  usableFraction: number;
+  pantryDistributionFraction: number;
+  foodSavedKg: number;
+  collectedNotDistributedKg: number;
+  uncollectedFoodKg: number;
+  counterfactualWasteKgCO2e: number;
+  routeWasteKgCO2e: number;
+  transportKgCO2e: number;
+  netEnvironmentalBenefitKgCO2e: number;
+  acceptanceProbability: number;
+  driverFit: number;
+  secondaryObjectiveValue: number;
+  objectiveComponents: DemoObjectiveComponents;
   departureLabel: string;
   pickupLabel: string;
   arrivalLabel: string;
@@ -87,11 +102,18 @@ type DemoRequest = {
 };
 
 type DemoDataset = {
+  status: "ready" | "unavailable";
   nodes: DemoNode[];
   candidates: DemoRoute[];
   highlightedRouteId: string | null;
   liveRouteLabel: string;
   liveRouteContext: string;
+  databaseSnapshot: {
+    bakeriesConsidered: number;
+    pantriesConsidered: number;
+    generatedCombinations: number;
+    feasibleCandidates: number;
+  };
   request: DemoRequest;
 };
 
@@ -196,39 +218,18 @@ function getSpatialDeviationLines(route: DemoRoute, request: DemoRequest) {
   return lines;
 }
 
-function getDemoRouteUtility(route: DemoRoute) {
-  const priorityPoints = 45 * route.priority;
-  const drivePenalty = route.driveMinutes;
-  const timePenalty = 24 * route.requestedTimeDeviationRatio;
-  const spatialPenalty = 18 * route.normalizedSpatialDeviation;
-  const estimatedFoodKg = route.estimatedFoodKg ?? 20;
-  const usableFoodKg = route.usableFoodKg ?? estimatedFoodKg * (route.usableFraction ?? 0.8);
-  const avoidedSystemKgCO2e = route.avoidedSystemKgCO2e ?? (
-    usableFoodKg * 0.42 + estimatedFoodKg * (route.donorDisposalBaseline === "compost" ? 0.04 : 0.16)
-  );
-  const transportKgCO2e = route.transportKgCO2e ?? route.distanceMiles * 0.32;
-  const residualWasteKgCO2e = route.residualWasteKgCO2e ?? Math.max(estimatedFoodKg - usableFoodKg, 0) * 0.2;
-  const netFoodSavingBenefitKgCO2e = avoidedSystemKgCO2e - residualWasteKgCO2e;
-  const netEnvironmentalBenefitKgCO2e = route.netEnvironmentalBenefitKgCO2e ?? (
-    netFoodSavingBenefitKgCO2e - transportKgCO2e
-  );
-  const environmentalReward = 1.5 * netEnvironmentalBenefitKgCO2e;
+const demoPercent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`;
 
-  return {
-    priorityPoints,
-    drivePenalty,
-    timePenalty,
-    spatialPenalty,
-    estimatedFoodKg,
-    usableFoodKg,
-    avoidedSystemKgCO2e,
-    transportKgCO2e,
-    residualWasteKgCO2e,
-    netEnvironmentalBenefitKgCO2e,
-    environmentalReward,
-    total: priorityPoints - drivePenalty - timePenalty - spatialPenalty + environmentalReward,
-  };
-}
+const demoObjectiveParts: Array<{ key: keyof DemoObjectiveComponents; short: string; weight: number }> = [
+  { key: "pantryCoverage", short: "C", weight: 10 },
+  { key: "rawFoodVolume", short: "VQ", weight: 10 },
+  { key: "rawFoodEvenness", short: "FQ", weight: 10 },
+  { key: "savedFoodVolume", short: "VH", weight: 10 },
+  { key: "savedFoodEvenness", short: "FH", weight: 10 },
+  { key: "pantryPriority", short: "P", weight: 10 },
+  { key: "environmentalBenefit", short: "E", weight: 20 },
+  { key: "driverFit", short: "D", weight: 20 },
+];
 
 const pins = [
   { label: "Flour & Field", type: "B", left: "18%", top: "28%", color: "#ef6548" },
@@ -241,176 +242,99 @@ const pins = [
 
 const demoSteps: DemoStep[] = [
   {
-    id: "network",
-    label: "1 · Decision epoch",
-    title: "A driver request triggers a new decision epoch.",
-    description: "Logging in does not mean leaving immediately. The model takes a snapshot of open and upcoming partner windows plus the driver’s requested time interval, start area, and destination area.",
-    scoreTitle: "Network snapshot",
-    scoreValue: "Partners + driver request",
-    scoreNote: "The model schedules the best departure time; planned lead time is not treated as route burden",
-    mipTitle: "Route alternative",
-    mipBody: "A binary alternative represents one driver request, one bakery pickup occurrence, one pantry receiving window, and one candidate departure time.",
-    mipLines: [
-      "Requested intervals are at least 30 minutes and may begin now or later",
-      "The start and destination requests use two-mile preference radii",
-      "Preferred time and locations are soft preferences",
-      "Every candidate has its own complete service timeline",
-    ],
-    mipEquation: "yᵣ = 1 when timed route alternative r is selected",
+    id: "snapshot",
+    label: "1 · Database snapshot",
+    title: "The model reads the eligible partner network.",
+    description: "The walkthrough begins with registered, active, address-validated bakeries and pantries from the application database. It does not invent or register organizations.",
+    mipTitle: "Read-only operational state",
+    mipBody: "Names, coordinates, ZIP codes, and partner status come from the live database. The driver request and food realization below are synthetic demonstration events.",
+    mipLines: ["registered partner account required", "active organization required", "validated coordinates required", "no account, route, or notification is written"],
+    mipEquation: "B, P ← current eligible database records",
+  },
+  {
+    id: "request",
+    label: "2 · Driver request",
+    title: "One driver creates a decision epoch.",
+    description: "The driver supplies a preferred interval and soft start/destination areas. Login is when the model receives the request—not when the driver must depart.",
+    mipTitle: "Synthetic driver input",
+    mipBody: "The demo creates one read-only request around the database network so the complete model path can be inspected without creating a production offer.",
+    mipLines: ["requested interval is at least 30 minutes", "start and destination radii are soft preferences", "a later just-in-time departure may be scheduled", "the outer search horizon remains a hard limit"],
+    mipEquation: "d = (login, preferred interval, origin area, destination area)",
   },
   {
     id: "feasibility",
-    label: "2 · Timed feasibility",
+    label: "3 · Candidate columns",
     title: "The model builds complete, feasible timelines.",
-    description: "For each bakery–pantry pair, the model tests smart departure breakpoints and keeps only schedules that can complete pickup, loading, travel, arrival, and unloading within the hard operating windows.",
-    scoreTitle: "Hard feasibility screen",
-    scoreValue: "Infeasible routes removed",
-    scoreNote: "Soft driver preferences affect ranking, but never replace partner operating constraints",
+    description: "Every driver–bakery–pantry combination is expanded into timed route columns. Combinations that cannot satisfy the operating windows are removed before any objective score is considered.",
     mipTitle: "Timed route construction",
-    mipBody: "Each candidate includes a scheduled departure rather than assuming the driver leaves at login. Five minutes are reserved for loading at the bakery and five minutes for unloading at the pantry.",
-    mipLines: [
-      "departure cannot occur before the driver logs in",
-      "pickup must fall inside the confirmed bakery window",
-      "pantry arrival must precede its latest permitted arrival",
-      "the full route timeline must remain operationally feasible",
-    ],
-    mipEquation: "login ≤ depart; pickup ≤ deadline; pantry arrival ≤ latest arrival; requested interval remains soft",
+    mipBody: "Each surviving binary alternative carries its own departure, pickup, pantry arrival, and finish. Five minutes are reserved at each facility.",
+    mipLines: ["departure cannot precede login", "pickup must meet the bakery deadline", "pantry arrival must meet the latest arrival", "the complete trip must fit the hard search horizon"],
+    mipEquation: "a = (d,b,p,tᵈᵉᵖ,tᵖⁱᶜᵏ,tᵃʳʳ,tᶠⁱⁿ); a ∈ A only when hard constraints hold",
   },
   {
-    id: "utility",
-    label: "3 · Route utility",
-    title: "Every feasible timed route receives a utility score.",
-    description: "Priority and estimated net lifecycle climate benefit are rewarded. Driving time, proportional requested-time deviation, and normalized distance outside the requested start and destination ZIP areas are penalized. Exact ZIP-area fit receives no bonus; it simply contributes zero spatial penalty.",
-    scoreTitle: "Unscaled utility",
-    scoreValue: "Comparable—not a probability",
-    scoreNote: "A negative score can still be feasible; it simply ranks below a higher-scoring alternative",
-    mipTitle: "Candidate utility",
-    mipBody: "The exact academic scoring function is shown below. It is used consistently for ranking and assignment rather than converted to a cosmetic 0–100 scale.",
-    mipLines: [
-      "+45 × pantry priority",
-      "−1.00 × driving minutes",
-      "−24 × fraction of the requested interval missed",
-      "−18 × normalized start/end ZIP-area deviation",
-      "+1.5 × estimated net lifecycle kg CO₂e benefit",
-      "net food-saving benefit = avoided production + avoided donor disposal − residual redistribution waste",
-      "net lifecycle benefit = net food-saving benefit − vehicle emissions",
-      "equal food-saving and vehicle emissions contribute 0 environmental points",
-      "0 reward for exact or inside-area fit",
-      "planned departure lead remains scheduling guidance only",
-    ],
-    mipEquation: "qᵣ = 45Pᵣ − Dᵣ − 24Oᵣ − 18Sᵣ + 1.5Eᵣ",
+    id: "accounting",
+    label: "4 · Food + CO₂e",
+    title: "Each feasible route gets explicit food and emissions accounting.",
+    description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery no-pickup waste outcome with the route remainder, then subtracts tonne-kilometre transportation emissions.",
+    mipTitle: "Route environmental coefficient",
+    mipBody: "The route is credited only for food ultimately distributed. Food that is picked up but not distributed remains in the route-waste outcome.",
+    mipLines: ["Q is the synthetic daily bakery donation", "U is the bakery usability fraction", "Dₚ is the pantry distribution fraction", "uncollected bakery food is Q when no route is selected", "collected-but-undistributed food is Q − H after selection", "primary avoided-production substitution remains 0%"],
+    mipEquation: "H = Q × U × Dₚ; E = no-pickup waste − route waste − transport",
   },
   {
-    id: "assignment",
-    label: "4 · Joint assignment",
-    title: "Gurobi protects expected participation, then optimizes logistics quality.",
-    description: "The first solve maximizes expected completed pickups using each route’s modeled acceptance probability. The second maximizes pantry equity and logistics quality while preserving at least 99% of that expected-completion value.",
-    scoreTitle: "Hierarchical objectives",
-    scoreValue: "1. Expected completions  2. Quality",
-    scoreNote: "The 1% tolerance permits a small participation tradeoff when it materially improves equity, lifecycle climate benefit, travel burden, or preference fit",
-    mipTitle: "Network MIP",
-    mipBody: "Binary selections are coordinated across the decision epoch so a driver and bakery pickup occurrence cannot be assigned twice. Pantries remain able to receive multiple deliveries while open.",
-    mipLines: [
-      "at most one selected route per driver request",
-      "at most one selected route per bakery pickup occurrence",
-      "pantry windows are not treated as single-capacity resources",
-      "acceptance is a transparent synthetic behavioral estimate—not observed volunteer data",
-    ],
-    mipEquation: "① A* = max Σaᵣyᵣ   ② max Σqᵣyᵣ subject to Σaᵣyᵣ ≥ 0.99A*",
+    id: "participation",
+    label: "5 · Stage 1",
+    title: "First protect expected completion.",
+    description: "The model converts route burden into a transparent synthetic acceptance estimate, then maximizes expected completed pickups. This is a declared scenario assumption, not a trained prediction.",
+    mipTitle: "Participation objective",
+    mipBody: "Driving time plus normalized time-window and spatial misses reduce the estimate. A technically feasible but burdensome option can therefore lose the first stage.",
+    mipLines: ["drive minutes enter directly", "requested-time miss is divided by requested-window length", "start/destination misses are normalized among alternatives", "estimated probabilities are clipped to 2%–98%"],
+    mipEquation: "A* = max Σ aᵣyᵣ; aᵣ = σ(2.2 − .045 drive − 1.8 time miss − 1.1 spatial miss)",
   },
   {
-    id: "recommendations",
-    label: "5 · Recommendations",
-    title: "Fair, deconflicted route menus are offered to drivers.",
-    description: "For simultaneous drivers, Gurobi gives as many feasible drivers as possible one option before adding second choices. A bakery pickup is not shown in two active menus at once. The academic replay then selects the driver’s highest-scoring option.",
-    scoreTitle: "Recommendation policy",
-    scoreValue: "One each before extras",
-    scoreNote: "After a selection, rejection, or timeout, the next decision epoch is solved again",
-    mipTitle: "Menu allocation",
-    mipBody: "Each recommendation layer first maximizes the number of drivers receiving an option, then maximizes utility among those maximum-cardinality menus.",
-    mipLines: [
-      "no feasible driver is left at zero merely to give another driver extras",
-      "shared bakery occurrences are deconflicted",
-      "the simulator deterministically chooses rank #1",
-    ],
-    mipEquation: "per layer: ① max drivers served  ② max recommendation utility",
-  },
-];
-
-const fallbackDemoNodes: DemoNode[] = [
-  { id: "bakery-lena", label: "Lena's Bakery", type: "Bakery", short: "🥖", left: "21%", top: "56%", postalCode: "02458" },
-  { id: "bakery-harbor", label: "Harbor Bakes", type: "Bakery", short: "🥖", left: "32%", top: "28%", postalCode: "02113" },
-  { id: "pantry-moughan", label: "Moughan Food Pantry", type: "Pantry", short: "🥫", left: "72%", top: "41%", postalCode: "02458" },
-  { id: "pantry-north-end", label: "North End Pantry", type: "Pantry", short: "🥫", left: "76%", top: "21%", postalCode: "02113" },
-  { id: "pantry-roxbury", label: "Roxbury Pantry", type: "Pantry", short: "🥫", left: "58%", top: "72%", postalCode: "02119" },
-  { id: "driver-request", label: "Driver request", type: "Driver", short: "🚗", left: "46%", top: "62%" },
-  { id: "closed-bakery", label: "North Station Bakes", type: "Bakery", short: "🥖", left: "8%", top: "10%", postalCode: "02114", isClosed: true },
-  { id: "closed-pantry", label: "Harbor Shelf Pantry", type: "Pantry", short: "🥫", left: "93%", top: "90%", postalCode: "02128", isClosed: true },
-];
-
-const fallbackDemoRoutes: DemoRoute[] = [
-  {
-    id: "route-a", label: "A", bakery: "Lena's Bakery", pantry: "Moughan Food Pantry", drive: "3.2 mi", score: "17.0",
-    distanceMiles: 3.2, driverDistanceMiles: 0.8, driveMinutes: 18, priority: 0.82, servedOpportunities: 1, receivingOpportunities: 9,
-    originWaitMinutes: 123, requestedTimeDeviationMinutes: 0, requestedWindowMinutes: 30, requestedTimeDeviationRatio: 0,
-    originDeviationMiles: 0, destinationDeviationMiles: 0, normalizedOriginDeviation: 0, normalizedDestinationDeviation: 0, normalizedSpatialDeviation: 0,
-    departureLabel: "4:20 PM", pickupLabel: "4:32 PM", arrivalLabel: "4:45 PM", finishLabel: "4:50 PM",
-    points: "46,62 21,56 72,41", labelLeft: "48%", labelTop: "40%",
+    id: "objective",
+    label: "6 · Stage 2",
+    title: "Then balance food, fairness, climate, and driver fit.",
+    description: "Among solutions retaining at least 99% of A*, the model maximizes the current normalized 100-point objective. Every displayed component is bounded to [0,1] before its policy weight is applied.",
+    mipTitle: "Normalized secondary objective",
+    mipBody: "The one-driver trace still evaluates the same eight components used by a simultaneous network solve, including cumulative pantry food balance.",
+    mipLines: ["10 pantry coverage + 10 raw-food volume + 10 raw-food evenness", "10 saved-food volume + 10 saved-food evenness + 10 pantry priority", "20 normalized direct environmental benefit", "20 normalized driver fit"],
+    mipEquation: "Z₂ = 10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D",
   },
   {
-    id: "route-b", label: "B", bakery: "Harbor Bakes", pantry: "North End Pantry", drive: "4.8 mi", score: "5.1",
-    distanceMiles: 4.8, driverDistanceMiles: 1.6, driveMinutes: 22, priority: 0.72, servedOpportunities: 2, receivingOpportunities: 9,
-    originWaitMinutes: 128, requestedTimeDeviationMinutes: 5, requestedWindowMinutes: 30, requestedTimeDeviationRatio: 5 / 30,
-    originDeviationMiles: 0.8, destinationDeviationMiles: 0.4, normalizedOriginDeviation: 0.2, normalizedDestinationDeviation: 0.05, normalizedSpatialDeviation: 0.125,
-    departureLabel: "4:25 PM", pickupLabel: "4:42 PM", arrivalLabel: "5:00 PM", finishLabel: "5:05 PM",
-    points: "46,62 32,28 76,21", labelLeft: "60%", labelTop: "28%",
-  },
-  {
-    id: "route-d", label: "D", bakery: "Harbor Bakes", pantry: "Roxbury Pantry", drive: "5.6 mi", score: "-3.3",
-    distanceMiles: 5.6, driverDistanceMiles: 1.6, driveMinutes: 31, priority: 0.76, servedOpportunities: 1, receivingOpportunities: 7,
-    originWaitMinutes: 113, requestedTimeDeviationMinutes: 0, requestedWindowMinutes: 30, requestedTimeDeviationRatio: 0,
-    originDeviationMiles: 0.8, destinationDeviationMiles: 4.5, normalizedOriginDeviation: 0.2, normalizedDestinationDeviation: 0.56, normalizedSpatialDeviation: 0.38,
-    departureLabel: "4:10 PM", pickupLabel: "4:27 PM", arrivalLabel: "4:51 PM", finishLabel: "4:56 PM",
-    points: "46,62 32,28 58,72", labelLeft: "49%", labelTop: "54%",
-  },
-  {
-    id: "route-c", label: "C", bakery: "Lena's Bakery", pantry: "Roxbury Pantry", drive: "5.1 mi", score: "-15.2",
-    distanceMiles: 5.1, driverDistanceMiles: 0.8, driveMinutes: 25, priority: 0.60, servedOpportunities: 3, receivingOpportunities: 8,
-    originWaitMinutes: 118, requestedTimeDeviationMinutes: 15, requestedWindowMinutes: 30, requestedTimeDeviationRatio: 0.5,
-    originDeviationMiles: 0, destinationDeviationMiles: 5.2, normalizedOriginDeviation: 0, normalizedDestinationDeviation: 0.65, normalizedSpatialDeviation: 0.325,
-    departureLabel: "4:15 PM", pickupLabel: "4:27 PM", arrivalLabel: "5:10 PM", finishLabel: "5:15 PM",
-    points: "46,62 21,56 58,72", labelLeft: "44%", labelTop: "70%",
-  },
-  {
-    id: "route-e", label: "E", bakery: "Lena's Bakery", pantry: "North End Pantry", drive: "6.2 mi", score: "-15.5",
-    distanceMiles: 6.2, driverDistanceMiles: 0.8, driveMinutes: 28, priority: 0.55, servedOpportunities: 4, receivingOpportunities: 9,
-    originWaitMinutes: 108, requestedTimeDeviationMinutes: 12, requestedWindowMinutes: 30, requestedTimeDeviationRatio: 0.4,
-    originDeviationMiles: 0, destinationDeviationMiles: 2, normalizedOriginDeviation: 0, normalizedDestinationDeviation: 0.25, normalizedSpatialDeviation: 0.125,
-    departureLabel: "4:05 PM", pickupLabel: "4:17 PM", arrivalLabel: "5:07 PM", finishLabel: "5:12 PM",
-    points: "46,62 21,56 76,21", labelLeft: "55%", labelTop: "35%",
+    id: "selection",
+    label: "7 · Route selected",
+    title: "The binary solution becomes a timed recommendation.",
+    description: "The selected route preserves the first-stage participation target and has the strongest secondary objective among qualifying alternatives. Acceptance, rejection, or timeout creates another decision epoch.",
+    mipTitle: "Assignment constraints",
+    mipBody: "The full network model coordinates all simultaneous drivers. This focused trace holds the driver count at one so every candidate and selected outcome remain readable.",
+    mipLines: ["at most one route per driver request", "at most one route per physical driver", "at most one assignment per bakery pickup", "open pantry windows may receive multiple deliveries"],
+    mipEquation: "yᵣ ∈ {0,1}; selected route has yᵣ = 1",
   },
 ];
 
 const fallbackDemoData: DemoDataset = {
-  nodes: fallbackDemoNodes,
-  candidates: fallbackDemoRoutes,
-  highlightedRouteId: "route-a",
-  liveRouteLabel: "Lena's Bakery → Moughan Food Pantry",
-  liveRouteContext: "Illustrative timed solve using the current network map; schedules and the driver request are synthetic.",
+  status: "unavailable",
+  nodes: [],
+  candidates: [],
+  highlightedRouteId: null,
+  liveRouteLabel: "Waiting for the live partner feed",
+  liveRouteContext: "The walkthrough requires the current registered and validated partner network.",
+  databaseSnapshot: { bakeriesConsidered: 0, pantriesConsidered: 0, generatedCombinations: 0, feasibleCandidates: 0 },
   request: {
-    loginLabel: "2:17 PM",
-    preferredStartLabel: "4:30 PM",
-    preferredFinishLabel: "5:00 PM",
+    loginLabel: "—",
+    preferredStartLabel: "—",
+    preferredFinishLabel: "—",
     requestedWindowMinutes: 30,
     startLabel: "Requested start area",
-    startZipCode: "02458",
+    startZipCode: "—",
     startRadiusMiles: 2,
-    startLeft: "42%",
-    startTop: "62%",
+    startLeft: "40%",
+    startTop: "60%",
     destinationLabel: "Requested destination area",
-    destinationZipCode: "02458",
+    destinationZipCode: "—",
     destinationRadiusMiles: 2,
-    destinationLeft: "76%",
+    destinationLeft: "72%",
     destinationTop: "42%",
   },
 };
@@ -419,35 +343,40 @@ export default function Home() {
   const [network, setNetwork] = useState({ bakeries: 0, pantries: 0, drivers: 0, completedThisWeek: 0, completedTotal: 0, averagePantriesHelpedPerDay: 0 });
   const [demoStepIndex, setDemoStepIndex] = useState(0);
   const [demoData, setDemoData] = useState<DemoDataset>(fallbackDemoData);
+  const [demoStatus, setDemoStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const scrollToModel = () => document.getElementById("model")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const scrollToDemo = () => document.getElementById("live-demo")?.scrollIntoView({ behavior: "smooth", block: "start" });
   const activeDemoStep = demoSteps[demoStepIndex];
   const chosenRouteId = demoData.highlightedRouteId ?? demoData.candidates[0]?.id ?? null;
-  const activeNodeIds = activeDemoStep.id === "network"
-    ? demoData.nodes.map((node) => node.id)
-    : demoData.nodes.filter((node) => !node.isClosed).map((node) => node.id);
-  const activeRoutes = activeDemoStep.id === "network" || activeDemoStep.id === "feasibility"
+  const activeNodeIds = demoData.nodes.map((node) => node.id);
+  const activeRoutes = ["snapshot", "request"].includes(activeDemoStep.id)
     ? []
     : demoData.candidates.map((route) => route.id);
-  const networkNodeCount = demoData.nodes.length;
-  const eligibleNodeCount = demoData.nodes.filter((node) => !node.isClosed).length;
-  const scoredRouteCount = ["utility", "assignment", "recommendations"].includes(activeDemoStep.id)
-    ? demoData.candidates.length
-    : 0;
-  const selectedRouteCount = ["assignment", "recommendations"].includes(activeDemoStep.id) && chosenRouteId ? 1 : 0;
-  const activeFunnelMetric = activeDemoStep.id === "network"
+  const networkNodeCount = demoData.databaseSnapshot.bakeriesConsidered + demoData.databaseSnapshot.pantriesConsidered;
+  const generatedCombinationCount = demoData.databaseSnapshot.generatedCombinations;
+  const feasibleRouteCount = demoData.databaseSnapshot.feasibleCandidates;
+  const selectedRouteCount = activeDemoStep.id === "selection" && chosenRouteId ? 1 : 0;
+  const activeFunnelMetric = activeDemoStep.id === "snapshot"
     ? "network"
-    : activeDemoStep.id === "feasibility"
-      ? "eligible"
-      : activeDemoStep.id === "utility"
-        ? "scored"
-        : "selected";
+    : activeDemoStep.id === "request"
+      ? "generated"
+      : activeDemoStep.id === "selection"
+        ? "selected"
+        : "feasible";
 
   useEffect(() => {
     void fetch("/api/public/stats", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => { if (data) setNetwork(data); });
-    void fetch("/api/public/demo-network", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((data) => {
-      if (data?.nodes?.length && data?.candidates?.length) setDemoData(data);
-    });
+    void fetch("/api/public/demo-network", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Partner feed unavailable")))
+      .then((data: DemoDataset) => {
+        if (data.status === "ready" && data.nodes.length && data.candidates.length) {
+          setDemoData(data);
+          setDemoStatus("ready");
+          return;
+        }
+        setDemoStatus("unavailable");
+      })
+      .catch(() => setDemoStatus("unavailable"));
   }, []);
 
   return (
@@ -580,8 +509,8 @@ export default function Home() {
             </div>
             <div className="modelObjectiveStage">
               <small>Stage 2 · optimize sustainable quality</small>
-              <strong>maximize <b>Σ qᵣ yᵣ</b></strong>
-              <p>Subject to <b>Σ aᵣyᵣ ≥ 0.99A*</b>, choose the strongest equity, travel, lifecycle-environmental, and preference-fit portfolio.</p>
+              <strong>maximize <b>10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D</b></strong>
+              <p>Subject to <b>Σ aᵣyᵣ ≥ 0.99A*</b>, balance pantry reach, raw and ultimately saved food, distribution evenness, opportunity priority, direct environmental benefit, and driver fit.</p>
             </div>
             <div className="modelObjectiveWhy">
               <strong>Why use two stages?</strong>
@@ -593,19 +522,21 @@ export default function Home() {
               <p>This is an auditable scenario assumption—not a trained or validated behavioral model. Future pilot data can replace its coefficients.</p>
             </div>
             <div className="modelRouteUtility">
-              <small>Utility of route r</small>
-              <strong>qᵣ = 45Pᵣ − Dᵣ − 24Oᵣ − 18Sᵣ + 1.5Eᵣ</strong>
+              <small>Food and direct environmental accounting</small>
+              <strong>H = Q × U × Dₚ; E = no-pickup waste − route waste − transport</strong>
+              <p>Food that is collected but not ultimately distributed remains in route waste. Avoided-production substitution is fixed at zero in the primary objective.</p>
             </div>
           </div>
-          <p className="modelFactorIntro">The coefficients are policy weights, not percentages. Hard feasibility is enforced before scoring, so an attractive score can never override a closed window or missed deadline.</p>
+          <p className="modelFactorIntro">Every Stage-2 component is normalized to [0,1] before its policy weight is applied. Hard feasibility is enforced first, so an attractive score can never override a closed window or missed deadline.</p>
           <div className="modelFactorGrid">
             <div className="modelFactor"><strong>yᵣ · assignment</strong><p>A binary variable: 1 when complete timed route r is selected, otherwise 0.</p></div>
             <div className="modelFactor"><strong>aᵣ · modeled acceptance</strong><p>A synthetic probability based on driving burden and driver time/location fit. It converts an offered route into an estimate of whether the pickup is actually completed.</p></div>
-            <div className="modelFactor"><strong>Pᵣ · pantry priority</strong><p>Priority is <b>1 − (recent deliveries + 1) ÷ (recent receiving opportunities + 2)</b>. A pantry that was available but less often served receives more credit.</p></div>
-            <div className="modelFactor"><strong>Dᵣ · driving burden</strong><p>Total traffic-aware driving minutes from the driver’s origin to the bakery and from the bakery to the pantry.</p></div>
-            <div className="modelFactor"><strong>Oᵣ · requested-time deviation</strong><p>Minutes the route begins before or finishes after the preferred interval, divided by requested-window minutes. A miss therefore matters more when the driver gave a tight window.</p></div>
-            <div className="modelFactor"><strong>Sᵣ · requested-location deviation</strong><p>Distance outside the requested start and destination ZIP radii, normalized against the driver’s other feasible routes and averaged across supplied location preferences. Inside the area means zero penalty—not a bonus.</p></div>
-            <div className="modelFactor"><strong>Eᵣ · signed net lifecycle benefit</strong><p>First calculate net food-saving benefit: avoided food-production emissions plus avoided donor-disposal emissions, minus residual redistribution-waste emissions. Then subtract route transportation emissions in the same kg CO₂e unit. If the two sides are equal, Eᵣ is zero and climate does not change the score; a positive balance rewards the route and a negative balance penalizes it. This remains one weighted consideration—not a hard rule—so pantry equity and volunteer fit can still determine the system-optimal choice.</p></div>
+            <div className="modelFactor"><strong>C · pantry coverage · 10</strong><p>The share of available unique pantry identities served in the decision epoch.</p></div>
+            <div className="modelFactor"><strong>VQ + FQ · raw food · 10 + 10</strong><p>Selected raw bakery-food volume plus one minus normalized pairwise gaps in cumulative raw donations across pantries.</p></div>
+            <div className="modelFactor"><strong>VH + FH · saved food · 10 + 10</strong><p>Ultimately distributed food, where H = Q × U × Dₚ, plus cumulative saved-food evenness across pantries.</p></div>
+            <div className="modelFactor"><strong>P · opportunity priority · 10</strong><p>A pantry available but less often served receives more credit through its smoothed recent-opportunity history.</p></div>
+            <div className="modelFactor"><strong>E · direct environmental benefit · 20</strong><p>The bakery no-pickup waste result minus collected-but-undistributed route waste and tonne-kilometre transportation emissions, min–max normalized across candidates.</p></div>
+            <div className="modelFactor"><strong>D · driver fit · 20</strong><p>One minus the mean normalized drive-time, requested-window, and requested-area burdens.</p></div>
           </div>
           <div className="modelDetails">
             <div><strong>Planned departure</strong><p>Login time is the decision epoch, not a forced departure. The model schedules the latest feasible departure, so planned lead time at the origin is not penalized.</p></div>
@@ -629,10 +560,17 @@ export default function Home() {
         </div>
         <div className="demoSection" id="live-demo">
           <div className="demoIntro">
-            <span className="kicker light">LIVE MATCH WALKTHROUGH</span>
-            <h3>See a delivery get matched in five steps.</h3>
-            <p>{demoData.liveRouteContext} Step 1 captures the decision epoch and driver preferences. Step 2 removes routes that violate hard timing constraints. Step 3 calculates the exact unscaled route quality. Step 4 protects expected completed pickups before optimizing sustainable system quality, and Step 5 turns the joint solution into a conflict-free recommendation menu.</p>
+            <span className="kicker light">ONE-DRIVER MODEL TRACE</span>
+            <h3>Follow the complete routing model in seven steps.</h3>
+            <p>{demoData.liveRouteContext} Partner identities and coordinates come from the live database; the one-driver request, food realization, and decision epoch are synthetic and read-only.</p>
           </div>
+          {demoStatus !== "ready" ? (
+            <div className="demoUnavailable" role="status">
+              <span>{demoStatus === "loading" ? "CONNECTING TO PARTNER DATABASE" : "LIVE PARTNER FEED UNAVAILABLE"}</span>
+              <h4>{demoStatus === "loading" ? "Loading the current bakery and pantry network…" : "The model trace will return when the database is available."}</h4>
+              <p>No fictional organizations are substituted. The current Neon database quota must be restored before this database-backed demonstration can populate.</p>
+            </div>
+          ) : (<>
           <div className="demoStepTabs" role="tablist" aria-label="Optimization demo steps">
             {demoSteps.map((step, index) => (
               <button
@@ -664,18 +602,18 @@ export default function Home() {
                   </div>
                   <svg className="demoRoutesSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                     {demoData.candidates.filter((route) => activeRoutes.includes(route.id)).map((route) => {
-                      const isChosen = ["assignment", "recommendations"].includes(activeDemoStep.id) && chosenRouteId === route.id;
+                      const isChosen = activeDemoStep.id === "selection" && chosenRouteId === route.id;
                       const geometry = getDemoRouteGeometry(route);
                       return (
                         <path
                           key={route.id}
                           d={geometry.path}
                           vectorEffect="non-scaling-stroke"
-                          className={`${isChosen ? "chosen" : `candidate candidate${route.label}`} ${["assignment", "recommendations"].includes(activeDemoStep.id) && !isChosen ? "isDimmed" : ""}`}
+                          className={`${isChosen ? "chosen" : `candidate candidate${route.label}`} ${activeDemoStep.id === "selection" && !isChosen ? "isDimmed" : ""}`}
                         />
                       );
                     })}
-                    {(["utility", "assignment", "recommendations"].includes(activeDemoStep.id)
+                    {(["participation", "objective", "selection"].includes(activeDemoStep.id)
                       ? demoData.candidates.filter((route) => activeRoutes.includes(route.id))
                       : []
                     ).flatMap((route) => getSpatialDeviationLines(route, demoData.request).map((line) => (
@@ -695,12 +633,12 @@ export default function Home() {
                   {demoData.candidates
                     .filter((route) => activeRoutes.includes(route.id))
                     .map((route) => {
-                      const isChosen = ["assignment", "recommendations"].includes(activeDemoStep.id) && chosenRouteId === route.id;
+                      const isChosen = activeDemoStep.id === "selection" && chosenRouteId === route.id;
                       const geometry = getDemoRouteGeometry(route);
                       return (
                         <div
                           key={`${route.id}-badge`}
-                          className={`demoRouteBadge demoRouteBadge${route.label} ${isChosen ? "isChosen" : ""} ${["assignment", "recommendations"].includes(activeDemoStep.id) && !isChosen ? "isDimmed" : ""}`}
+                          className={`demoRouteBadge demoRouteBadge${route.label} ${isChosen ? "isChosen" : ""} ${activeDemoStep.id === "selection" && !isChosen ? "isDimmed" : ""}`}
                           style={{ left: geometry.badgeLeft, top: geometry.badgeTop }}
                           aria-hidden="true"
                         >
@@ -714,7 +652,7 @@ export default function Home() {
                     return (
                       <div
                         key={node.id}
-                        className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""} ${node.isClosed && activeDemoStep.id === "network" ? "isClosed" : ""} ${node.isClosed && activeDemoStep.id !== "network" ? "isHidden" : ""}`}
+                        className={`demoNode demoNode${node.type} ${activeNodeIds.includes(node.id) ? "isActive" : ""}`}
                         style={{ left: node.left, top: node.top }}
                         title={revealLabelOnHover ? node.label : undefined}
                       >
@@ -726,38 +664,47 @@ export default function Home() {
                         <span className="demoNodePin">{node.short}</span>
                         <div className={`demoNodeLabel ${revealLabelOnHover ? "demoNodeLabelHover" : ""}`}>
                           <strong>{node.label}</strong>
-                          <small>{node.type}{node.postalCode ? ` · ZIP ${node.postalCode}` : ""}</small>
+                          <small>{node.type}{node.postalCode ? ` · ZIP ${node.postalCode}` : ""}{node.eligibilityLabel ? ` · ${node.eligibilityLabel}` : ""}</small>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              {activeDemoStep.id === "utility" && (
+              {["accounting", "participation", "objective", "selection"].includes(activeDemoStep.id) && (
                 <div className="demoRouteScorePanel">
                   <div className="demoRouteScoreHeader">
-                    <span>Candidate routes · unscaled optimizer utility</span>
-                    <small>Higher is better; negative values are allowed and are not probabilities.</small>
+                    <span>{activeDemoStep.id === "accounting" ? "Candidate food and environmental outcomes" : activeDemoStep.id === "participation" ? "Stage 1 · expected completion" : activeDemoStep.id === "objective" ? "Stage 2 · normalized 100-point balance" : "Selected timed recommendation"}</span>
+                    <small>{activeDemoStep.id === "selection" ? "The selected route satisfies the 99% participation floor, then wins the secondary objective." : "The same feasible route columns flow into both ordered objectives."}</small>
                   </div>
                   <div className="demoRouteScoreGrid">
-                    {demoData.candidates.map((route) => {
-                      const utility = getDemoRouteUtility(route);
-                      return (
-                        <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label}`}>
+                    {demoData.candidates.map((route) => (
+                        <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label} ${activeDemoStep.id === "selection" && route.id === chosenRouteId ? "isSelected" : ""}`}>
                           <div className="demoRouteScoreTop">
                             <b>Route {route.label}</b>
-                            <strong>{utility.total.toFixed(1)}</strong>
+                            <strong>{activeDemoStep.id === "accounting" ? `${route.foodSavedKg.toFixed(1)} kg` : activeDemoStep.id === "participation" ? demoPercent(route.acceptanceProbability, 1) : route.secondaryObjectiveValue.toFixed(1)}</strong>
                           </div>
                           <p>{route.bakery} → {route.pantry}</p>
-                          <small className="demoRouteEquation">
-                            +{utility.priorityPoints.toFixed(1)} priority − {utility.drivePenalty.toFixed(1)} driving − {utility.timePenalty.toFixed(1)} time-window miss − {utility.spatialPenalty.toFixed(1)} location miss + {utility.environmentalReward.toFixed(1)} lifecycle benefit
-                          </small>
+                          {activeDemoStep.id === "accounting" && <>
+                            <small className="demoRouteEquation">H = {route.rawFoodKg.toFixed(1)} kg × {demoPercent(route.usableFraction, 1)} × {demoPercent(route.pantryDistributionFraction, 1)} = {route.foodSavedKg.toFixed(1)} kg ultimately distributed</small>
+                            <small className="demoRouteOperational">No pickup: {route.uncollectedFoodKg.toFixed(1)} kg bakery waste · completed route remainder: {route.collectedNotDistributedKg.toFixed(1)} kg · waste-pathway change: {(route.counterfactualWasteKgCO2e - route.routeWasteKgCO2e).toFixed(2)} kg CO₂e · transport: {route.transportKgCO2e.toFixed(2)} kg CO₂e · net: {route.netEnvironmentalBenefitKgCO2e.toFixed(2)} kg CO₂e</small>
+                          </>}
+                          {activeDemoStep.id === "participation" && <>
+                            <small className="demoRouteEquation">aᵣ = {demoPercent(route.acceptanceProbability, 1)} modeled acceptance</small>
+                            <small className="demoRouteOperational">{route.driveMinutes.toFixed(0)} drive min · {demoPercent(route.requestedTimeDeviationRatio)} requested-time miss · {demoPercent(route.normalizedSpatialDeviation)} normalized location miss · driver fit {demoPercent(route.driverFit, 1)}</small>
+                          </>}
+                          {activeDemoStep.id === "objective" && <div className="demoObjectiveBreakdown">
+                            {demoObjectiveParts.map((part) => <span key={part.key}><b>{part.short}</b>{(route.objectiveComponents[part.key] * part.weight).toFixed(1)} / {part.weight}</span>)}
+                          </div>}
+                          {activeDemoStep.id === "selection" && <>
+                            <small className="demoRouteEquation">{route.id === chosenRouteId ? "yᵣ = 1 · selected" : "yᵣ = 0 · not selected"} · Stage 2 {route.secondaryObjectiveValue.toFixed(1)} / 100</small>
+                            <small className="demoRouteOperational">Depart {route.departureLabel} → pickup {route.pickupLabel} → pantry {route.arrivalLabel} → finish {route.finishLabel}</small>
+                          </>}
                           <small className="demoRouteOperational">
-                            Depart {route.departureLabel} · {route.driveMinutes.toFixed(0)} drive min · {(route.requestedTimeDeviationRatio * 100).toFixed(0)}% outside requested time · {(route.normalizedSpatialDeviation * 100).toFixed(0)}% normalized spatial deviation · {utility.netEnvironmentalBenefitKgCO2e.toFixed(1)} kg CO₂e net benefit
+                            {route.distanceMiles.toFixed(1)} route mi · pantry priority {demoPercent(route.priority, 1)} · depart {route.departureLabel}
                           </small>
                         </div>
-                      );
-                    })}
+                    ))}
                   </div>
                 </div>
               )}
@@ -778,15 +725,15 @@ export default function Home() {
                   <div className="demoNetworkCounts">
                     <div className={`demoNetworkCount ${activeFunnelMetric === "network" ? "isCurrent" : ""}`}>
                       <strong>{networkNodeCount}</strong>
-                      <small>Network nodes</small>
+                      <small>Database partners</small>
                     </div>
-                    <div className={`demoNetworkCount ${activeFunnelMetric === "eligible" ? "isCurrent" : ""}`}>
-                      <strong>{activeDemoStep.id === "network" ? networkNodeCount : eligibleNodeCount}</strong>
-                      <small>Eligible nodes</small>
+                    <div className={`demoNetworkCount ${activeFunnelMetric === "generated" ? "isCurrent" : ""}`}>
+                      <strong>{generatedCombinationCount}</strong>
+                      <small>Generated pairs</small>
                     </div>
-                    <div className={`demoNetworkCount ${activeFunnelMetric === "scored" ? "isCurrent" : ""}`}>
-                      <strong>{scoredRouteCount}</strong>
-                      <small>Routes scored</small>
+                    <div className={`demoNetworkCount ${activeFunnelMetric === "feasible" ? "isCurrent" : ""}`}>
+                      <strong>{feasibleRouteCount}</strong>
+                      <small>Feasible columns</small>
                     </div>
                     <div className={`demoNetworkCount ${activeFunnelMetric === "selected" ? "isCurrent" : ""}`}>
                       <strong>{selectedRouteCount}</strong>
@@ -804,8 +751,8 @@ export default function Home() {
                 </ul>
                 <div className="demoMipMatrix" aria-label="assignment matrix preview">
                   {demoData.candidates.map((route) => {
-                    const active = ["assignment", "recommendations"].includes(activeDemoStep.id) && route.id === chosenRouteId;
-                    const eliminated = activeDemoStep.id === "feasibility" && route.id !== chosenRouteId;
+                    const active = activeDemoStep.id === "selection" && route.id === chosenRouteId;
+                    const eliminated = activeDemoStep.id === "selection" && route.id !== chosenRouteId;
                     return (
                       <div key={route.id} className={`demoMipMatrixRow ${active ? "isActive" : ""} ${eliminated ? "isDim" : ""}`}>
                         <span>{route.label}</span>
@@ -817,6 +764,7 @@ export default function Home() {
               </div>
             </div>
           </div>
+          </>)}
         </div>
       </section>
 
