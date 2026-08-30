@@ -46,13 +46,19 @@ The endpoint independently confirms that the organization has an active register
    `mode=network_assignments`.
 3. The optimizer downloads the version-2 network snapshot, expands eligible
    pantry windows, and builds every feasible driver–pickup–pantry candidate.
-4. Gurobi first maximizes assigned pickups and then maximizes pantry priority
-   and route quality, subject to driver/request and pickup uniqueness.
+4. Gurobi first maximizes expected completed pickups using the transparent
+   route-acceptance estimate. Among solutions within 1% of that optimum, it
+   maximizes the normalized 100-point balance of pantry coverage, raw-food
+   volume/evenness, ultimately distributed-food volume/evenness, opportunity
+   priority, direct environmental benefit, and driver fit.
 5. The optimizer returns selected assignments and solver diagnostics.
 6. The app persists offers and notifies the selected drivers.
 
 Driver browse/search recommendations use the same service and Gurobi-backed
 candidate scoring, but do not claim a pickup until a route is reserved.
+Simultaneous requests are solved together. Conflict-free menus are then built
+in rank layers so the number of drivers receiving a first option is maximized
+before second options are allocated.
 
 ## Main-app environment
 

@@ -1413,13 +1413,13 @@ export function SimulatorClient({ data }: Props) {
           <div className={styles.objectiveFormulaCard}>
             <div className={styles.objectiveStage}>
               <small>Stage 1 · protect expected completions</small>
-              <strong>A* = max Σ aᵣ yᵣ</strong>
+              <strong>A* = max Σ aᵣ xᵣ</strong>
               <p>Maximize the expected number of completed pickups, recognizing that a feasible offer is not equally attractive to every volunteer.</p>
             </div>
             <div className={styles.objectiveStage}>
               <small>Stage 2 · normalized 100-point balance</small>
               <strong>maximize 10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D</strong>
-              <p>Balance pantry reach, raw and saved-food volume/evenness, opportunity priority, net direct CO₂ benefit, and driver fit, subject to <b>Σ aᵣ yᵣ ≥ 0.99A*</b>.</p>
+              <p>Balance pantry reach, raw and saved-food volume/evenness, opportunity priority, net direct CO₂ benefit, and driver fit, subject to <b>Σ aᵣ xᵣ ≥ 0.99A*</b>.</p>
             </div>
             <div className={styles.objectiveWhy}>
               <strong>Why use two stages?</strong>
@@ -1438,7 +1438,7 @@ export function SimulatorClient({ data }: Props) {
           <div className={styles.objectiveTerms}>
             <h3>What every symbol contributes</h3>
             <dl>
-              <div><dt>yᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
+              <div><dt>xᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
               <div><dt>aᵣ · modeled acceptance</dt><dd><b>Stage-1 contribution.</b> A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It can later be recalibrated with observed pilot choices.</dd></div>
               <div><dt>C · pantry coverage</dt><dd><b>10 points.</b> Unique pantry identities served divided by those available.</dd></div>
               <div><dt>VQ and FQ · raw donations</dt><dd><b>10 + 10 points.</b> Selected bakery-food volume and one minus normalized pairwise gaps in cumulative raw donations.</dd></div>

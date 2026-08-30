@@ -254,28 +254,28 @@ const demoSteps: DemoStep[] = [
   {
     id: "request",
     label: "2 · Driver request",
-    title: "One driver creates a decision epoch.",
-    description: "The driver supplies a preferred interval and soft start/destination areas. Login is when the model receives the request—not when the driver must depart.",
+    title: "A driver request joins a rolling decision epoch.",
+    description: "The driver supplies a preferred interval and soft start/destination areas. Login is when the model receives the request—not when the driver must depart. Production solves all requests entering the same epoch together; this trace isolates one driver for readability.",
     mipTitle: "Synthetic driver input",
-    mipBody: "The demo creates one read-only request around the database network so the complete model path can be inspected without creating a production offer.",
-    mipLines: ["requested interval is at least 30 minutes", "start and destination radii are soft preferences", "a later just-in-time departure may be scheduled", "the outer search horizon remains a hard limit"],
+    mipBody: "The demo creates one read-only request around the database network so the route-generation and selection logic can be inspected without creating a production offer.",
+    mipLines: ["simultaneous production requests are optimized jointly", "requested interval is at least 30 minutes", "start and destination radii are soft preferences", "a later just-in-time departure may be scheduled", "the outer search horizon remains a hard limit"],
     mipEquation: "d = (login, preferred interval, origin area, destination area)",
   },
   {
     id: "feasibility",
     label: "3 · Candidate columns",
     title: "The model builds complete, feasible timelines.",
-    description: "Every driver–bakery–pantry combination is expanded into timed route columns. Combinations that cannot satisfy the operating windows are removed before any objective score is considered.",
+    description: "For every driver–bakery–pantry combination, the generator evaluates useful just-in-time departure breakpoints and retains its best complete timeline. Combinations that cannot satisfy hard operating constraints are removed before the MIP evaluates either objective.",
     mipTitle: "Timed route construction",
-    mipBody: "Each surviving binary alternative carries its own departure, pickup, pantry arrival, and finish. Five minutes are reserved at each facility.",
-    mipLines: ["departure cannot precede login", "pickup must meet the bakery deadline", "pantry arrival must meet the latest arrival", "the complete trip must fit the hard search horizon"],
-    mipEquation: "a = (d,b,p,tᵈᵉᵖ,tᵖⁱᶜᵏ,tᵃʳʳ,tᶠⁱⁿ); a ∈ A only when hard constraints hold",
+    mipBody: "Each surviving binary route column carries its own departure, pickup, pantry arrival, and finish. Five minutes are reserved at each facility.",
+    mipLines: ["departure cannot precede login", "pickup must meet the bakery deadline", "pantry arrival must meet the latest arrival", "the complete trip must fit the hard search horizon", "one best timed column is retained per driver–bakery–pantry combination"],
+    mipEquation: "r = (d,b,p,tᵈᵉᵖ,tᵖⁱᶜᵏ,tᵃʳʳ,tᶠⁱⁿ); r ∈ R only when hard constraints hold",
   },
   {
     id: "accounting",
     label: "4 · Food + CO₂e",
-    title: "Each feasible route gets explicit food and emissions accounting.",
-    description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery no-pickup waste outcome with the route remainder, then subtracts tonne-kilometre transportation emissions.",
+    title: "Each feasible route gets the same food and direct-CO₂e ledger.",
+    description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery's no-pickup waste outcome with collected-but-undistributed route waste, then subtracts tonne-kilometre transportation emissions.",
     mipTitle: "Route environmental coefficient",
     mipBody: "The route is credited only for food ultimately distributed. Food that is picked up but not distributed remains in the route-waste outcome.",
     mipLines: ["Q is the synthetic daily bakery donation", "U is the bakery usability fraction", "Dₚ is the pantry distribution fraction", "uncollected bakery food is Q when no route is selected", "collected-but-undistributed food is Q − H after selection", "primary avoided-production substitution remains 0%"],
@@ -289,7 +289,7 @@ const demoSteps: DemoStep[] = [
     mipTitle: "Participation objective",
     mipBody: "Driving time plus normalized time-window and spatial misses reduce the estimate. A technically feasible but burdensome option can therefore lose the first stage.",
     mipLines: ["drive minutes enter directly", "requested-time miss is divided by requested-window length", "start/destination misses are normalized among alternatives", "estimated probabilities are clipped to 2%–98%"],
-    mipEquation: "A* = max Σ aᵣyᵣ; aᵣ = σ(2.2 − .045 drive − 1.8 time miss − 1.1 spatial miss)",
+    mipEquation: "A* = max Σ aᵣxᵣ; aᵣ = σ(2.2 − .045 drive − 1.8 time miss − 1.1 spatial miss)",
   },
   {
     id: "objective",
@@ -304,12 +304,12 @@ const demoSteps: DemoStep[] = [
   {
     id: "selection",
     label: "7 · Route selected",
-    title: "The binary solution becomes a timed recommendation.",
-    description: "The selected route preserves the first-stage participation target and has the strongest secondary objective among qualifying alternatives. Acceptance, rejection, or timeout creates another decision epoch.",
+    title: "The binary solution becomes a timed, conflict-free recommendation.",
+    description: "The selected route preserves the first-stage participation target and has the strongest secondary objective among qualifying alternatives. Accepted assignments consume their bakery pickup; a rejection or timeout leaves it available for a later rolling solve.",
     mipTitle: "Assignment constraints",
-    mipBody: "The full network model coordinates all simultaneous drivers. This focused trace holds the driver count at one so every candidate and selected outcome remain readable.",
+    mipBody: "The full network model coordinates all simultaneous drivers. When choices are shown, menus are built one rank at a time so every driver gets a first conflict-free option before anyone gets a second. This trace holds the driver count at one so every candidate remains readable.",
     mipLines: ["at most one route per driver request", "at most one route per physical driver", "at most one assignment per bakery pickup", "open pantry windows may receive multiple deliveries"],
-    mipEquation: "yᵣ ∈ {0,1}; selected route has yᵣ = 1",
+    mipEquation: "xᵣ ∈ {0,1}; selected route has xᵣ = 1",
   },
 ];
 
@@ -489,7 +489,7 @@ export default function Home() {
         </div>
         <div className="steps">
           <div><span>01</span><div className="stepIcon">🥖</div><h3>Bakeries post surplus</h3><p>Pickup timing, confirmation status, and access details are added in under a minute.</p></div>
-          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>The MIP enforces partner windows, protects expected completed pickups, then balances pantry priority, driving, emissions, and driver time and location fit.</p></div>
+          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>The MIP enforces complete route timing, protects expected completed pickups, then balances pantry reach and priority, raw and distributed food, equity, direct CO₂e benefit, and driver fit.</p></div>
           <div><span>03</span><div className="stepIcon">🚙</div><h3>Neighbors drive the loop</h3><p>Volunteers claim a route and deliver food while it’s still fresh.</p></div>
         </div>
       </section>
@@ -500,17 +500,17 @@ export default function Home() {
           <h2>Less waste is<br />a solvable problem.</h2>
         </div>
         <div className="modelCopy">
-          <p>BakedBoston uses a Gurobi mixed-integer model to choose among complete, feasible driver–bakery–pantry plans. Each alternative includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload. The formulation is a research-informed academic prototype: operational constraints are explicit, while volunteer acceptance remains a transparent synthetic assumption until real participation data exists.</p>
+          <p>At each rolling decision epoch, BakedBoston uses a Gurobi mixed-integer model to choose jointly among complete, feasible driver–bakery–pantry plans. Each route column includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload. The formulation is a research-informed academic prototype: operational constraints are explicit, while volunteer acceptance remains a transparent synthetic assumption until real participation data exists.</p>
           <div className="modelObjective">
             <div className="modelObjectiveStage">
               <small>Stage 1 · protect participation</small>
-              <strong><b>A*</b> = max Σ aᵣyᵣ</strong>
+              <strong><b>A*</b> = max Σ aᵣxᵣ</strong>
               <p>Maximize expected completed pickups rather than counting every offered route as equally likely to happen.</p>
             </div>
             <div className="modelObjectiveStage">
               <small>Stage 2 · optimize sustainable quality</small>
               <strong>maximize <b>10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D</b></strong>
-              <p>Subject to <b>Σ aᵣyᵣ ≥ 0.99A*</b>, balance pantry reach, raw and ultimately saved food, distribution evenness, opportunity priority, direct environmental benefit, and driver fit.</p>
+              <p>Subject to <b>Σ aᵣxᵣ ≥ 0.99A*</b>, balance pantry reach, raw and ultimately distributed food, distribution evenness, opportunity priority, direct environmental benefit, and driver fit.</p>
             </div>
             <div className="modelObjectiveWhy">
               <strong>Why use two stages?</strong>
@@ -529,7 +529,7 @@ export default function Home() {
           </div>
           <p className="modelFactorIntro">Every Stage-2 component is normalized to [0,1] before its policy weight is applied. Hard feasibility is enforced first, so an attractive score can never override a closed window or missed deadline.</p>
           <div className="modelFactorGrid">
-            <div className="modelFactor"><strong>yᵣ · assignment</strong><p>A binary variable: 1 when complete timed route r is selected, otherwise 0.</p></div>
+            <div className="modelFactor"><strong>xᵣ · assignment</strong><p>A binary variable: 1 when complete timed route r is selected, otherwise 0.</p></div>
             <div className="modelFactor"><strong>aᵣ · modeled acceptance</strong><p>A synthetic probability based on driving burden and driver time/location fit. It converts an offered route into an estimate of whether the pickup is actually completed.</p></div>
             <div className="modelFactor"><strong>C · pantry coverage · 10</strong><p>The share of available unique pantry identities served in the decision epoch.</p></div>
             <div className="modelFactor"><strong>VQ + FQ · raw food · 10 + 10</strong><p>Selected raw bakery-food volume plus one minus normalized pairwise gaps in cumulative raw donations across pantries.</p></div>
@@ -541,7 +541,8 @@ export default function Home() {
           <div className="modelDetails">
             <div><strong>Planned departure</strong><p>Login time is the decision epoch, not a forced departure. The model schedules the latest feasible departure, so planned lead time at the origin is not penalized.</p></div>
             <div><strong>Hard constraints</strong><p>Confirmed partner windows, bakery pickup deadlines, pantry latest arrivals, full travel and service timing, at most one route per driver request, and at most one assignment per bakery pickup.</p></div>
-            <div><strong>Simultaneous drivers</strong><p>Recommendation menus are allocated with coverage-first fairness and then utility. Active menus never duplicate a bakery pickup, while pantries may receive more than one delivery.</p></div>
+            <div><strong>Simultaneous network solve</strong><p>All requests entering the same decision epoch are optimized jointly. Each request, physical driver, and bakery pickup can appear in at most one selected assignment; an open pantry may receive multiple deliveries.</p></div>
+            <div><strong>Layered route menus</strong><p>Conflict-free options are allocated by rank: maximize how many drivers receive recommendation #1 before allocating recommendation #2, then optimize route utility within each layer.</p></div>
             <div><strong>What remains soft</strong><p>Requested time and ZIP areas influence utility and modeled acceptance. A route may fall outside them and still be recommended when it is feasible and comparatively strong.</p></div>
           </div>
           <div className="modelResearch">
@@ -552,17 +553,17 @@ export default function Home() {
               <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equity in food rescue ↗</strong><span>Rey, Almi’ani, and Nair show why routing efficiency and fair agency service must be considered together.</span></a>
               <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Volunteer route menus ↗</strong><span>Horner, Pazour, and Mitchell optimize menu-style assignments for occasional drivers rather than assuming a fixed fleet.</span></a>
               <a href="https://doi.org/10.1016/j.trb.2011.07.010" target="_blank" rel="noreferrer"><strong>Sustainable routing ↗</strong><span>The pollution-routing literature motivates including distance and environmental consequences alongside service performance.</span></a>
-              <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution lifecycle assessment ↗</strong><span>Guo et al. assess global warming, acidification, eutrophication, energy demand, and water use. Their results show why the modeled climate benefit must combine avoided production and disposal with transport and residual-waste burdens—and why food usability can matter more than distance.</span></a>
+              <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution lifecycle assessment ↗</strong><span>Guo et al. assess global warming, acidification, eutrophication, energy demand, and water use. Their results motivate the model’s food-quality, redistribution-loss, disposal-pathway, and transport accounting. The primary score conservatively sets avoided-production substitution to zero.</span></a>
             </div>
           </div>
-          <ul><li>Mixed-integer assignment and routing</li><li>Time-window and service-mode feasibility</li><li>Pantry priority based on recent receiving opportunities</li><li>Traffic-aware route estimates</li><li>Lifecycle climate accounting</li><li>Broader environmental-impact reporting roadmap</li><li>Driver route-request matching</li></ul>
+          <ul><li>Rolling-horizon joint decision epochs</li><li>Complete timed route-column generation</li><li>Hard pickup, receiving, and service feasibility</li><li>Lexicographic expected-completion and balanced-impact objectives</li><li>Opportunity-based pantry priority and cumulative food equity</li><li>Direct waste-pathway and transport CO₂e accounting</li><li>Conflict-free, coverage-first driver route menus</li><li>Soft requested-time and ZIP-area matching</li></ul>
           <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
         </div>
         <div className="demoSection" id="live-demo">
           <div className="demoIntro">
-            <span className="kicker light">ONE-DRIVER MODEL TRACE</span>
-            <h3>Follow the complete routing model in seven steps.</h3>
-            <p>{demoData.liveRouteContext} Partner identities and coordinates come from the live database; the one-driver request, food realization, and decision epoch are synthetic and read-only.</p>
+            <span className="kicker light">DATABASE-BACKED ONE-DRIVER MODEL TRACE</span>
+            <h3>Follow the current routing logic in seven auditable steps.</h3>
+            <p>{demoData.liveRouteContext} Partner identities and coordinates come from the live database; the driver request, food realization, and decision epoch are synthetic and read-only. This explanatory trace applies the current route accounting and two-stage selection logic without creating an offer; the production service solves simultaneous requests jointly with Gurobi.</p>
           </div>
           {demoStatus !== "ready" ? (
             <div className="demoUnavailable" role="status">
@@ -697,7 +698,7 @@ export default function Home() {
                             {demoObjectiveParts.map((part) => <span key={part.key}><b>{part.short}</b>{(route.objectiveComponents[part.key] * part.weight).toFixed(1)} / {part.weight}</span>)}
                           </div>}
                           {activeDemoStep.id === "selection" && <>
-                            <small className="demoRouteEquation">{route.id === chosenRouteId ? "yᵣ = 1 · selected" : "yᵣ = 0 · not selected"} · Stage 2 {route.secondaryObjectiveValue.toFixed(1)} / 100</small>
+                            <small className="demoRouteEquation">{route.id === chosenRouteId ? "xᵣ = 1 · selected" : "xᵣ = 0 · not selected"} · Stage 2 {route.secondaryObjectiveValue.toFixed(1)} / 100</small>
                             <small className="demoRouteOperational">Depart {route.departureLabel} → pickup {route.pickupLabel} → pantry {route.arrivalLabel} → finish {route.finishLabel}</small>
                           </>}
                           <small className="demoRouteOperational">
