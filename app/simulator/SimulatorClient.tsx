@@ -300,6 +300,12 @@ const impactPillars = [
   { key: "impactEfficiencyScore", methodologyKey: "efficiency" },
 ] as const;
 
+const comparisonPaperUrls: Record<string, string> = {
+  nair_2018_distance_first: "https://doi.org/10.1016/j.seps.2017.06.003",
+  xue_zou_2025_total_curb: "https://doi.org/10.1016/j.clscn.2025.100253",
+  horner_2021_slsf_noz: "https://doi.org/10.1016/j.tre.2021.102419",
+};
+
 const metricGroups: MetricGroup[] = [
   {
     title: "Pickup service and pantry reach",
@@ -614,7 +620,6 @@ export function SimulatorClient({ data }: Props) {
           <a href="#replay">Replay</a>
           <a href="#comparison">Comparison</a>
           <a href="#methodology">Methodology</a>
-          <a href="#institutions">Institution inputs</a>
           <a href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">
             GitHub ↗
           </a>
@@ -1312,29 +1317,39 @@ export function SimulatorClient({ data }: Props) {
         </section>
 
         <div className={styles.policyCards}>
-          {payload.results.map((result) => (
-            <article className={result.policy === "bakedboston_mip" ? styles.primaryPolicyCard : ""} key={`policy-${result.policy}`}>
-              <span>{result.policy === "bakedboston_mip" ? "OPTIMIZATION POLICY" : "COMPARISON POLICY"}</span>
-              <h3>{payload.policyMetadata[result.policy]?.label ?? result.policy}</h3>
-              <p>{payload.policyMetadata[result.policy]?.description}</p>
-              <p className={styles.policyDetail}><strong>Objective:</strong> {payload.policyMetadata[result.policy]?.objective}</p>
-              <p className={styles.policyDetail}><strong>Driver selection:</strong> {payload.policyMetadata[result.policy]?.selectionDescription}</p>
-              {result.policy === "horner_2021_slsf_noz" ? (
-                <p className={styles.policyTrace}>
-                  <strong>Observed menu trace:</strong>{" "}
-                  {numeric(result.metrics.averageMenuSize, 2)} options per driver on average ·{" "}
-                  {numeric(result.metrics.menuOptionsOffered, 0)} total menu options ·{" "}
-                  {numeric(result.metrics.unhappyDrivers, 0)} willing drivers without a final assignment.
-                </p>
-              ) : null}
-              {payload.policyMetadata[result.policy]?.inputsExcluded?.length ? (
-                <p className={styles.policyBoundary}>
-                  <strong>Not used to choose its routes:</strong>{" "}
-                  {payload.policyMetadata[result.policy]?.inputsExcluded?.join(", ")}.
-                </p>
-              ) : null}
-            </article>
-          ))}
+          {payload.results.map((result) => {
+            const paperUrl = comparisonPaperUrls[result.policy];
+            const label = payload.policyMetadata[result.policy]?.label ?? result.policy;
+            return (
+              <article className={result.policy === "bakedboston_mip" ? styles.primaryPolicyCard : ""} key={`policy-${result.policy}`}>
+                <span>{result.policy === "bakedboston_mip" ? "OPTIMIZATION POLICY" : "COMPARISON POLICY"}</span>
+                <h3>
+                  {paperUrl ? (
+                    <a className={styles.paperLink} href={paperUrl} target="_blank" rel="noreferrer" aria-label={`${label} original paper`}>
+                      {label} ↗
+                    </a>
+                  ) : label}
+                </h3>
+                <p>{payload.policyMetadata[result.policy]?.description}</p>
+                <p className={styles.policyDetail}><strong>Objective:</strong> {payload.policyMetadata[result.policy]?.objective}</p>
+                <p className={styles.policyDetail}><strong>Driver selection:</strong> {payload.policyMetadata[result.policy]?.selectionDescription}</p>
+                {result.policy === "horner_2021_slsf_noz" ? (
+                  <p className={styles.policyTrace}>
+                    <strong>Observed menu trace:</strong>{" "}
+                    {numeric(result.metrics.averageMenuSize, 2)} options per driver on average ·{" "}
+                    {numeric(result.metrics.menuOptionsOffered, 0)} total menu options ·{" "}
+                    {numeric(result.metrics.unhappyDrivers, 0)} willing drivers without a final assignment.
+                  </p>
+                ) : null}
+                {payload.policyMetadata[result.policy]?.inputsExcluded?.length ? (
+                  <p className={styles.policyBoundary}>
+                    <strong>Not used to choose its routes:</strong>{" "}
+                    {payload.policyMetadata[result.policy]?.inputsExcluded?.join(", ")}.
+                  </p>
+                ) : null}
+              </article>
+            );
+          })}
         </div>
 
         <details className={styles.metricAudit}>
@@ -1454,7 +1469,8 @@ export function SimulatorClient({ data }: Props) {
           Stage 1 computes A*. Stage 2 optimizes eight components normalized to [0,1] while preserving at least 99% of A*. Food-evenness terms use cumulative pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
-          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all Q to bakery waste; a completed route contributes Q − H to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from Guo et al. (2026), not a Boston-calibrated inventory.
+          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all Q to bakery waste; a completed route contributes Q − H to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from{" "}
+          <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer">Guo et al. (2026) ↗</a>, not a Boston-calibrated inventory.
         </p>
         <p className={styles.githubInputsNote}>
           The complete fixed bakery, pantry, distribution, waste-allocation, and environmental-coefficient tables are maintained with the model source in the{" "}
@@ -1470,7 +1486,7 @@ export function SimulatorClient({ data }: Props) {
             <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Allocation and routing with perishability and time constraints.</span></a>
             <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equitable food rescue ↗</strong><span>Balancing operational efficiency with fair service across agencies.</span></a>
             <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Occasional-driver menus ↗</strong><span>Offering coordinated route choices to volunteers instead of assuming a fixed fleet.</span></a>
-            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline ↗</strong><span>Guo et al. motivate food-quality, distribution-loss, waste-pathway, and transport accounting.</span></a>
+            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline · Guo et al. (2026) ↗</strong><span>Motivates food-quality, distribution-loss, waste-pathway, and transport accounting.</span></a>
           </div>
         </div>
       </section>

@@ -287,6 +287,7 @@
 .objectiveTerms dd { margin: 0; color: #526a60; line-height: 1.55; }
 .objectiveTerms dd b { color: var(--green); }
 .formulaNote { max-width: 1180px; margin: 34px 0 0; padding-top: 28px; border-top: 1px solid rgba(255,255,255,.2); color: #bed0c8; line-height: 1.7; }
+.formulaNote a { color: white; font-weight: 800; text-underline-offset: 3px; }
 .githubInputsNote { max-width: 900px; margin: 16px 0 0; color: #bed0c8; line-height: 1.6; }
 .githubInputsNote a { color: white; font-weight: 800; text-underline-offset: 3px; }
 .researchFoundation { margin-top: 42px; padding-top: 34px; display: grid; grid-template-columns: minmax(230px,.7fr) minmax(0,1.5fr); gap: clamp(28px,4vw,60px); border-top: 1px solid rgba(255,255,255,.2); }
@@ -332,6 +333,8 @@
 .policyCards article { padding: 17px; border: 1px solid var(--line); border-radius: 16px; background: white; }
 .policyCards article > span { color: #85978f; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
 .policyCards h3 { margin: 8px 0 5px; font-size: 18px; }
+.paperLink { color: inherit; text-underline-offset: 3px; }
+.paperLink:hover { color: var(--orange); }
 .policyCards p { margin: 0; color: #74887f; font-size: 12px; line-height: 1.45; }
 .policyCards .policyDetail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); color: #536b61; }
 .policyCards .policyBoundary { margin-top: 8px; color: #7d6b46; }
