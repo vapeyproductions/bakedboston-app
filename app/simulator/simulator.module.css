@@ -308,6 +308,26 @@
 .objectiveEvidence { padding: 17px; display: grid; border-radius: 16px; color: white; background: var(--green); }
 .objectiveEvidence span, .objectiveEvidence small { color: #bed0c8; }
 .objectiveEvidence strong { margin: 3px 0; font-size: 32px; }
+.impactSummary { margin: 0 0 34px; padding: clamp(20px, 3vw, 30px); border: 1px solid #cad9d0; border-radius: 24px; background: #eff6f0; }
+.impactHeading { margin-bottom: 18px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .42fr); gap: 20px; align-items: center; }
+.impactHeading h3 { margin: 4px 0 7px; color: var(--green); font: 800 clamp(27px, 3vw, 40px)/1.05 Georgia, serif; }
+.impactHeading p { max-width: 760px; margin: 0; color: #5f756b; line-height: 1.55; }
+.impactLeader { padding: 16px; display: grid; border-radius: 16px; color: white; background: var(--green); }
+.impactLeader span, .impactLeader small { color: #bed0c8; }
+.impactLeader strong { margin: 5px 0; font-size: 18px; line-height: 1.2; }
+.impactCards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.impactCards article { padding: 17px; border: 1px solid #d4dfd8; border-radius: 17px; background: white; }
+.impactCards .impactWinner { border: 2px solid var(--orange); background: #fff7e7; box-shadow: 0 10px 28px rgba(224, 88, 51, .09); }
+.impactScoreHeader { margin-bottom: 13px; display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.impactScoreHeader span { color: #7c9087; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.impactScoreHeader h4 { margin: 5px 0 0; color: var(--green); font-size: 18px; }
+.impactScoreHeader > strong { color: var(--orange); font-size: 34px; line-height: 1; white-space: nowrap; }
+.impactScoreHeader > strong small { margin-left: 2px; color: #87978f; font-size: 12px; }
+.pillarGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.pillarGrid div { min-width: 0; padding: 9px; display: grid; gap: 3px; border-radius: 10px; background: #eef4ef; }
+.pillarGrid span { overflow: hidden; color: #6d8178; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.pillarGrid strong { color: var(--green); font-size: 16px; }
+.impactCaveat { margin: 15px 0 0; color: #6c8077; font-size: 11px; line-height: 1.55; }
 .policyCards { margin-bottom: 34px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .policyCards article { padding: 17px; border: 1px solid var(--line); border-radius: 16px; background: white; }
 .policyCards article > span { color: #85978f; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
@@ -318,6 +338,12 @@
 .policyCards .policyTrace { margin-top: 8px; padding: 10px; border-radius: 10px; color: #31584a; background: #e8f2eb; }
 .policyCards .primaryPolicyCard { border: 2px solid var(--orange); background: #fff4df; }
 .policyCards .primaryPolicyCard > span { color: var(--orange); }
+.metricAudit { margin-top: 2px; border: 1px solid var(--line); border-radius: 19px; background: white; }
+.metricAudit > summary { padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: var(--green); cursor: pointer; font-size: 17px; font-weight: 900; list-style-position: inside; }
+.metricAudit > summary small { color: #778b82; font-size: 11px; font-weight: 500; text-align: right; }
+.metricAudit[open] > summary { border-bottom: 1px solid var(--line); }
+.metricAuditBody { padding: 22px; }
+.metricAuditBody > p { max-width: 920px; margin: 0 0 24px; color: #697d74; line-height: 1.55; }
 .metricGroups { display: grid; gap: 26px; }
 .metricGroup { min-width: 0; }
 .metricGroupHeading { margin: 0 0 10px; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
@@ -408,9 +434,14 @@
   .comparisonTable { overflow-x: auto; }
   .comparisonHeader, .comparisonRow { min-width: 790px; }
   .tradeoffCallout { grid-template-columns: 1fr; }
+  .impactHeading { grid-template-columns: 1fr; }
   .policyCards { grid-template-columns: 1fr; }
   .metricGroupHeading { align-items: flex-start; flex-direction: column; }
   .metricGroupHeading p { text-align: left; }
+  .impactCards { grid-template-columns: 1fr; }
+  .pillarGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metricAudit > summary { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .metricAudit > summary small { text-align: left; }
   .experimentScale { grid-template-columns: repeat(2, 1fr); }
   .footer { flex-direction: column; }
 }

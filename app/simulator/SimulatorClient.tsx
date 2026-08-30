@@ -208,6 +208,13 @@ type SimulationPayload = {
     acceptanceModel: string;
     comparison: string;
   };
+  totalImpactMethodology?: {
+    label: string;
+    description: string;
+    weightPerPillar: number;
+    pillars: Record<string, { label: string; description: string }>;
+    caveat: string;
+  };
   results: PolicyResult[];
 };
 
@@ -284,10 +291,19 @@ type MetricGroup = {
   metrics: MetricDefinition[];
 };
 
+const impactPillars = [
+  { key: "impactServiceScore", methodologyKey: "service" },
+  { key: "impactFoodScore", methodologyKey: "food" },
+  { key: "impactEnvironmentScore", methodologyKey: "environment" },
+  { key: "impactEquityScore", methodologyKey: "equity" },
+  { key: "impactVolunteerScore", methodologyKey: "volunteer" },
+  { key: "impactEfficiencyScore", methodologyKey: "efficiency" },
+] as const;
+
 const metricGroups: MetricGroup[] = [
   {
     title: "Pickup service and pantry reach",
-    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for all three models.",
+    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for all four models.",
     metrics: [
       { key: "bakeryPickupCoverage", label: "Bakery pickup coverage", explanation: "Eligible food-ready pickup occurrences completed.", direction: "higher", format: (value) => percent(value) },
       { key: "completedDeliveries", label: "Completed deliveries", explanation: "Successful bakery-to-pantry deliveries.", direction: "higher", format: (value) => numeric(value, 0) },
@@ -417,6 +433,18 @@ export function SimulatorClient({ data }: Props) {
     () => mip.days.reduce((total, item) => total + item.driverRequests, 0),
     [mip.days],
   );
+
+  const totalImpactLeader = useMemo(() => {
+    const scored = payload.results.filter(
+      (result) => typeof result.metrics.totalImpactScore === "number",
+    );
+    if (!scored.length) return null;
+    return scored.reduce((best, result) =>
+      Number(result.metrics.totalImpactScore) > Number(best.metrics.totalImpactScore)
+        ? result
+        : best,
+    );
+  }, [payload.results]);
 
   const pickupWindowsByBakery = useMemo(() => {
     const windows = new Map<string, PickupWindow[]>();
@@ -686,7 +714,7 @@ export function SimulatorClient({ data }: Props) {
           </p>
         </div>
         <aside className={styles.heroCard}>
-          <span>{resultMode === "saved" ? "SAVED EXAMPLE" : "CUSTOM RUN"}</span>
+          <span>{resultMode === "saved" ? "ILLUSTRATIVE SAVED EXAMPLE" : "CUSTOM RUN"}</span>
           <strong>{payload.scenario.horizonDays} days</strong>
           <p>Up to {payload.scenario.driversPerDay} synthetic drivers per day</p>
           <p>{payload.scenario.bakeryCount ?? payload.network.bakeries.length} bakeries · {payload.scenario.pantryCount ?? payload.network.pantries.length} pantries</p>
@@ -1209,7 +1237,7 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>MODEL COMPARISON</p>
-            <h2>One realized scenario, four different formulations</h2>
+            <h2>{resultMode === "saved" ? "One illustrative scenario, four different formulations" : "One custom scenario, four different formulations"}</h2>
           </div>
           <p>All four models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
         </div>
@@ -1232,6 +1260,56 @@ export function SimulatorClient({ data }: Props) {
             <small>Seed {payload.scenario.seed} · identical events</small>
           </div>
         </div>
+
+        <section className={styles.impactSummary} aria-labelledby="total-impact-heading">
+          <div className={styles.impactHeading}>
+            <div>
+              <p className={styles.panelLabel}>SIX NON-DUPLICATED OUTCOME PILLARS</p>
+              <h3 id="total-impact-heading">{payload.totalImpactMethodology?.label ?? "Balanced Total Impact"}</h3>
+              <p>
+                {payload.totalImpactMethodology?.description ??
+                  "An equal-weight summary of service, food, environment, equity, volunteer fit, and route efficiency."}
+              </p>
+            </div>
+            <div className={styles.impactLeader}>
+              <span>Highest balanced impact</span>
+              <strong>{totalImpactLeader ? payload.policyMetadata[totalImpactLeader.policy]?.label ?? totalImpactLeader.policy : "—"}</strong>
+              <small>{numeric(totalImpactLeader?.metrics.totalImpactScore, 1)} / 100 in this scenario</small>
+            </div>
+          </div>
+
+          <div className={styles.impactCards}>
+            {payload.results.map((result) => {
+              const isLeader = result.policy === totalImpactLeader?.policy;
+              return (
+                <article className={isLeader ? styles.impactWinner : ""} key={`impact-${result.policy}`}>
+                  <div className={styles.impactScoreHeader}>
+                    <div>
+                      <span>{isLeader ? "BEST BALANCED RESULT" : "TOTAL IMPACT"}</span>
+                      <h4>{payload.policyMetadata[result.policy]?.label ?? result.policy}</h4>
+                    </div>
+                    <strong>{numeric(result.metrics.totalImpactScore, 1)}<small>/100</small></strong>
+                  </div>
+                  <div className={styles.pillarGrid}>
+                    {impactPillars.map((pillar) => {
+                      const methodology = payload.totalImpactMethodology?.pillars[pillar.methodologyKey];
+                      return (
+                        <div key={`${result.policy}-${pillar.key}`} title={methodology?.description}>
+                          <span>{methodology?.label ?? pillar.methodologyKey}</span>
+                          <strong>{numeric(result.metrics[pillar.key], 1)}</strong>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <p className={styles.impactCaveat}>
+            {payload.totalImpactMethodology?.caveat ??
+              "This scenario-relative communication index is not used by any optimizer. Detailed measurements remain the auditable result."}
+          </p>
+        </section>
 
         <div className={styles.policyCards}>
           {payload.results.map((result) => (
@@ -1259,33 +1337,46 @@ export function SimulatorClient({ data }: Props) {
           ))}
         </div>
 
-        <div className={styles.metricGroups}>
-          {metricGroups.map((group) => (
-            <section className={styles.metricGroup} key={group.title}>
-              <div className={styles.metricGroupHeading}>
-                <h3>{group.title}</h3>
-                <p>{group.description}</p>
-              </div>
-              <div className={styles.metricTable} role="table" aria-label={`${group.title} policy comparison`}>
-                <div className={styles.metricHeader} role="row">
-                  <span>Measure</span>
-                  {payload.results.map((result) => <span key={`header-${group.title}-${result.policy}`}>{payload.policyMetadata[result.policy]?.label ?? result.policy}</span>)}
-                </div>
-                {group.metrics.map((metric) => (
-                  <div className={styles.metricRow} role="row" key={metric.key}>
-                    <div><strong>{metric.label}</strong><small>{metric.explanation}</small></div>
-                    {payload.results.map((result) => (
-                      <span className={metricWinner(metric, result) ? styles.bestMetric : ""} key={`${metric.key}-${result.policy}`}>
-                        {metric.format(result.metrics[metric.key], result)}
-                        {metricWinner(metric, result) ? <small>best</small> : null}
-                      </span>
+        <details className={styles.metricAudit}>
+          <summary>
+            <span>Audit the detailed outcome metrics</span>
+            <small>Food, waste, emissions, fairness, distance, and driver diagnostics</small>
+          </summary>
+          <div className={styles.metricAuditBody}>
+            <p>
+              These measurements remain separate for auditability. Related rows should not be counted as independent
+              model victories: food recovery and waste are complements, while several emissions and travel rows are components
+              of the same underlying outcome.
+            </p>
+            <div className={styles.metricGroups}>
+              {metricGroups.map((group) => (
+                <section className={styles.metricGroup} key={group.title}>
+                  <div className={styles.metricGroupHeading}>
+                    <h3>{group.title}</h3>
+                    <p>{group.description}</p>
+                  </div>
+                  <div className={styles.metricTable} role="table" aria-label={`${group.title} policy comparison`}>
+                    <div className={styles.metricHeader} role="row">
+                      <span>Measure</span>
+                      {payload.results.map((result) => <span key={`header-${group.title}-${result.policy}`}>{payload.policyMetadata[result.policy]?.label ?? result.policy}</span>)}
+                    </div>
+                    {group.metrics.map((metric) => (
+                      <div className={styles.metricRow} role="row" key={metric.key}>
+                        <div><strong>{metric.label}</strong><small>{metric.explanation}</small></div>
+                        {payload.results.map((result) => (
+                          <span className={metricWinner(metric, result) ? styles.bestMetric : ""} key={`${metric.key}-${result.policy}`}>
+                            {metric.format(result.metrics[metric.key], result)}
+                            {metricWinner(metric, result) ? <small>best</small> : null}
+                          </span>
+                        ))}
+                      </div>
                     ))}
                   </div>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </details>
 
         <div className={styles.methodologyNote}>
           <h3>How to interpret the comparison</h3>
@@ -1296,6 +1387,14 @@ export function SimulatorClient({ data }: Props) {
           <p>{payload.metricMethodology?.actualSelection ?? "Every simulated driver selects rank #1."}</p>
           <p>{payload.metricMethodology?.acceptanceModel}</p>
           <p>{payload.metricMethodology?.comparison}</p>
+          <p><strong>Balanced Total Impact:</strong> {payload.totalImpactMethodology?.caveat}</p>
+          {resultMode === "saved" ? (
+            <p>
+              Seed {payload.scenario.seed} is an illustrative balanced-tradeoff walkthrough in which all four policies
+              complete the same number of deliveries. It is not presented as proof of average performance; multi-seed
+              sensitivity analysis is the appropriate general comparison.
+            </p>
+          ) : null}
           <div className={styles.experimentScale}>
             <div><strong>{payload.network.bakeries.length}</strong><span>bakeries</span></div>
             <div><strong>{payload.network.pantries.length}</strong><span>pantries</span></div>

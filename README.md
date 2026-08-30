@@ -46,7 +46,12 @@ environmental coefficients live with the optimizer source in
 instead of being duplicated on the website. The comparison panels evaluate
 BakedBoston, Nair distance-first, Xue–Zou Total-Curb, and Horner stochastic-menu
 policies on the same seeded scenario. The simulator does not create or change
-live organization records.
+live organization records. The saved walkthrough uses illustrative seed 2033.
+Its comparison begins with a six-pillar Balanced Total Impact index covering
+completed service, food recovery, net environmental benefit, distribution
+equity, volunteer fit, and route efficiency. The index is a scenario-relative
+communication aid rather than an optimizer input; the detailed physical and
+fairness metrics remain available in an expandable audit section.
 
 ## Native app
 
