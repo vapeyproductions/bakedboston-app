@@ -26,23 +26,30 @@
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  color: var(--green);
-  font-size: 24px;
-  font-weight: 900;
+  gap: 11px;
+  color: #163d2d;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
   text-decoration: none;
 }
 
+.brand > span:last-child {
+  font-family: Georgia, serif;
+  font-size: 25px;
+}
+
 .logo {
-  width: 48px;
-  height: 48px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 17px 24px 24px 17px;
+  border-radius: 50% 50% 50% 7px;
   color: white;
-  background: var(--orange);
+  background: #ef6548;
+  transform: rotate(-8deg);
   font-family: Georgia, serif;
-  font-size: 28px;
+  font-size: 23px;
 }
 
 .nav { display: flex; align-items: center; gap: 24px; }
