@@ -54,7 +54,10 @@ that driver.
 The page documents the complete objective—including why modeled acceptance
 scales impact instead of imposing a 99%-of-best cutoff—and reports route food saved as bakery
 food × bakery usability × pantry distribution. It tracks bakery food not picked
-up and collected food not ultimately distributed. Fixed institution inputs and
+up and separates completed-route residual into bakery-unusable food under that
+bakery's landfill/pig-farm/compost mix and pantry-undistributed food under that
+pantry's fixed landfill/pig-farm mix. Pantry allocations are unique, sum to
+100%, and assign 0% to compost. Fixed institution inputs and
 environmental coefficients live with the optimizer source in
 [`docs/institutions.md`](https://github.com/vapeyproductions/bakedboston-optimizer/blob/main/docs/institutions.md)
 instead of being duplicated on the website. The comparison panels evaluate

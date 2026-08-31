@@ -67,6 +67,12 @@ type DemoRoute = {
   pantryDistributionFraction: number;
   foodSavedKg: number;
   collectedNotDistributedKg: number;
+  bakeryUnusableFoodKg: number;
+  pantryUndistributedFoodKg: number;
+  pantryLandfillFraction: number;
+  pantryPigFarmFraction: number;
+  bakeryRouteWasteKgCO2e: number;
+  pantryRouteWasteKgCO2e: number;
   uncollectedFoodKg: number;
   counterfactualWasteKgCO2e: number;
   routeWasteKgCO2e: number;
@@ -290,11 +296,11 @@ const demoSteps: DemoStep[] = [
     id: "accounting",
     label: "4 · Food + CO₂e",
     title: "Each feasible route gets the same food and direct-CO₂e ledger.",
-    description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery's no-pickup waste outcome with collected-but-undistributed route waste, then subtracts tonne-kilometre transportation emissions.",
+    description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery's no-pickup waste outcome with separate bakery-unusable and pantry-undistributed route waste, then subtracts tonne-kilometre transportation emissions.",
     mipTitle: "Route environmental coefficient",
-    mipBody: "The route is credited only for food ultimately distributed. Food that is picked up but not distributed remains in the route-waste outcome.",
-    mipLines: ["qᵣ is the synthetic daily bakery donation", "ηᵦ is the bakery usability fraction", "δₚ is the pantry distribution fraction", "uncollected bakery food is qᵣ when no route is selected", "collected-but-undistributed food is qᵣ − hᵣ after selection", "primary avoided-production substitution remains 0%"],
-    mipEquation: "hᵣ = qᵣ · ηᵦ · δₚ; γᵣ = avoided waste CO₂e − transport CO₂e",
+    mipBody: "The route is credited only for food ultimately distributed. The unusable bakery fraction remains bakery-side waste, and the pantry's undistributed fraction remains pantry-side waste.",
+    mipLines: ["qᵣ is the synthetic daily bakery donation", "ηᵦ is the bakery usability fraction", "δₚ is the pantry distribution fraction", "qᵣ(1−ηᵦ) follows the bakery landfill/pig/compost mix", "qᵣηᵦ(1−δₚ) follows the pantry landfill/pig mix", "primary avoided-production substitution remains 0%"],
+    mipEquation: "hᵣ=qᵣηᵦδₚ; γᵣ=qᵣeᵦ−[qᵣ(1−ηᵦ)eᵦ+qᵣηᵦ(1−δₚ)eₚ]−Tᵣ",
   },
   {
     id: "participation",
@@ -541,8 +547,8 @@ export default function Home() {
             </div>
             <div className="modelRouteUtility">
               <small>Food and direct environmental accounting</small>
-              <strong>hᵣ = qᵣ · ηᵦ · δₚ;&nbsp; γᵣ = avoided waste CO₂e − transport CO₂e</strong>
-              <p>Food that is collected but not ultimately distributed remains in route waste. Avoided-production substitution is fixed at zero in the primary objective.</p>
+              <strong>hᵣ=qᵣηᵦδₚ;&nbsp; γᵣ=qᵣeᵦ−[qᵣ(1−ηᵦ)eᵦ+qᵣηᵦ(1−δₚ)eₚ]−Tᵣ</strong>
+              <p>Bakery-unusable food follows that bakery&apos;s landfill/pig-farm/compost mix. Pantry-undistributed food follows that pantry&apos;s unique landfill/pig-farm mix; pantry compost is zero.</p>
             </div>
           </div>
           <p className="modelFactorIntro"><b>ω = (10, 10, 10, 10, 10, 10, 20, 20)ᵀ</b>. Every component in φᵣ is normalized to [0,1] before the policy weight is applied, and route contributions are adjusted by πᵣ. Hard feasibility is enforced first, so an attractive score can never override a closed window or missed deadline.</p>
@@ -553,7 +559,7 @@ export default function Home() {
             <div className="modelFactor"><strong>νᵣʳᵃʷ + εᵣʳᵃʷ · raw food · 10 + 10</strong><p>Acceptance-weighted raw bakery-food volume plus evenness calculated from cumulative expected raw donations.</p></div>
             <div className="modelFactor"><strong>νᵣˢᵃᵛᵉᵈ + εᵣˢᵃᵛᵉᵈ · saved food · 10 + 10</strong><p>Acceptance-weighted ultimately distributed food, where hᵣ = qᵣ · ηᵦ · δₚ, plus cumulative expected saved-food evenness.</p></div>
             <div className="modelFactor"><strong>ρᵣ · opportunity priority · 10</strong><p>A pantry available but less often served receives more acceptance-adjusted credit through its smoothed recent-opportunity history.</p></div>
-            <div className="modelFactor"><strong>γᵣ · direct environmental benefit · 20</strong><p>The acceptance-weighted bakery no-pickup waste result minus collected-but-undistributed route waste and tonne-kilometre transportation emissions, min–max normalized across candidates.</p></div>
+            <div className="modelFactor"><strong>γᵣ · direct environmental benefit · 20</strong><p>The acceptance-weighted bakery no-pickup result minus bakery-unusable waste, pantry-undistributed waste, and usable-cargo tonne-kilometre transportation emissions, min–max normalized across candidates.</p></div>
             <div className="modelFactor"><strong>χᵣ · driver fit · 20</strong><p>Acceptance-weighted fit: one minus the mean normalized drive-time, requested-window, and requested-area burdens.</p></div>
           </div>
           <div className="modelDetails">
@@ -729,7 +735,7 @@ export default function Home() {
                           <p>{route.bakery} → {route.pantry}</p>
                           {activeDemoStep.id === "accounting" && <>
                             <small className="demoRouteEquation">hᵣ = {route.rawFoodKg.toFixed(1)} kg × {demoPercent(route.usableFraction, 1)} × {demoPercent(route.pantryDistributionFraction, 1)} = {route.foodSavedKg.toFixed(1)} kg ultimately distributed</small>
-                            <small className="demoRouteOperational">No pickup: {route.uncollectedFoodKg.toFixed(1)} kg bakery waste · completed route remainder: {route.collectedNotDistributedKg.toFixed(1)} kg · waste-pathway change: {(route.counterfactualWasteKgCO2e - route.routeWasteKgCO2e).toFixed(2)} kg CO₂e · transport: {route.transportKgCO2e.toFixed(2)} kg CO₂e · net: {route.netEnvironmentalBenefitKgCO2e.toFixed(2)} kg CO₂e</small>
+                            <small className="demoRouteOperational">No pickup: {route.uncollectedFoodKg.toFixed(1)} kg at bakery · completed route: {route.bakeryUnusableFoodKg.toFixed(1)} kg bakery-side + {route.pantryUndistributedFoodKg.toFixed(1)} kg pantry-side · pantry mix {demoPercent(route.pantryLandfillFraction)} landfill / {demoPercent(route.pantryPigFarmFraction)} pig farm · waste-pathway change: {(route.counterfactualWasteKgCO2e - route.routeWasteKgCO2e).toFixed(2)} kg CO₂e · transport: {route.transportKgCO2e.toFixed(2)} kg CO₂e · net: {route.netEnvironmentalBenefitKgCO2e.toFixed(2)} kg CO₂e</small>
                           </>}
                           {activeDemoStep.id === "participation" && <>
                             <small className="demoRouteEquation">πᵣ = {demoPercent(route.acceptanceProbability, 1)} modeled completion likelihood</small>

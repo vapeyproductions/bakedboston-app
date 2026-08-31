@@ -39,6 +39,12 @@ type RouteOption = {
   pantryDistributionFraction?: number;
   foodSavedKg?: number;
   collectedNotDistributedKg?: number;
+  bakeryUnusableFoodKg?: number;
+  pantryUndistributedFoodKg?: number;
+  bakeryRouteWasteKgCO2e?: number;
+  pantryRouteWasteKgCO2e?: number;
+  pantryLandfillFraction?: number;
+  pantryPigFarmFraction?: number;
   netEnvironmentalBenefitKgCO2e?: number;
   totalTripMinutes: number;
   driverStart: Coordinate;
@@ -152,6 +158,11 @@ type NetworkNode = Coordinate & {
   name: string;
   kind: "bakery" | "pantry";
   schedule: Record<string, unknown>;
+  wasteAllocation?: {
+    landfill: number;
+    pig_farm: number;
+    compost: number;
+  };
 };
 
 type SimulationPayload = {
@@ -326,12 +337,12 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Food recovery and waste",
-    description: "Recovered food always uses qᵣ × bakery usability × pantry distribution; waste combines uncollected bakery food with food not ultimately distributed after collection.",
+    description: "Recovered food always uses qᵣ × bakery usability × pantry distribution. Completed-route residual is split into bakery-unusable food and pantry-undistributed food.",
     metrics: [
       { key: "foodSavedKg", label: "Food recovered", explanation: "Selected route food × bakery usability × pantry distribution fraction.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "foodWastedKg", label: "Food wasted", explanation: "Uncollected bakery food plus collected food not ultimately distributed.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "foodWastedKg", label: "Food wasted", explanation: "Uncollected bakery food plus both completed-route residual streams.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
       { key: "uncollectedBakeryFoodKg", label: "Not picked up", explanation: "Food at available bakery occurrences with no completed delivery.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "collectedNotDistributedKg", label: "Collected, not distributed", explanation: "Collected bakery food minus ultimately recovered food.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "collectedNotDistributedKg", label: "Completed-route residual", explanation: "Bakery-unusable food plus pantry-undistributed food on completed deliveries.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
     ],
   },
   {
@@ -1139,6 +1150,9 @@ export function SimulatorClient({ data }: Props) {
                       ?? 30;
                     const outsideWindowRatio = route.requestedTimeDeviationRatio
                       ?? route.requestedTimeDeviationMinutes / requestedWindowMinutes;
+                    const pantryWasteAllocation = payload.network.pantries.find(
+                      (pantry) => pantry.name === route.pantryName,
+                    )?.wasteAllocation;
 
                     return (
                     <article className={`${styles.routeCard} ${route.selected ? styles.selectedRoute : ""}`} key={`${route.pickupId}-${route.pantryWindowId}`}>
@@ -1194,7 +1208,15 @@ export function SimulatorClient({ data }: Props) {
                               Food saved {numeric(route.foodSavedKg, 1)} kg = bakery food × {percent(route.bakeryUsableFraction, 1)} usability × {percent(route.pantryDistributionFraction, 1)} pantry distribution
                             </span>
                           ) : null}
-                          {route.collectedNotDistributedKg !== undefined ? <span>Collected but not ultimately distributed {numeric(route.collectedNotDistributedKg, 1)} kg</span> : null}
+                          {route.bakeryUnusableFoodKg !== undefined ? (
+                            <span>Bakery-unusable residual {numeric(route.bakeryUnusableFoodKg, 1)} kg · {numeric(route.bakeryRouteWasteKgCO2e, 2)} kg CO₂e under the bakery mix</span>
+                          ) : null}
+                          {route.pantryUndistributedFoodKg !== undefined ? (
+                            <span>Pantry-undistributed residual {numeric(route.pantryUndistributedFoodKg, 1)} kg · {numeric(route.pantryRouteWasteKgCO2e, 2)} kg CO₂e</span>
+                          ) : null}
+                          {pantryWasteAllocation ? (
+                            <span>Pantry-undistributed food: {percent(pantryWasteAllocation.landfill)} landfill / {percent(pantryWasteAllocation.pig_farm)} pig farm / 0% compost</span>
+                          ) : null}
                         </div>
                       </div>
                       <div className={styles.routeScore}>
@@ -1447,7 +1469,8 @@ export function SimulatorClient({ data }: Props) {
             </div>
             <div className={styles.formula}>
               <span>Food saved:</span><strong>hᵣ = qᵣ · ηᵦ · δₚ</strong>
-              <span>Route remainder:</span><strong>uᵣ = qᵣ − hᵣ</strong>
+              <span>Bakery-side waste:</span><strong>wᵣᴮ = qᵣ(1 − ηᵦ)eᵦ</strong>
+              <span>Pantry-side waste:</span><strong>wᵣᴾ = qᵣηᵦ(1 − δₚ)eₚ</strong>
             </div>
           </div>
           <div className={styles.objectiveTerms}>
@@ -1462,6 +1485,7 @@ export function SimulatorClient({ data }: Props) {
               <div><dt>γᵣ · net direct CO₂ benefit</dt><dd><b>20 points.</b> Acceptance-weighted route net benefits are min–max normalized within the epoch and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
               <div><dt>χᵣ · driver fit</dt><dd><b>20 points.</b> Acceptance-weighted fit based on normalized drive-time, requested-window, and requested-area burdens.</dd></div>
               <div><dt>qᵣ, ηᵦ, and δₚ</dt><dd>qᵣ and ηᵦ are reproducible daily draws from each bakery&apos;s fixed triangular distributions. δₚ is a fixed pantry distribution fraction.</dd></div>
+              <div><dt>eᵦ and eₚ</dt><dd>eᵦ combines that bakery&apos;s landfill/pig-farm/compost shares. eₚ combines that pantry&apos;s unique landfill/pig-farm shares; pantry compost is always 0%.</dd></div>
             </dl>
           </div>
         </div>
@@ -1469,7 +1493,7 @@ export function SimulatorClient({ data }: Props) {
           The optimizer maximizes all eight normalized components together after acceptance-adjusting route contributions; it does not impose a 99%-of-best-acceptance constraint. Food-evenness terms use cumulative expected pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
-          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all qᵣ to bakery waste; a completed route contributes qᵣ − hᵣ to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from{" "}
+          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all qᵣ under the bakery waste mix. On a completed route, qᵣ(1−ηᵦ) follows that bakery&apos;s landfill/pig-farm/compost mix, while qᵣηᵦ(1−δₚ) follows the destination pantry&apos;s unique landfill/pig-farm mix. Pantry compost is 0%, and transport uses 0.41947 kg CO₂e per tonne-km of usable cargo. These are academic assumptions adapted from{" "}
           <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer">Guo et al. (2026) ↗</a>, not a Boston-calibrated inventory.
         </p>
         <p className={styles.githubInputsNote}>

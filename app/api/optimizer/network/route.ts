@@ -2,6 +2,7 @@ import { timingSafeEqual } from "crypto";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { availabilityPauses, availabilityWindows, bakeries, bakeryPickupOccurrences, driverAccounts, driverRideRequests, inAppNotifications, pantries, partnerAccounts, rescueRoutes, routeOffers, scheduleExceptions } from "../../../../db/schema";
+import { fixedPantryWasteAllocations } from "../../../../lib/academicEnvironment";
 
 function authorized(request: Request) {
   const expected = process.env.OPTIMIZER_API_KEY ?? "";
@@ -49,6 +50,7 @@ export async function GET(request: Request) {
   const registeredPantries = new Set(accounts.filter((account) => account.organizationType === "pantry").map((account) => account.organizationId));
   const operationalBakeries = bakeryRows.filter((bakery) => registeredBakeries.has(bakery.id));
   const operationalPantries = pantryRows.filter((pantry) => registeredPantries.has(pantry.id));
+  const pantryWasteAllocations = fixedPantryWasteAllocations(operationalPantries.map((pantry) => pantry.id));
   const operationalWindows = windows.filter((window) => window.organizationType === "bakery" ? registeredBakeries.has(window.organizationId) : registeredPantries.has(window.organizationId));
   const operationalPauses = pauses.filter((pause) => pause.organizationType === "bakery" ? registeredBakeries.has(pause.organizationId) : registeredPantries.has(pause.organizationId));
   const operationalExceptions = exceptions.filter((exception) => exception.organizationType === "bakery" ? registeredBakeries.has(exception.organizationId) : registeredPantries.has(exception.organizationId));
@@ -88,6 +90,7 @@ export async function GET(request: Request) {
       latestPermittedArrival: pantry.latestArrival,
       serviceModes: pantry.serviceModes,
       deliveriesSevenDays: pantry.deliveriesSevenDays,
+      wasteAllocation: pantryWasteAllocations.get(pantry.id),
     })),
     availabilityWindows: operationalWindows,
     availabilityPauses: operationalPauses,
