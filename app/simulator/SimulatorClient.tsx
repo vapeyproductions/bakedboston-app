@@ -326,7 +326,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Food recovery and waste",
-    description: "Recovered food always uses Q × bakery usability × pantry distribution; waste combines uncollected bakery food with food not ultimately distributed after collection.",
+    description: "Recovered food always uses qᵣ × bakery usability × pantry distribution; waste combines uncollected bakery food with food not ultimately distributed after collection.",
     metrics: [
       { key: "foodSavedKg", label: "Food recovered", explanation: "Selected route food × bakery usability × pantry distribution fraction.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
       { key: "foodWastedKg", label: "Food wasted", explanation: "Uncollected bakery food plus collected food not ultimately distributed.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
@@ -1427,41 +1427,41 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.objectiveExplainer}>
           <div className={styles.objectiveFormulaCard}>
             <div className={styles.objectiveStage}>
-              <small>One objective · acceptance-adjusted expected impact</small>
-              <strong>maximize 10Cᴱ + 10VQᴱ + 10FQᴱ + 10VHᴱ + 10FHᴱ + 10Pᴱ + 20Eᴱ + 20Dᴱ</strong>
-              <p>Route contributions and cumulative pantry food totals are weighted by modeled completion probability before the food, fairness, environmental, pantry-priority, and driver-fit terms are combined.</p>
+              <small>Simultaneous network objective</small>
+              <strong>maximize Φ(x) = ωᵀψ(x; π), &nbsp;x ∈ 𝒳</strong>
+              <p>The feasible assignment x maximizes one acceptance-adjusted network feature vector ψ containing the food, fairness, environmental, pantry-priority, and driver-fit terms.</p>
             </div>
             <div className={styles.objectiveStage}>
               <small>Single-driver interpretation</small>
-              <strong>Zᵣᴱ = aᵣ × Iᵣ</strong>
-              <p>A route&apos;s acceptance probability multiplies its completed-impact score. An 80% route therefore does not automatically eliminate a 78% route with materially greater food or environmental value.</p>
+              <strong>r★ = arg max &#123; πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) &#125;</strong>
+              <p>Among driver d&apos;s feasible routes, completion likelihood πᵣ multiplies completed-impact value ωᵀφᵣ. An 80% route therefore does not automatically eliminate a 78% route with materially greater food or environmental value.</p>
             </div>
             <div className={styles.objectiveWhy}>
               <strong>Why one objective?</strong>
               <p>The sigmoid remains consequential, but its synthetic precision cannot veto almost every alternative. The optimizer chooses the feasible plan with the strongest overall expected result.</p>
             </div>
             <div className={styles.acceptanceFormula}>
-              <small>Synthetic route-acceptance estimate</small>
-              <strong>aᵣ = sigmoid(2.2 − 0.045Dᵣ − 1.8Oᵣ − 1.1Sᵣ)</strong>
-              <p>This is an explicit academic scenario assumption—not a trained or validated prediction of volunteer behavior.</p>
+              <small>Synthetic completion-likelihood estimate</small>
+              <strong>πᵣ = σ(2.2 − 0.045mᵣ − 1.8wᵣ − 1.1sᵣ)</strong>
+              <p>mᵣ is drive time; wᵣ and sᵣ are normalized requested-time and requested-area misses. This is an academic scenario assumption—not a trained prediction.</p>
             </div>
             <div className={styles.formula}>
-              <span>Food saved:</span><strong>Hᵦₚd = Qᵦd × Uᵦd × Dₚ</strong>
-              <span>Route remainder:</span><strong>Wᵦₚd = Qᵦd − Hᵦₚd</strong>
+              <span>Food saved:</span><strong>hᵣ = qᵣ · ηᵦ · δₚ</strong>
+              <span>Route remainder:</span><strong>uᵣ = qᵣ − hᵣ</strong>
             </div>
           </div>
           <div className={styles.objectiveTerms}>
             <h3>What every symbol contributes</h3>
             <dl>
               <div><dt>xᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
-              <div><dt>aᵣ · modeled acceptance</dt><dd>A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It scales impact and can later be recalibrated with observed pilot choices.</dd></div>
-              <div><dt>Cᴱ · expected pantry coverage</dt><dd><b>10 points.</b> Acceptance-adjusted coverage credit divided by available pantry identities and capped once per pantry.</dd></div>
-              <div><dt>VQᴱ and FQᴱ · raw donations</dt><dd><b>10 + 10 points.</b> Acceptance-weighted bakery-food volume and evenness calculated from cumulative expected raw donations.</dd></div>
-              <div><dt>VHᴱ and FHᴱ · food saved</dt><dd><b>10 + 10 points.</b> Acceptance-weighted ultimate food saved and cumulative expected saved-food evenness. H = Q × U × D.</dd></div>
-              <div><dt>Pᴱ · pantry priority</dt><dd><b>10 points.</b> Acceptance-weighted opportunity-history priority, normalized by the epoch&apos;s maximum feasible assignment count.</dd></div>
-              <div><dt>Eᴱ · net direct CO₂ benefit</dt><dd><b>20 points.</b> Acceptance-weighted route net benefits are min–max normalized within the epoch and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
-              <div><dt>Dᴱ · driver fit</dt><dd><b>20 points.</b> Acceptance-weighted fit based on normalized drive-time, requested-window, and requested-area burdens.</dd></div>
-              <div><dt>Q, U, and Dₚ</dt><dd>Q and U are reproducible daily draws from each bakery&apos;s fixed triangular distributions. Dₚ is a fixed pantry distribution fraction.</dd></div>
+              <div><dt>πᵣ · completion likelihood</dt><dd>A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It scales impact and can later be recalibrated with observed pilot choices.</dd></div>
+              <div><dt>κᵣ · pantry coverage</dt><dd><b>10 points.</b> Acceptance-adjusted coverage credit divided by available pantry identities and capped once per pantry.</dd></div>
+              <div><dt>νᵣʳᵃʷ and εᵣʳᵃʷ · raw donations</dt><dd><b>10 + 10 points.</b> Acceptance-weighted bakery-food volume and evenness calculated from cumulative expected raw donations.</dd></div>
+              <div><dt>νᵣˢᵃᵛᵉᵈ and εᵣˢᵃᵛᵉᵈ · food saved</dt><dd><b>10 + 10 points.</b> Acceptance-weighted ultimate food saved and cumulative expected saved-food evenness. hᵣ = qᵣ · ηᵦ · δₚ.</dd></div>
+              <div><dt>ρᵣ · pantry priority</dt><dd><b>10 points.</b> Acceptance-weighted opportunity-history priority, normalized by the epoch&apos;s maximum feasible assignment count.</dd></div>
+              <div><dt>γᵣ · net direct CO₂ benefit</dt><dd><b>20 points.</b> Acceptance-weighted route net benefits are min–max normalized within the epoch and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
+              <div><dt>χᵣ · driver fit</dt><dd><b>20 points.</b> Acceptance-weighted fit based on normalized drive-time, requested-window, and requested-area burdens.</dd></div>
+              <div><dt>qᵣ, ηᵦ, and δₚ</dt><dd>qᵣ and ηᵦ are reproducible daily draws from each bakery&apos;s fixed triangular distributions. δₚ is a fixed pantry distribution fraction.</dd></div>
             </dl>
           </div>
         </div>
@@ -1469,7 +1469,7 @@ export function SimulatorClient({ data }: Props) {
           The optimizer maximizes all eight normalized components together after acceptance-adjusting route contributions; it does not impose a 99%-of-best-acceptance constraint. Food-evenness terms use cumulative expected pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
-          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all Q to bakery waste; a completed route contributes Q − H to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from{" "}
+          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all qᵣ to bakery waste; a completed route contributes qᵣ − hᵣ to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from{" "}
           <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer">Guo et al. (2026) ↗</a>, not a Boston-calibrated inventory.
         </p>
         <p className={styles.githubInputsNote}>

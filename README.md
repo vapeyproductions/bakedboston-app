@@ -24,6 +24,19 @@ driver fit. Each driver and bakery
 pickup can be assigned at most once, while open pantries may receive multiple
 deliveries.
 
+For one driver, the public explanation writes the same objective compactly as
+
+```text
+r★ = arg max { πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) }
+```
+
+Here `ℛ(d)` is the hard-feasible route set, `πᵣ` is modeled completion
+likelihood, `ω = (10,10,10,10,10,10,20,20)ᵀ` is the policy-weight vector, and
+`φᵣ = (κᵣ, νᵣʳᵃʷ, εᵣʳᵃʷ, νᵣˢᵃᵛᵉᵈ, εᵣˢᵃᵛᵉᵈ, ρᵣ, γᵣ, χᵣ)ᵀ` contains pantry
+coverage, raw volume/evenness, saved volume/evenness, pantry priority, direct
+environmental benefit, and driver fit. This is a notation change only; the
+implemented objective, weights, and constraints are unchanged.
+
 See [`docs/optimizer-integration.md`](docs/optimizer-integration.md) for the
 service contract, environment variables, licensing boundary, and production
 verification checklist.

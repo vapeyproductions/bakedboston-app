@@ -41,6 +41,7 @@ type DemoObjectiveComponents = {
 type DemoRoute = {
   id: string;
   label: string;
+  symbol: string;
   bakery: string;
   pantry: string;
   drive: string;
@@ -235,14 +236,14 @@ function getSpatialDeviationLines(route: DemoRoute, request: DemoRequest) {
 const demoPercent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`;
 
 const demoObjectiveParts: Array<{ key: keyof DemoObjectiveComponents; short: string; weight: number }> = [
-  { key: "pantryCoverage", short: "C", weight: 10 },
-  { key: "rawFoodVolume", short: "VQ", weight: 10 },
-  { key: "rawFoodEvenness", short: "FQ", weight: 10 },
-  { key: "savedFoodVolume", short: "VH", weight: 10 },
-  { key: "savedFoodEvenness", short: "FH", weight: 10 },
-  { key: "pantryPriority", short: "P", weight: 10 },
-  { key: "environmentalBenefit", short: "E", weight: 20 },
-  { key: "driverFit", short: "D", weight: 20 },
+  { key: "pantryCoverage", short: "κ", weight: 10 },
+  { key: "rawFoodVolume", short: "νʳᵃʷ", weight: 10 },
+  { key: "rawFoodEvenness", short: "εʳᵃʷ", weight: 10 },
+  { key: "savedFoodVolume", short: "νˢᵃᵛᵉᵈ", weight: 10 },
+  { key: "savedFoodEvenness", short: "εˢᵃᵛᵉᵈ", weight: 10 },
+  { key: "pantryPriority", short: "ρ", weight: 10 },
+  { key: "environmentalBenefit", short: "γ", weight: 20 },
+  { key: "driverFit", short: "χ", weight: 20 },
 ];
 
 const pins = [
@@ -292,8 +293,8 @@ const demoSteps: DemoStep[] = [
     description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery's no-pickup waste outcome with collected-but-undistributed route waste, then subtracts tonne-kilometre transportation emissions.",
     mipTitle: "Route environmental coefficient",
     mipBody: "The route is credited only for food ultimately distributed. Food that is picked up but not distributed remains in the route-waste outcome.",
-    mipLines: ["Q is the synthetic daily bakery donation", "U is the bakery usability fraction", "Dₚ is the pantry distribution fraction", "uncollected bakery food is Q when no route is selected", "collected-but-undistributed food is Q − H after selection", "primary avoided-production substitution remains 0%"],
-    mipEquation: "H = Q × U × Dₚ; E = no-pickup waste − route waste − transport",
+    mipLines: ["qᵣ is the synthetic daily bakery donation", "ηᵦ is the bakery usability fraction", "δₚ is the pantry distribution fraction", "uncollected bakery food is qᵣ when no route is selected", "collected-but-undistributed food is qᵣ − hᵣ after selection", "primary avoided-production substitution remains 0%"],
+    mipEquation: "hᵣ = qᵣ · ηᵦ · δₚ; γᵣ = avoided waste CO₂e − transport CO₂e",
   },
   {
     id: "participation",
@@ -303,7 +304,7 @@ const demoSteps: DemoStep[] = [
     mipTitle: "Modeled completion likelihood",
     mipBody: "Driving time plus normalized time-window and spatial misses reduce the estimate. A burdensome option receives less expected-impact credit, while a slightly lower probability can still win when its food, fairness, or environmental value is stronger.",
     mipLines: ["drive minutes enter directly", "requested-time miss is divided by requested-window length", "start/destination misses are normalized among alternatives", "estimated probabilities are clipped to 2%–98%"],
-    mipEquation: "aᵣ = σ(2.2 − .045 drive − 1.8 time miss − 1.1 spatial miss)",
+    mipEquation: "πᵣ = σ(2.2 − .045mᵣ − 1.8wᵣ − 1.1sᵣ)",
   },
   {
     id: "objective",
@@ -313,7 +314,7 @@ const demoSteps: DemoStep[] = [
     mipTitle: "Acceptance-adjusted impact objective",
     mipBody: "The trace evaluates the same eight components used by a simultaneous network solve, including cumulative pantry food balance, and then scales that completed-route value by modeled acceptance.",
     mipLines: ["10 pantry coverage + 10 raw-food volume + 10 raw-food evenness", "10 saved-food volume + 10 saved-food evenness + 10 pantry priority", "20 normalized direct environmental benefit", "20 normalized driver fit"],
-    mipEquation: "Zᵣᴱ = aᵣ × (10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D)",
+    mipEquation: "r★ = arg max { πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) }",
   },
   {
     id: "selection",
@@ -520,40 +521,40 @@ export default function Home() {
           <p>At each rolling decision epoch, BakedBoston uses a Gurobi mixed-integer model to choose jointly among complete, feasible driver–bakery–pantry plans. Each route column includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload. The formulation is a research-informed academic prototype: operational constraints are explicit, while volunteer acceptance remains a transparent synthetic assumption until real participation data exists.</p>
           <div className="modelObjective">
             <div className="modelObjectiveStage">
-              <small>One objective · expected total impact</small>
-              <strong>maximize <b>10Cᴱ + 10VQᴱ + 10FQᴱ + 10VHᴱ + 10FHᴱ + 10Pᴱ + 20Eᴱ + 20Dᴱ</b></strong>
-              <p>Balance pantry reach, raw and ultimately distributed food, distribution evenness, opportunity priority, direct environmental benefit, and driver fit after weighting route contributions by modeled acceptance.</p>
+              <small>Simultaneous network objective</small>
+              <strong>maximize <b>Φ(x) = ωᵀψ(x; π)</b>, &nbsp;x ∈ 𝒳</strong>
+              <p>The feasible assignment x maximizes one acceptance-adjusted network feature vector ψ: pantry reach, raw and ultimately distributed food, evenness, opportunity priority, direct environmental benefit, and driver fit.</p>
             </div>
             <div className="modelObjectiveStage">
-              <small>One-driver interpretation</small>
-              <strong><b>Zᵣᴱ = aᵣ × Iᵣ</b></strong>
-              <p>Each route&apos;s completion probability multiplies its broader completed-impact score. There is no separate participation stage or 99%-of-best-acceptance filter.</p>
+              <small>One-driver route choice</small>
+              <strong><b>r★ = arg max &#123; πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) &#125;</b></strong>
+              <p>Among driver d&apos;s feasible routes ℛ(d), choose the route with the largest completion likelihood πᵣ times completed-impact value ωᵀφᵣ. There is no separate participation stage or 99%-of-best cutoff.</p>
             </div>
             <div className="modelObjectiveWhy">
               <strong>Why combine them?</strong>
               <p>A route that is unlikely to happen earns less expected-impact credit, but a small difference in a synthetic probability cannot automatically veto a route that rescues substantially more food or produces a fairer, cleaner result.</p>
             </div>
             <div className="modelRouteUtility">
-              <small>Synthetic probability that route r is accepted</small>
-              <strong>aᵣ = sigmoid(2.2 − 0.045Dᵣ − 1.8Oᵣ − 1.1Sᵣ)</strong>
-              <p>This is an auditable scenario assumption—not a trained or validated behavioral model. Future pilot data can replace its coefficients.</p>
+              <small>Completion likelihood</small>
+              <strong>πᵣ = σ(2.2 − 0.045mᵣ − 1.8wᵣ − 1.1sᵣ)</strong>
+              <p>mᵣ is drive time; wᵣ and sᵣ are normalized requested-time and requested-area misses. This is an auditable scenario assumption—not a trained behavioral model.</p>
             </div>
             <div className="modelRouteUtility">
               <small>Food and direct environmental accounting</small>
-              <strong>H = Q × U × Dₚ; E = no-pickup waste − route waste − transport</strong>
+              <strong>hᵣ = qᵣ · ηᵦ · δₚ;&nbsp; γᵣ = avoided waste CO₂e − transport CO₂e</strong>
               <p>Food that is collected but not ultimately distributed remains in route waste. Avoided-production substitution is fixed at zero in the primary objective.</p>
             </div>
           </div>
-          <p className="modelFactorIntro">Every impact component is normalized to [0,1] before its policy weight is applied, and route contributions are adjusted by modeled acceptance. Hard feasibility is enforced first, so an attractive score can never override a closed window or missed deadline.</p>
+          <p className="modelFactorIntro"><b>ω = (10, 10, 10, 10, 10, 10, 20, 20)ᵀ</b>. Every component in φᵣ is normalized to [0,1] before the policy weight is applied, and route contributions are adjusted by πᵣ. Hard feasibility is enforced first, so an attractive score can never override a closed window or missed deadline.</p>
           <div className="modelFactorGrid">
             <div className="modelFactor"><strong>xᵣ · assignment</strong><p>A binary variable: 1 when complete timed route r is selected, otherwise 0.</p></div>
-            <div className="modelFactor"><strong>aᵣ · modeled acceptance</strong><p>A synthetic probability based on driving burden and driver time/location fit. It scales impact instead of serving as a hard preliminary objective.</p></div>
-            <div className="modelFactor"><strong>Cᴱ · expected pantry coverage · 10</strong><p>Modeled completion credit for available unique pantry identities, capped once per pantry.</p></div>
-            <div className="modelFactor"><strong>VQᴱ + FQᴱ · raw food · 10 + 10</strong><p>Acceptance-weighted raw bakery-food volume plus evenness calculated from cumulative expected raw donations.</p></div>
-            <div className="modelFactor"><strong>VHᴱ + FHᴱ · saved food · 10 + 10</strong><p>Acceptance-weighted ultimately distributed food, where H = Q × U × Dₚ, plus cumulative expected saved-food evenness.</p></div>
-            <div className="modelFactor"><strong>Pᴱ · opportunity priority · 10</strong><p>A pantry available but less often served receives more acceptance-adjusted credit through its smoothed recent-opportunity history.</p></div>
-            <div className="modelFactor"><strong>Eᴱ · direct environmental benefit · 20</strong><p>The acceptance-weighted bakery no-pickup waste result minus collected-but-undistributed route waste and tonne-kilometre transportation emissions, min–max normalized across candidates.</p></div>
-            <div className="modelFactor"><strong>Dᴱ · driver fit · 20</strong><p>Acceptance-weighted fit: one minus the mean normalized drive-time, requested-window, and requested-area burdens.</p></div>
+            <div className="modelFactor"><strong>πᵣ · completion likelihood</strong><p>A synthetic probability based on driving burden and driver time/location fit. It scales impact instead of serving as a hard preliminary objective.</p></div>
+            <div className="modelFactor"><strong>κᵣ · pantry coverage · 10</strong><p>Modeled completion credit for available unique pantry identities, capped once per pantry.</p></div>
+            <div className="modelFactor"><strong>νᵣʳᵃʷ + εᵣʳᵃʷ · raw food · 10 + 10</strong><p>Acceptance-weighted raw bakery-food volume plus evenness calculated from cumulative expected raw donations.</p></div>
+            <div className="modelFactor"><strong>νᵣˢᵃᵛᵉᵈ + εᵣˢᵃᵛᵉᵈ · saved food · 10 + 10</strong><p>Acceptance-weighted ultimately distributed food, where hᵣ = qᵣ · ηᵦ · δₚ, plus cumulative expected saved-food evenness.</p></div>
+            <div className="modelFactor"><strong>ρᵣ · opportunity priority · 10</strong><p>A pantry available but less often served receives more acceptance-adjusted credit through its smoothed recent-opportunity history.</p></div>
+            <div className="modelFactor"><strong>γᵣ · direct environmental benefit · 20</strong><p>The acceptance-weighted bakery no-pickup waste result minus collected-but-undistributed route waste and tonne-kilometre transportation emissions, min–max normalized across candidates.</p></div>
+            <div className="modelFactor"><strong>χᵣ · driver fit · 20</strong><p>Acceptance-weighted fit: one minus the mean normalized drive-time, requested-window, and requested-area burdens.</p></div>
           </div>
           <div className="modelDetails">
             <div><strong>Planned departure</strong><p>Login time is the decision epoch, not a forced departure. The model schedules the latest feasible departure, so planned lead time at the origin is not penalized.</p></div>
@@ -644,7 +645,7 @@ export default function Home() {
                         vectorEffect="non-scaling-stroke"
                         className={`demoSpatialDeviationLine demoSpatialDeviationLine${route.label}`}
                       >
-                        <title>{`Route ${route.label}: ${line.label}`}</title>
+                        <title>{`Route ${route.symbol}: ${line.label}`}</title>
                       </line>
                     )))}
                   </svg>
@@ -660,7 +661,7 @@ export default function Home() {
                           style={{ left: geometry.badgeLeft, top: geometry.badgeTop }}
                           aria-hidden="true"
                         >
-                          {route.label}
+                          {route.symbol}
                         </div>
                       );
                     })}
@@ -722,16 +723,16 @@ export default function Home() {
                     {demoData.candidates.map((route) => (
                         <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label} ${activeDemoStep.id === "selection" && route.id === chosenRouteId ? "isSelected" : ""}`}>
                           <div className="demoRouteScoreTop">
-                            <b>Route {route.label}</b>
+                            <b>Route {route.symbol}</b>
                             <strong>{activeDemoStep.id === "accounting" ? `${route.foodSavedKg.toFixed(1)} kg` : activeDemoStep.id === "participation" ? demoPercent(route.acceptanceProbability, 1) : route.expectedImpactValue.toFixed(1)}</strong>
                           </div>
                           <p>{route.bakery} → {route.pantry}</p>
                           {activeDemoStep.id === "accounting" && <>
-                            <small className="demoRouteEquation">H = {route.rawFoodKg.toFixed(1)} kg × {demoPercent(route.usableFraction, 1)} × {demoPercent(route.pantryDistributionFraction, 1)} = {route.foodSavedKg.toFixed(1)} kg ultimately distributed</small>
+                            <small className="demoRouteEquation">hᵣ = {route.rawFoodKg.toFixed(1)} kg × {demoPercent(route.usableFraction, 1)} × {demoPercent(route.pantryDistributionFraction, 1)} = {route.foodSavedKg.toFixed(1)} kg ultimately distributed</small>
                             <small className="demoRouteOperational">No pickup: {route.uncollectedFoodKg.toFixed(1)} kg bakery waste · completed route remainder: {route.collectedNotDistributedKg.toFixed(1)} kg · waste-pathway change: {(route.counterfactualWasteKgCO2e - route.routeWasteKgCO2e).toFixed(2)} kg CO₂e · transport: {route.transportKgCO2e.toFixed(2)} kg CO₂e · net: {route.netEnvironmentalBenefitKgCO2e.toFixed(2)} kg CO₂e</small>
                           </>}
                           {activeDemoStep.id === "participation" && <>
-                            <small className="demoRouteEquation">aᵣ = {demoPercent(route.acceptanceProbability, 1)} modeled acceptance</small>
+                            <small className="demoRouteEquation">πᵣ = {demoPercent(route.acceptanceProbability, 1)} modeled completion likelihood</small>
                             <small className="demoRouteOperational">{route.driveMinutes.toFixed(0)} drive min · {demoPercent(route.requestedTimeDeviationRatio)} requested-time miss · {demoPercent(route.normalizedSpatialDeviation)} normalized location miss · driver fit {demoPercent(route.driverFit, 1)}</small>
                           </>}
                           {activeDemoStep.id === "objective" && <>
@@ -804,7 +805,7 @@ export default function Home() {
                     const eliminated = activeDemoStep.id === "selection" && route.id !== chosenRouteId;
                     return (
                       <div key={route.id} className={`demoMipMatrixRow ${active ? "isActive" : ""} ${eliminated ? "isDim" : ""}`}>
-                        <span>{route.label}</span>
+                        <span>{route.symbol}</span>
                         <b>{active ? "1" : "0"}</b>
                       </div>
                     );

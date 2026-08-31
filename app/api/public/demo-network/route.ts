@@ -27,6 +27,7 @@ type DemoObjectiveComponents = {
 type CandidateRoute = {
   id: string;
   label: string;
+  symbol: string;
   bakery: string;
   pantry: string;
   drive: string;
@@ -666,6 +667,7 @@ export async function GET() {
     return {
       id: `route-${String.fromCharCode(97 + index)}`,
       label: String.fromCharCode(65 + index),
+      symbol: `r${["₁", "₂", "₃", "₄", "₅"][index] ?? index + 1}`,
       bakery: bakery.name,
       pantry: pantry.name,
       drive: `${distanceMiles.toFixed(1)} mi`,
