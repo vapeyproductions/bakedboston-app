@@ -346,7 +346,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Driver burden and projected selection",
-    description: "All final routes use the same transparent sigmoid. It influences BakedBoston's expected-completion objective and Horner's stochastic menus, but not the Nair or Xue–Zou selectors.",
+    description: "All final routes use the same transparent sigmoid. It scales BakedBoston's expected-impact objective and informs Horner's stochastic menus, but it is not an input to the Nair or Xue–Zou selectors.",
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per selected route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per selected route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
@@ -1126,7 +1126,7 @@ export function SimulatorClient({ data }: Props) {
                 <div className={styles.routeListHeading}>
                   <div>
                     <p className={styles.panelLabel}>ROUTES RECOMMENDED TO {compactDriver(activeDriver.driverId).toUpperCase()}</p>
-                    <h3>Ranked from highest to lowest score</h3>
+                    <h3>Ranked from highest to lowest expected impact</h3>
                     <p>These are alternative choices for one delivery. Selecting one does not count the remaining choices as rejected offers.</p>
                   </div>
                   <span>Top {activeDriver.routes.length}</span>
@@ -1198,7 +1198,7 @@ export function SimulatorClient({ data }: Props) {
                         </div>
                       </div>
                       <div className={styles.routeScore}>
-                        <small>MENU SCORE</small>
+                        <small>EXPECTED IMPACT</small>
                         <strong>{score(route.routeScore)}</strong>
                         {route.selected ? <span>SELECTED · HIGHEST</span> : null}
                       </div>
@@ -1214,7 +1214,7 @@ export function SimulatorClient({ data }: Props) {
                       <p className={styles.panelLabel}>DRIVER SELECTION</p>
                       <h3>{selectedRoute.bakeryName} → {selectedRoute.pantryName}</h3>
                       <p>
-                        Rank #1 was selected because its score of {score(selectedRoute.routeScore)}{" "}is the highest among
+                        Rank #1 was selected because its acceptance-adjusted expected-impact score of {score(selectedRoute.routeScore)}{" "}is the highest among
                         this driver&apos;s conflict-free recommendations. Pantry destinations may repeat across drivers,
                         but bakery pickups cannot. The other recommendations remain unselected alternatives—not four
                         additional trips that the driver rejected.
@@ -1422,23 +1422,23 @@ export function SimulatorClient({ data }: Props) {
       <section className={styles.method} id="methodology">
         <div>
           <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
-          <h2>First protect expected participation. Then choose the most sustainable, equitable routes.</h2>
+          <h2>Balance modeled participation and real-world impact in one objective.</h2>
         </div>
         <div className={styles.objectiveExplainer}>
           <div className={styles.objectiveFormulaCard}>
             <div className={styles.objectiveStage}>
-              <small>Stage 1 · protect expected completions</small>
-              <strong>A* = max Σ aᵣ xᵣ</strong>
-              <p>Maximize the expected number of completed pickups, recognizing that a feasible offer is not equally attractive to every volunteer.</p>
+              <small>One objective · acceptance-adjusted expected impact</small>
+              <strong>maximize 10Cᴱ + 10VQᴱ + 10FQᴱ + 10VHᴱ + 10FHᴱ + 10Pᴱ + 20Eᴱ + 20Dᴱ</strong>
+              <p>Route contributions and cumulative pantry food totals are weighted by modeled completion probability before the food, fairness, environmental, pantry-priority, and driver-fit terms are combined.</p>
             </div>
             <div className={styles.objectiveStage}>
-              <small>Stage 2 · normalized 100-point balance</small>
-              <strong>maximize 10C + 10VQ + 10FQ + 10VH + 10FH + 10P + 20E + 20D</strong>
-              <p>Balance pantry reach, raw and saved-food volume/evenness, opportunity priority, net direct CO₂ benefit, and driver fit, subject to <b>Σ aᵣ xᵣ ≥ 0.99A*</b>.</p>
+              <small>Single-driver interpretation</small>
+              <strong>Zᵣᴱ = aᵣ × Iᵣ</strong>
+              <p>A route&apos;s acceptance probability multiplies its completed-impact score. An 80% route therefore does not automatically eliminate a 78% route with materially greater food or environmental value.</p>
             </div>
             <div className={styles.objectiveWhy}>
-              <strong>Why use two stages?</strong>
-              <p>Stage 1 protects modeled completion. Stage 2 permits at most a 1% loss when food rescue, distribution balance, environment, pantry reach, or driver fit improves.</p>
+              <strong>Why one objective?</strong>
+              <p>The sigmoid remains consequential, but its synthetic precision cannot veto almost every alternative. The optimizer chooses the feasible plan with the strongest overall expected result.</p>
             </div>
             <div className={styles.acceptanceFormula}>
               <small>Synthetic route-acceptance estimate</small>
@@ -1454,19 +1454,19 @@ export function SimulatorClient({ data }: Props) {
             <h3>What every symbol contributes</h3>
             <dl>
               <div><dt>xᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
-              <div><dt>aᵣ · modeled acceptance</dt><dd><b>Stage-1 contribution.</b> A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It can later be recalibrated with observed pilot choices.</dd></div>
-              <div><dt>C · pantry coverage</dt><dd><b>10 points.</b> Unique pantry identities served divided by those available.</dd></div>
-              <div><dt>VQ and FQ · raw donations</dt><dd><b>10 + 10 points.</b> Selected bakery-food volume and one minus normalized pairwise gaps in cumulative raw donations.</dd></div>
-              <div><dt>VH and FH · food saved</dt><dd><b>10 + 10 points.</b> Ultimate food saved and one minus normalized pairwise cumulative saved-food gaps. H = Q × U × D.</dd></div>
-              <div><dt>P · pantry priority</dt><dd><b>10 points.</b> Selected opportunity-history priority, summed and normalized by the epoch&apos;s maximum feasible assignment count.</dd></div>
-              <div><dt>E · net direct CO₂ benefit</dt><dd><b>20 points.</b> Route net benefits are min–max normalized within the epoch, then selected values are summed and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
-              <div><dt>D · driver fit</dt><dd><b>20 points.</b> Each route gets one minus its mean normalized drive-time, requested-window, and requested-area burdens; selected values are normalized by maximum assignments.</dd></div>
+              <div><dt>aᵣ · modeled acceptance</dt><dd>A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It scales impact and can later be recalibrated with observed pilot choices.</dd></div>
+              <div><dt>Cᴱ · expected pantry coverage</dt><dd><b>10 points.</b> Acceptance-adjusted coverage credit divided by available pantry identities and capped once per pantry.</dd></div>
+              <div><dt>VQᴱ and FQᴱ · raw donations</dt><dd><b>10 + 10 points.</b> Acceptance-weighted bakery-food volume and evenness calculated from cumulative expected raw donations.</dd></div>
+              <div><dt>VHᴱ and FHᴱ · food saved</dt><dd><b>10 + 10 points.</b> Acceptance-weighted ultimate food saved and cumulative expected saved-food evenness. H = Q × U × D.</dd></div>
+              <div><dt>Pᴱ · pantry priority</dt><dd><b>10 points.</b> Acceptance-weighted opportunity-history priority, normalized by the epoch&apos;s maximum feasible assignment count.</dd></div>
+              <div><dt>Eᴱ · net direct CO₂ benefit</dt><dd><b>20 points.</b> Acceptance-weighted route net benefits are min–max normalized within the epoch and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
+              <div><dt>Dᴱ · driver fit</dt><dd><b>20 points.</b> Acceptance-weighted fit based on normalized drive-time, requested-window, and requested-area burdens.</dd></div>
               <div><dt>Q, U, and Dₚ</dt><dd>Q and U are reproducible daily draws from each bakery&apos;s fixed triangular distributions. Dₚ is a fixed pantry distribution fraction.</dd></div>
             </dl>
           </div>
         </div>
         <p className={styles.formulaNote}>
-          Stage 1 computes A*. Stage 2 optimizes eight components normalized to [0,1] while preserving at least 99% of A*. Food-evenness terms use cumulative pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
+          The optimizer maximizes all eight normalized components together after acceptance-adjusting route contributions; it does not impose a 99%-of-best-acceptance constraint. Food-evenness terms use cumulative expected pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
           just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
           arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
           and ZIP areas are soft preferences. An uncollected food-available bakery contributes all Q to bakery waste; a completed route contributes Q − H to collected food not ultimately distributed. The fixed landfill/pig-farm/compost mix values both cases and transport uses 0.41947 kg CO₂e per tonne-km. These are academic assumptions adapted from{" "}

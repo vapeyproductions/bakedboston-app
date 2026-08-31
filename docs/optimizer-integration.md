@@ -46,11 +46,11 @@ The endpoint independently confirms that the organization has an active register
    `mode=network_assignments`.
 3. The optimizer downloads the version-2 network snapshot, expands eligible
    pantry windows, and builds every feasible driver–pickup–pantry candidate.
-4. Gurobi first maximizes expected completed pickups using the transparent
-   route-acceptance estimate. Among solutions within 1% of that optimum, it
-   maximizes the normalized 100-point balance of pantry coverage, raw-food
+4. Gurobi maximizes one normalized acceptance-adjusted expected-impact score.
+   The transparent route-acceptance estimate weights pantry coverage, raw-food
    volume/evenness, ultimately distributed-food volume/evenness, opportunity
-   priority, direct environmental benefit, and driver fit.
+   priority, direct environmental benefit, and driver fit instead of imposing
+   a participation-first cutoff.
 5. The optimizer returns selected assignments and solver diagnostics.
 6. The app persists offers and notifies the selected drivers.
 

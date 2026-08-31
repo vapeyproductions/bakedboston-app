@@ -60,7 +60,8 @@ type CandidateRoute = {
   netEnvironmentalBenefitKgCO2e: number;
   acceptanceProbability: number;
   driverFit: number;
-  secondaryObjectiveValue: number;
+  completedImpactValue: number;
+  expectedImpactValue: number;
   objectiveComponents: DemoObjectiveComponents;
   departureLabel: string;
   pickupLabel: string;
@@ -428,7 +429,7 @@ export async function GET() {
       environmentalBenefit: environmentSpan > 1e-9 ? (pair.netEnvironmentalBenefitKgCO2e - environmentMinimum) / environmentSpan : 0.5,
       driverFit,
     };
-    const secondaryObjectiveValue = 10 * objectiveComponents.pantryCoverage
+    const completedImpactValue = 10 * objectiveComponents.pantryCoverage
       + 10 * objectiveComponents.rawFoodVolume
       + 10 * objectiveComponents.rawFoodEvenness
       + 10 * objectiveComponents.savedFoodVolume
@@ -436,13 +437,11 @@ export async function GET() {
       + 10 * objectiveComponents.pantryPriority
       + 20 * objectiveComponents.environmentalBenefit
       + 20 * objectiveComponents.driverFit;
-    return { ...pair, driverFit, objectiveComponents, secondaryObjectiveValue, rawScore: secondaryObjectiveValue };
-  }).sort((left, right) => right.acceptanceProbability - left.acceptanceProbability || right.secondaryObjectiveValue - left.secondaryObjectiveValue);
+    const expectedImpactValue = pair.acceptanceProbability * completedImpactValue;
+    return { ...pair, driverFit, objectiveComponents, completedImpactValue, expectedImpactValue, rawScore: expectedImpactValue };
+  }).sort((left, right) => right.expectedImpactValue - left.expectedImpactValue || right.completedImpactValue - left.completedImpactValue);
 
-  const maximumAcceptance = Math.max(...rankedPairs.map((pair) => pair.acceptanceProbability));
-  const chosenPair = [...rankedPairs]
-    .filter((pair) => pair.acceptanceProbability + 1e-9 >= 0.99 * maximumAcceptance)
-    .sort((left, right) => right.secondaryObjectiveValue - left.secondaryObjectiveValue || right.acceptanceProbability - left.acceptanceProbability)[0];
+  const chosenPair = rankedPairs[0];
 
   const selectedPairs: typeof rankedPairs = [chosenPair];
   const usedBakeryIds = new Set<number>([chosenPair.bakery.id]);
@@ -454,7 +453,7 @@ export async function GET() {
     const nextPair = remainingPairs.sort((left, right) => {
       const leftCoverage = Number(!usedBakeryIds.has(left.bakery.id)) + Number(!usedPantryIds.has(left.pantry.id));
       const rightCoverage = Number(!usedBakeryIds.has(right.bakery.id)) + Number(!usedPantryIds.has(right.pantry.id));
-      return rightCoverage - leftCoverage || right.secondaryObjectiveValue - left.secondaryObjectiveValue || right.acceptanceProbability - left.acceptanceProbability;
+      return rightCoverage - leftCoverage || right.expectedImpactValue - left.expectedImpactValue || right.completedImpactValue - left.completedImpactValue;
     })[0];
 
     if (!nextPair) break;
@@ -525,7 +524,7 @@ export async function GET() {
   ];
 
   const candidates: CandidateRoute[] = selectedPairs.map((pair, index) => {
-    const { bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, servedOpportunities, receivingOpportunities, facilityWaitMinutes, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, rawFoodKg, usableFoodKg, usableFraction, pantryDistributionFraction, foodSavedKg, collectedNotDistributedKg, counterfactualWasteKgCO2e, routeWasteKgCO2e, transportKgCO2e, netEnvironmentalBenefitKgCO2e, acceptanceProbability, driverFit, secondaryObjectiveValue, objectiveComponents, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore } = pair;
+    const { bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, servedOpportunities, receivingOpportunities, facilityWaitMinutes, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, rawFoodKg, usableFoodKg, usableFraction, pantryDistributionFraction, foodSavedKg, collectedNotDistributedKg, counterfactualWasteKgCO2e, routeWasteKgCO2e, transportKgCO2e, netEnvironmentalBenefitKgCO2e, acceptanceProbability, driverFit, completedImpactValue, expectedImpactValue, objectiveComponents, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore } = pair;
     const pantryPosition = toCanvasPosition(pantry.latitude, pantry.longitude);
     const bakeryPosition = toCanvasPosition(bakery.latitude, bakery.longitude);
     const bakeryLeft = Number(bakeryPosition.left.replace("%", ""));
@@ -570,7 +569,8 @@ export async function GET() {
       netEnvironmentalBenefitKgCO2e: round(netEnvironmentalBenefitKgCO2e, 4),
       acceptanceProbability: round(acceptanceProbability, 4),
       driverFit: round(driverFit, 4),
-      secondaryObjectiveValue: round(secondaryObjectiveValue, 3),
+      completedImpactValue: round(completedImpactValue, 3),
+      expectedImpactValue: round(expectedImpactValue, 3),
       objectiveComponents: Object.fromEntries(Object.entries(objectiveComponents).map(([key, value]) => [key, round(value, 4)])) as DemoObjectiveComponents,
       departureLabel: formatClock(departureMinutes),
       pickupLabel: formatClock(pickupMinutes),
