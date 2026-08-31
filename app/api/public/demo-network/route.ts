@@ -76,6 +76,7 @@ type DemoRequest = {
   loginLabel: string;
   preferredStartLabel: string;
   preferredFinishLabel: string;
+  searchUntilLabel: string;
   requestedWindowMinutes: number;
   startLabel: string;
   startZipCode: string;
@@ -87,6 +88,16 @@ type DemoRequest = {
   destinationRadiusMiles: number;
   destinationLeft: string;
   destinationTop: string;
+};
+
+type DemoFilterAuditEntry = {
+  id: string;
+  bakery: string;
+  pantry: string;
+  status: "feasible" | "rejected";
+  reasonCode: "feasible" | "bakery-deadline" | "pantry-latest-arrival" | "pantry-close" | "search-horizon";
+  reasonLabel: string;
+  detail: string;
 };
 
 type PartnerPoint = {
@@ -279,35 +290,152 @@ export async function GET() {
   const driverLatitude = anchorBakery.latitude + (anchorPantry.latitude - anchorBakery.latitude) * 0.34 - 0.008;
   const driverLongitude = anchorBakery.longitude + (anchorPantry.longitude - anchorBakery.longitude) * 0.26 - 0.01;
 
-  const preferredStartMinutes = anchorBakery.readyMinutes ?? 16 * 60 + 30;
-  const preferredFinishMinutes = Math.max(preferredStartMinutes + 90, Math.min(anchorPantry.latestArrivalMinutes ?? 18 * 60 + 30, preferredStartMinutes + 150));
-  const loginMinutes = Math.max(0, preferredStartMinutes - 120);
-  const searchUntilMinutes = preferredFinishMinutes + 90;
-  const requestedWindowMinutes = preferredFinishMinutes - preferredStartMinutes;
   const startRadiusMiles = 2;
   const destinationRadiusMiles = 2;
 
   const generatedCombinationCount = operationalBakeries.length * operationalPantries.length;
-  const rawPairs = operationalBakeries.flatMap((bakery) => operationalPantries.flatMap((pantry) => {
-    const bakeryToPantryMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
-    const driverDistanceMiles = milesBetween(driverLatitude, driverLongitude, bakery.latitude, bakery.longitude);
-    const routeDistanceMiles = driverDistanceMiles + bakeryToPantryMiles;
-    const driverToBakeryMinutes = Math.max(3, driverDistanceMiles * 3.5);
-    const bakeryToPantryMinutes = Math.max(5, bakeryToPantryMiles * 3.5);
-    const driveMinutes = driverToBakeryMinutes + bakeryToPantryMinutes;
-    const readyMinutes = bakery.readyMinutes ?? 16 * 60;
-    const deadlineMinutes = Math.max(readyMinutes + 30, bakery.deadlineMinutes ?? readyMinutes + 45);
-    const pantryOpenMinutes = pantry.openMinutes ?? 16 * 60;
-    const pantryCloseMinutes = Math.max(pantryOpenMinutes + 30, pantry.closeMinutes ?? 19 * 60);
-    const latestArrivalMinutes = Math.min(pantryCloseMinutes, pantry.latestArrivalMinutes ?? pantryCloseMinutes - 10);
-    const departureMinutes = Math.max(loginMinutes, Math.min(preferredStartMinutes, deadlineMinutes - driverToBakeryMinutes));
-    const arrivalAtBakeryMinutes = departureMinutes + driverToBakeryMinutes;
-    const pickupMinutes = Math.max(readyMinutes, arrivalAtBakeryMinutes);
-    const leaveBakeryMinutes = pickupMinutes + 5;
-    const unadjustedArrivalMinutes = leaveBakeryMinutes + bakeryToPantryMinutes;
-    const arrivalMinutes = Math.max(pantryOpenMinutes, unadjustedArrivalMinutes);
-    const finishMinutes = arrivalMinutes + 5;
-    if (pickupMinutes > deadlineMinutes || arrivalMinutes > latestArrivalMinutes || finishMinutes > pantryCloseMinutes || finishMinutes > searchUntilMinutes) return [];
+  const evaluateScenario = (
+    preferredStartMinutes: number,
+    requestedWindowMinutes: number,
+    searchExtensionMinutes: number,
+  ) => {
+    const preferredFinishMinutes = preferredStartMinutes + requestedWindowMinutes;
+    const loginMinutes = Math.max(0, preferredStartMinutes - 120);
+    const searchUntilMinutes = preferredFinishMinutes + searchExtensionMinutes;
+    const evaluations = operationalBakeries.flatMap((bakery) => operationalPantries.map((pantry) => {
+      const bakeryToPantryMiles = milesBetween(bakery.latitude, bakery.longitude, pantry.latitude, pantry.longitude);
+      const driverDistanceMiles = milesBetween(driverLatitude, driverLongitude, bakery.latitude, bakery.longitude);
+      const routeDistanceMiles = driverDistanceMiles + bakeryToPantryMiles;
+      const driverToBakeryMinutes = Math.max(3, driverDistanceMiles * 3.5);
+      const bakeryToPantryMinutes = Math.max(5, bakeryToPantryMiles * 3.5);
+      const driveMinutes = driverToBakeryMinutes + bakeryToPantryMinutes;
+      const readyMinutes = bakery.readyMinutes ?? 16 * 60;
+      const deadlineMinutes = Math.max(readyMinutes + 30, bakery.deadlineMinutes ?? readyMinutes + 45);
+      const pantryOpenMinutes = pantry.openMinutes ?? 16 * 60;
+      const pantryCloseMinutes = Math.max(pantryOpenMinutes + 30, pantry.closeMinutes ?? 19 * 60);
+      const latestArrivalMinutes = Math.min(pantryCloseMinutes, pantry.latestArrivalMinutes ?? pantryCloseMinutes - 10);
+      const departureMinutes = Math.max(loginMinutes, Math.min(preferredStartMinutes, deadlineMinutes - driverToBakeryMinutes));
+      const arrivalAtBakeryMinutes = departureMinutes + driverToBakeryMinutes;
+      const pickupMinutes = Math.max(readyMinutes, arrivalAtBakeryMinutes);
+      const leaveBakeryMinutes = pickupMinutes + 5;
+      const unadjustedArrivalMinutes = leaveBakeryMinutes + bakeryToPantryMinutes;
+      const arrivalMinutes = Math.max(pantryOpenMinutes, unadjustedArrivalMinutes);
+      const finishMinutes = arrivalMinutes + 5;
+      const failures: Array<Pick<DemoFilterAuditEntry, "reasonCode" | "reasonLabel" | "detail">> = [];
+
+      if (pickupMinutes > deadlineMinutes) failures.push({
+        reasonCode: "bakery-deadline",
+        reasonLabel: "Bakery deadline missed",
+        detail: `Pickup would occur at ${formatClock(pickupMinutes)}, after the ${formatClock(deadlineMinutes)} deadline.`,
+      });
+      if (arrivalMinutes > latestArrivalMinutes) failures.push({
+        reasonCode: "pantry-latest-arrival",
+        reasonLabel: "Pantry arrival missed",
+        detail: `Arrival would occur at ${formatClock(arrivalMinutes)}, after the ${formatClock(latestArrivalMinutes)} latest arrival.`,
+      });
+      if (finishMinutes > pantryCloseMinutes) failures.push({
+        reasonCode: "pantry-close",
+        reasonLabel: "Pantry closes before service ends",
+        detail: `Unloading would finish at ${formatClock(finishMinutes)}, after the ${formatClock(pantryCloseMinutes)} close.`,
+      });
+      if (finishMinutes > searchUntilMinutes) failures.push({
+        reasonCode: "search-horizon",
+        reasonLabel: "Driver search horizon exceeded",
+        detail: `The trip would finish at ${formatClock(finishMinutes)}, after the ${formatClock(searchUntilMinutes)} hard horizon.`,
+      });
+
+      return {
+        bakery,
+        pantry,
+        distanceMiles: routeDistanceMiles,
+        driverDistanceMiles,
+        driveMinutes,
+        facilityWaitMinutes: Math.max(0, pickupMinutes - arrivalAtBakeryMinutes) + Math.max(0, arrivalMinutes - unadjustedArrivalMinutes),
+        departureMinutes,
+        pickupMinutes,
+        arrivalMinutes,
+        finishMinutes,
+        failures,
+      };
+    }));
+
+    return {
+      preferredStartMinutes,
+      preferredFinishMinutes,
+      loginMinutes,
+      searchUntilMinutes,
+      requestedWindowMinutes,
+      feasible: evaluations.filter((evaluation) => evaluation.failures.length === 0),
+      evaluations,
+    };
+  };
+
+  const scheduleMinutes = [
+    ...operationalBakeries.flatMap((bakery) => [bakery.readyMinutes, bakery.deadlineMinutes]),
+    ...operationalPantries.flatMap((pantry) => [pantry.openMinutes, pantry.latestArrivalMinutes, pantry.closeMinutes]),
+  ].filter((minute): minute is number => minute !== undefined);
+  const candidateStartMinutes = [...new Set([
+    ...Array.from({ length: 25 }, (_, index) => 8 * 60 + index * 30),
+    ...scheduleMinutes.flatMap((minute) => [minute - 90, minute - 60, minute - 30, minute]),
+  ].filter((minute) => minute >= 7 * 60 && minute <= 20 * 60))].sort((left, right) => left - right);
+  const scenarioCandidates = candidateStartMinutes.flatMap((preferredStartMinutes) =>
+    [90, 120, 150].flatMap((requestedWindowMinutes) =>
+      [60, 90, 120].map((searchExtensionMinutes) =>
+        evaluateScenario(preferredStartMinutes, requestedWindowMinutes, searchExtensionMinutes))));
+  const desiredFeasibleCount = Math.min(5, Math.max(3, Math.ceil(generatedCombinationCount / 2)));
+  const minimumDemonstrativeCount = Math.min(3, generatedCombinationCount);
+  const anchorStartMinutes = anchorBakery.readyMinutes ?? 16 * 60 + 30;
+  const scenarioQuality = (scenario: ReturnType<typeof evaluateScenario>) => {
+    const feasibleCount = scenario.feasible.length;
+    const reasonDiversity = new Set(scenario.evaluations.flatMap((evaluation) => evaluation.failures.map((failure) => failure.reasonCode))).size;
+    const facilityDiversity = new Set(scenario.feasible.flatMap((evaluation) => [`b-${evaluation.bakery.id}`, `p-${evaluation.pantry.id}`])).size;
+    const demonstrative = feasibleCount >= minimumDemonstrativeCount && feasibleCount < generatedCombinationCount;
+    return {
+      demonstrative: Number(demonstrative),
+      targetDistance: Math.abs(feasibleCount - desiredFeasibleCount),
+      reasonDiversity,
+      facilityDiversity,
+      anchorDistance: Math.abs(scenario.preferredStartMinutes - anchorStartMinutes),
+      feasibleCount,
+    };
+  };
+  const chosenScenario = scenarioCandidates.sort((left, right) => {
+    const leftQuality = scenarioQuality(left);
+    const rightQuality = scenarioQuality(right);
+    return rightQuality.demonstrative - leftQuality.demonstrative
+      || leftQuality.targetDistance - rightQuality.targetDistance
+      || rightQuality.reasonDiversity - leftQuality.reasonDiversity
+      || rightQuality.facilityDiversity - leftQuality.facilityDiversity
+      || rightQuality.feasibleCount - leftQuality.feasibleCount
+      || leftQuality.anchorDistance - rightQuality.anchorDistance;
+  })[0];
+  const {
+    preferredStartMinutes,
+    preferredFinishMinutes,
+    loginMinutes,
+    requestedWindowMinutes,
+  } = chosenScenario;
+  const filterAudit: DemoFilterAuditEntry[] = chosenScenario.evaluations.map((evaluation) => {
+    const failure = evaluation.failures[0];
+    return failure ? {
+      id: `pair-${evaluation.bakery.id}-${evaluation.pantry.id}`,
+      bakery: evaluation.bakery.name,
+      pantry: evaluation.pantry.name,
+      status: "rejected",
+      ...failure,
+    } : {
+      id: `pair-${evaluation.bakery.id}-${evaluation.pantry.id}`,
+      bakery: evaluation.bakery.name,
+      pantry: evaluation.pantry.name,
+      status: "feasible",
+      reasonCode: "feasible",
+      reasonLabel: "Retained for impact scoring",
+      detail: `Pickup ${formatClock(evaluation.pickupMinutes)} · pantry arrival ${formatClock(evaluation.arrivalMinutes)} · finish ${formatClock(evaluation.finishMinutes)}.`,
+    };
+  });
+
+  const rawPairs = chosenScenario.feasible.map((timing) => {
+    const { bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, facilityWaitMinutes, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes } = timing;
     const deliveries = pantry.deliveriesSevenDays ?? 0;
     const receivingOpportunities = Math.max(7, deliveries + 5);
     const priority = 1 - (deliveries + 1) / (receivingOpportunities + 2);
@@ -321,7 +449,7 @@ export async function GET() {
       + bakeryInputs.compost * COMPOST_KG_CO2E_PER_KG;
     const counterfactualWasteKgCO2e = bakeryInputs.rawFoodKg * pathwayCoefficient;
     const routeWasteKgCO2e = collectedNotDistributedKg * pathwayCoefficient;
-    const transportKgCO2e = TRANSPORT_KG_CO2E_PER_TONNE_KM * (bakeryInputs.rawFoodKg / 1000) * (routeDistanceMiles * 1.60934);
+    const transportKgCO2e = TRANSPORT_KG_CO2E_PER_TONNE_KM * (bakeryInputs.rawFoodKg / 1000) * (distanceMiles * 1.60934);
     const netEnvironmentalBenefitKgCO2e = counterfactualWasteKgCO2e - routeWasteKgCO2e - transportKgCO2e;
     const requestedTimeDeviationMinutes = Math.max(0, preferredStartMinutes - departureMinutes)
       + Math.max(0, finishMinutes - preferredFinishMinutes);
@@ -341,13 +469,13 @@ export async function GET() {
     return {
       bakery,
       pantry,
-      distanceMiles: routeDistanceMiles,
+      distanceMiles,
       driverDistanceMiles,
       driveMinutes,
       priority,
       servedOpportunities: deliveries,
       receivingOpportunities,
-      facilityWaitMinutes: Math.max(0, pickupMinutes - arrivalAtBakeryMinutes) + Math.max(0, arrivalMinutes - unadjustedArrivalMinutes),
+      facilityWaitMinutes,
       departureMinutes,
       pickupMinutes,
       arrivalMinutes,
@@ -369,7 +497,7 @@ export async function GET() {
       originDeviationMiles,
       destinationDeviationMiles,
     };
-  }));
+  });
 
   if (!rawPairs.length) {
     return Response.json({ status: "unavailable", nodes: [], candidates: [], highlightedRouteId: null, liveRouteLabel: "", liveRouteContext: "The database partners do not produce a feasible one-driver demonstration window." }, {
@@ -469,6 +597,8 @@ export async function GET() {
   const referencePoints = [
     ...displayedBakeries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
     ...displayedPantries.map((item) => ({ latitude: item.latitude, longitude: item.longitude })),
+    { latitude: anchorBakery.latitude, longitude: anchorBakery.longitude },
+    { latitude: anchorPantry.latitude, longitude: anchorPantry.longitude },
     { latitude: driverLatitude, longitude: driverLongitude },
   ];
   const toCanvasPosition = normalizePoints(referencePoints);
@@ -589,6 +719,7 @@ export async function GET() {
     loginLabel: formatClock(loginMinutes),
     preferredStartLabel: formatClock(preferredStartMinutes),
     preferredFinishLabel: formatClock(preferredFinishMinutes),
+    searchUntilLabel: formatClock(chosenScenario.searchUntilMinutes),
     requestedWindowMinutes,
     startLabel: "Requested start area",
     startZipCode: anchorBakery.postalCode,
@@ -618,14 +749,16 @@ export async function GET() {
     highlightedRouteId,
     liveRouteLabel: `${chosenPair.bakery.name} → ${chosenPair.pantry.name}`,
     liveRouteContext: featuredCompletedRoute && completedAt
-      ? `Database partner selection is anchored to the most recent completed delivery on ${completedAt}; all driver, food, and timing events shown here are synthetic.`
-      : "Partner names and locations come from the current registered, validated database network; all driver, food, and timing events shown here are synthetic.",
+      ? `Network orientation is anchored to the most recent completed delivery on ${completedAt}. The reproducible synthetic request clock is chosen to expose both retained and rejected database pairs.`
+      : "Partner names and locations come from the current registered, validated database network. The reproducible synthetic request clock is chosen to expose both retained and rejected pairs.",
     databaseSnapshot: {
       bakeriesConsidered: operationalBakeries.length,
       pantriesConsidered: operationalPantries.length,
       generatedCombinations: generatedCombinationCount,
+      rejectedCombinations: filterAudit.filter((entry) => entry.status === "rejected").length,
       feasibleCandidates: rankedPairs.length,
     },
+    filterAudit,
     request,
   }, {
     headers: { "Cache-Control": "no-store" },

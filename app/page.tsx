@@ -89,6 +89,7 @@ type DemoRequest = {
   loginLabel: string;
   preferredStartLabel: string;
   preferredFinishLabel: string;
+  searchUntilLabel: string;
   requestedWindowMinutes: number;
   startLabel: string;
   startZipCode: string;
@@ -102,6 +103,16 @@ type DemoRequest = {
   destinationTop: string;
 };
 
+type DemoFilterAuditEntry = {
+  id: string;
+  bakery: string;
+  pantry: string;
+  status: "feasible" | "rejected";
+  reasonCode: "feasible" | "bakery-deadline" | "pantry-latest-arrival" | "pantry-close" | "search-horizon";
+  reasonLabel: string;
+  detail: string;
+};
+
 type DemoDataset = {
   status: "ready" | "unavailable";
   nodes: DemoNode[];
@@ -113,8 +124,10 @@ type DemoDataset = {
     bakeriesConsidered: number;
     pantriesConsidered: number;
     generatedCombinations: number;
+    rejectedCombinations: number;
     feasibleCandidates: number;
   };
+  filterAudit: DemoFilterAuditEntry[];
   request: DemoRequest;
 };
 
@@ -265,10 +278,10 @@ const demoSteps: DemoStep[] = [
   {
     id: "feasibility",
     label: "3 · Candidate columns",
-    title: "The model builds complete, feasible timelines.",
-    description: "For every driver–bakery–pantry combination, the generator evaluates useful just-in-time departure breakpoints and retains its best complete timeline. Combinations that cannot satisfy hard operating constraints are removed before the MIP evaluates impact.",
+    title: "The model shows what survives—and what does not.",
+    description: "Every driver–bakery–pantry combination is checked against the fixed bakery and pantry schedules plus the driver's hard search horizon. The audit below identifies each rejected pair and the first hard rule it fails; only the retained columns proceed to impact scoring.",
     mipTitle: "Timed route construction",
-    mipBody: "Each surviving binary route column carries its own departure, pickup, pantry arrival, and finish. Five minutes are reserved at each facility.",
+    mipBody: "Each surviving binary route column carries its own departure, pickup, pantry arrival, and finish. Rejected combinations never enter the objective, no matter how much food they might recover. Five minutes are reserved at each facility.",
     mipLines: ["departure cannot precede login", "pickup must meet the bakery deadline", "pantry arrival must meet the latest arrival", "the complete trip must fit the hard search horizon", "one best timed column is retained per driver–bakery–pantry combination"],
     mipEquation: "r = (d,b,p,tᵈᵉᵖ,tᵖⁱᶜᵏ,tᵃʳʳ,tᶠⁱⁿ); r ∈ R only when hard constraints hold",
   },
@@ -321,11 +334,13 @@ const fallbackDemoData: DemoDataset = {
   highlightedRouteId: null,
   liveRouteLabel: "Waiting for the live partner feed",
   liveRouteContext: "The walkthrough requires the current registered and validated partner network.",
-  databaseSnapshot: { bakeriesConsidered: 0, pantriesConsidered: 0, generatedCombinations: 0, feasibleCandidates: 0 },
+  databaseSnapshot: { bakeriesConsidered: 0, pantriesConsidered: 0, generatedCombinations: 0, rejectedCombinations: 0, feasibleCandidates: 0 },
+  filterAudit: [],
   request: {
     loginLabel: "—",
     preferredStartLabel: "—",
     preferredFinishLabel: "—",
+    searchUntilLabel: "—",
     requestedWindowMinutes: 30,
     startLabel: "Requested start area",
     startZipCode: "—",
@@ -355,6 +370,7 @@ export default function Home() {
     : demoData.candidates.map((route) => route.id);
   const networkNodeCount = demoData.databaseSnapshot.bakeriesConsidered + demoData.databaseSnapshot.pantriesConsidered;
   const generatedCombinationCount = demoData.databaseSnapshot.generatedCombinations;
+  const rejectedCombinationCount = demoData.databaseSnapshot.rejectedCombinations;
   const feasibleRouteCount = demoData.databaseSnapshot.feasibleCandidates;
   const selectedRouteCount = activeDemoStep.id === "selection" && chosenRouteId ? 1 : 0;
   const activeFunnelMetric = activeDemoStep.id === "snapshot"
@@ -673,6 +689,29 @@ export default function Home() {
                   })}
                 </div>
               </div>
+              {activeDemoStep.id === "feasibility" && (
+                <div className="demoFilterAudit">
+                  <div className="demoFilterAuditHeader">
+                    <div>
+                      <span>Hard-constraint filter audit</span>
+                      <strong>{generatedCombinationCount} generated pairs → {rejectedCombinationCount} rejected + {feasibleRouteCount} feasible</strong>
+                    </div>
+                    <small>Rejections happen before expected-impact scoring.</small>
+                  </div>
+                  <div className="demoFilterAuditGrid">
+                    {demoData.filterAudit.map((entry) => (
+                      <div key={entry.id} className={`demoFilterAuditRow ${entry.status === "feasible" ? "isFeasible" : "isRejected"}`}>
+                        <span className="demoFilterStatus" aria-hidden="true">{entry.status === "feasible" ? "✓" : "×"}</span>
+                        <div>
+                          <b>{entry.bakery} → {entry.pantry}</b>
+                          <strong>{entry.reasonLabel}</strong>
+                          <small>{entry.detail}</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {["accounting", "participation", "objective", "selection"].includes(activeDemoStep.id) && (
                 <div className="demoRouteScorePanel">
                   <div className="demoRouteScoreHeader">
@@ -723,6 +762,7 @@ export default function Home() {
                   <span>Driver request</span>
                   <strong>{demoData.request.preferredStartLabel}–{demoData.request.preferredFinishLabel}</strong>
                   <small>Logged in {demoData.request.loginLabel} · {demoData.request.requestedWindowMinutes} minute interval</small>
+                  <small>Hard route-completion horizon: {demoData.request.searchUntilLabel}</small>
                   <small>ZIP {demoData.request.startZipCode} start area → ZIP {demoData.request.destinationZipCode} destination area</small>
                 </div>
                 <div className="demoNetworkFunnel" aria-label="optimization network counts">
@@ -735,6 +775,10 @@ export default function Home() {
                     <div className={`demoNetworkCount ${activeFunnelMetric === "generated" ? "isCurrent" : ""}`}>
                       <strong>{generatedCombinationCount}</strong>
                       <small>Generated pairs</small>
+                    </div>
+                    <div className={`demoNetworkCount demoNetworkCountRejected ${activeDemoStep.id === "feasibility" ? "isCurrent" : ""}`}>
+                      <strong>{rejectedCombinationCount}</strong>
+                      <small>Hard-rule rejections</small>
                     </div>
                     <div className={`demoNetworkCount ${activeFunnelMetric === "feasible" ? "isCurrent" : ""}`}>
                       <strong>{feasibleRouteCount}</strong>

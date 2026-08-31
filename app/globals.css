@@ -121,6 +121,21 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoRouteScoreItem p{margin:8px 0 6px;font-size:11px;font-weight:700;line-height:1.4}
 .demoRouteScoreItem small{display:block;color:#647d71;font-size:9px;line-height:1.45}
 .demoRouteScoreItem.isChosen small{color:#dce9e2}
+.demoFilterAudit{background:#f3efe4;color:var(--forest);padding:16px;border:1px solid rgba(255,255,255,.2)}
+.demoFilterAuditHeader{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;margin-bottom:12px}
+.demoFilterAuditHeader span,.demoFilterAuditHeader strong{display:block}
+.demoFilterAuditHeader span{font-size:9px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:#647d71}
+.demoFilterAuditHeader strong{margin-top:5px;font:700 18px/1.2 Georgia,serif}
+.demoFilterAuditHeader small{max-width:220px;color:#647d71;font-size:9px;line-height:1.4;text-align:right}
+.demoFilterAuditGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.demoFilterAuditRow{display:grid;grid-template-columns:26px minmax(0,1fr);gap:9px;align-items:start;padding:10px;border:1px solid #d5ded5;background:#fff;min-width:0}
+.demoFilterStatus{width:24px;height:24px;border-radius:999px;display:grid;place-items:center;font-weight:900;background:#e3efe8;color:#246143}
+.demoFilterAuditRow.isRejected .demoFilterStatus{background:#ffe3dc;color:#b43f2b}
+.demoFilterAuditRow b,.demoFilterAuditRow strong,.demoFilterAuditRow small{display:block;overflow-wrap:anywhere}
+.demoFilterAuditRow b{font-size:10px;line-height:1.35}
+.demoFilterAuditRow strong{margin-top:4px;color:#246143;font-size:9px;line-height:1.35;text-transform:uppercase;letter-spacing:.45px}
+.demoFilterAuditRow.isRejected strong{color:#b43f2b}
+.demoFilterAuditRow small{margin-top:3px;color:#647d71;font-size:8px;line-height:1.4}
 .demoNode{display:block;width:40px;height:40px}
 .demoNodeLabel{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%)}
 .demoNodeLabelHover{transform:translate(4px,-50%)}
@@ -135,7 +150,7 @@ footer{height:100px;background:#102b20;color:#fff;display:flex;align-items:cente
 .demoRequestArea>span{position:absolute;left:50%;top:calc(100% + 7px);transform:translateX(-50%);width:max-content;max-width:170px;padding:6px 8px;background:rgba(255,255,255,.94);border:1px solid rgba(22,61,45,.14);box-shadow:0 4px 12px rgba(40,64,53,.1);color:var(--forest);text-align:center;white-space:normal}
 .demoRequestArea>span strong{display:block;font:800 9px/1.25 Inter,system-ui,sans-serif;letter-spacing:.35px;text-transform:uppercase}
 .demoRequestArea>span small{display:block;margin-top:2px;color:#647d71;font:700 8px/1.25 Inter,system-ui,sans-serif;letter-spacing:.2px}
-@media(max-width:600px){.demoNode{width:32px;height:32px}.demoFacilityZipArea{width:54px;height:54px}.demoRequestArea{width:82px;height:82px}.demoRequestArea>span{max-width:128px;padding:5px 6px}.demoRequestArea>span strong{font-size:8px}.demoRequestArea>span small{font-size:7px}.demoRouteScoreHeader{align-items:flex-start;flex-direction:column;gap:4px}.demoRouteScoreHeader small{text-align:left}.demoRouteScoreGrid{grid-template-columns:1fr}}
+@media(max-width:600px){.demoNode{width:32px;height:32px}.demoFacilityZipArea{width:54px;height:54px}.demoRequestArea{width:82px;height:82px}.demoRequestArea>span{max-width:128px;padding:5px 6px}.demoRequestArea>span strong{font-size:8px}.demoRequestArea>span small{font-size:7px}.demoRouteScoreHeader,.demoFilterAuditHeader{align-items:flex-start;flex-direction:column;gap:4px}.demoRouteScoreHeader small,.demoFilterAuditHeader small{text-align:left}.demoRouteScoreGrid,.demoFilterAuditGrid{grid-template-columns:1fr}}
 
 /* Keep live-demo explanations and driver-request details contained at every viewport. */
 .demoSection,.demoBoard,.demoSidebar,.demoStepCard{min-width:0}

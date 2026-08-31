@@ -54,6 +54,13 @@ equity, volunteer fit, and route efficiency. The index is a scenario-relative
 communication aid rather than an optimizer input; the detailed physical and
 fairness metrics remain available in an expandable audit section.
 
+The homepage also provides a read-only one-driver trace over the current
+registered, active, address-validated partner network. Its reproducible
+synthetic request clock is selected to expose a useful mix of feasible and
+rejected bakery–pantry pairs without changing any institution schedule. A
+filter audit shows the first failed hard rule for each rejected pair before the
+surviving route columns are compared by acceptance-adjusted expected impact.
+
 ## Native app
 
 ```bash
