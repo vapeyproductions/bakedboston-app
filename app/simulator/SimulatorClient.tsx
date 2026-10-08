@@ -209,6 +209,7 @@ type SimulationPayload = {
     objective?: string;
     inputsUsed?: string[];
     inputsExcluded?: string[];
+    adaptationBoundary?: string;
   }>;
   network: {
     bakeries: NetworkNode[];
@@ -312,15 +313,16 @@ const impactPillars = [
 ] as const;
 
 const comparisonPaperUrls: Record<string, string> = {
-  nair_2018_distance_first: "https://doi.org/10.1016/j.seps.2017.06.003",
+  nair_2018_coverage_first: "https://doi.org/10.1016/j.seps.2017.06.003",
   xue_zou_2025_total_curb: "https://doi.org/10.1016/j.clscn.2025.100253",
   horner_2021_slsf_noz: "https://doi.org/10.1016/j.tre.2021.102419",
+  rey_2018_equitable_allocation: "https://doi.org/10.1016/j.tre.2018.02.001",
 };
 
 const metricGroups: MetricGroup[] = [
   {
     title: "Pickup service and pantry reach",
-    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for all four models.",
+    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for all five policies.",
     metrics: [
       { key: "bakeryPickupCoverage", label: "Bakery pickup coverage", explanation: "Eligible food-ready pickup occurrences completed.", direction: "higher", format: (value) => percent(value) },
       { key: "completedDeliveries", label: "Completed deliveries", explanation: "Successful bakery-to-pantry deliveries.", direction: "higher", format: (value) => numeric(value, 0) },
@@ -347,7 +349,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Environmental result",
-    description: "These values use one shared ledger. Xue–Zou minimizes direct CO₂e, BakedBoston balances net benefit with other goals, and neither Nair nor Horner receives CO₂e as a decision input.",
+    description: "These values use one shared ledger. Xue–Zou minimizes direct CO₂e, BakedBoston balances net benefit with other goals, and Nair, Horner, and Rey do not receive CO₂e as a decision input.",
     metrics: [
       { key: "totalDirectKgCO2e", label: "Total direct CO₂e", explanation: "Transport plus the fixed waste-pathway results for both uncollected and residual food.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
       { key: "transportKgCO2e", label: "Transportation CO₂e", explanation: "Route cargo mass × route kilometres × the fixed transport coefficient.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
@@ -357,7 +359,7 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Driver burden and projected selection",
-    description: "All final routes use the same transparent sigmoid. It scales BakedBoston's expected-impact objective and informs Horner's stochastic menus, but it is not an input to the Nair or Xue–Zou selectors.",
+    description: "All final routes use the same transparent sigmoid. It scales BakedBoston's expected-impact objective and informs Horner's stochastic menus, but it is not an input to the Nair, Xue–Zou, or Rey selectors.",
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per selected route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per selected route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
@@ -1238,7 +1240,7 @@ export function SimulatorClient({ data }: Props) {
                       <p>
                         Rank #1 was selected because its acceptance-adjusted expected-impact score of {score(selectedRoute.routeScore)}{" "}is the highest among
                         this driver&apos;s conflict-free recommendations. Pantry destinations may repeat across drivers,
-                        but bakery pickups cannot. The other recommendations remain unselected alternatives—not four
+                        but bakery pickups cannot. The other recommendations remain unselected alternatives—not
                         additional trips that the driver rejected.
                       </p>
                     </div>
@@ -1264,9 +1266,9 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>MODEL COMPARISON</p>
-            <h2>{resultMode === "saved" ? "One illustrative scenario, four different formulations" : "One custom scenario, four different formulations"}</h2>
+            <h2>{resultMode === "saved" ? "One illustrative scenario, five different formulations" : "One custom scenario, five different formulations"}</h2>
           </div>
-          <p>All four models receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
+          <p>All five policies receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
         </div>
 
         <div className={styles.tradeoffCallout}>
@@ -1275,9 +1277,10 @@ export function SimulatorClient({ data }: Props) {
             <div>
               <h3>Shared events and feasibility; different decision inputs.</h3>
               <p>
-                BakedBoston balances participation, food, fairness, environment, and driver fit. Nair is distance-first.
+                BakedBoston balances participation, food, fairness, environment, and driver fit. Nair protects pantry coverage.
                 Xue–Zou is direct-emissions-first. Horner optimizes personalized menus under stochastic driver willingness
-                before making a recourse assignment. Every selected route is then measured by one shared evaluator.
+                before making a recourse assignment. Rey minimizes cumulative distributed-food disparity after protecting pickup service.
+                Every selected route is then measured by one shared evaluator.
               </p>
             </div>
           </div>
@@ -1369,6 +1372,12 @@ export function SimulatorClient({ data }: Props) {
                     {payload.policyMetadata[result.policy]?.inputsExcluded?.join(", ")}.
                   </p>
                 ) : null}
+                {payload.policyMetadata[result.policy]?.adaptationBoundary ? (
+                  <p className={styles.policyBoundary}>
+                    <strong>Adaptation boundary:</strong>{" "}
+                    {payload.policyMetadata[result.policy]?.adaptationBoundary}
+                  </p>
+                ) : null}
               </article>
             );
           })}
@@ -1427,9 +1436,8 @@ export function SimulatorClient({ data }: Props) {
           <p><strong>Balanced Total Impact:</strong> {payload.totalImpactMethodology?.caveat}</p>
           {resultMode === "saved" ? (
             <p>
-              Seed {payload.scenario.seed} is an illustrative balanced-tradeoff walkthrough in which all four policies
-              complete the same number of deliveries. It is not presented as proof of average performance; multi-seed
-              sensitivity analysis is the appropriate general comparison.
+              Seed {payload.scenario.seed} is an illustrative balanced-tradeoff walkthrough. It is not presented as proof
+              of average performance; multi-seed sensitivity analysis is the appropriate general comparison.
             </p>
           ) : null}
           <div className={styles.experimentScale}>

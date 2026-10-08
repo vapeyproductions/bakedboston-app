@@ -61,8 +61,12 @@ pantry's fixed landfill/pig-farm mix. Pantry allocations are unique, sum to
 environmental coefficients live with the optimizer source in
 [`docs/institutions.md`](https://github.com/vapeyproductions/bakedboston-optimizer/blob/main/docs/institutions.md)
 instead of being duplicated on the website. The comparison panels evaluate
-BakedBoston, Nair distance-first, Xue–Zou Total-Curb, and Horner stochastic-menu
-policies on the same seeded scenario. The simulator does not create or change
+BakedBoston, Nair coverage-first, Xue–Zou Total-Curb, Horner stochastic-menu,
+and Rey equitable-allocation policies on the same seeded scenario. Nair first
+protects distinct pantry service; Rey first protects pickup service and then
+minimizes the maximum cumulative ultimately distributed-food gap across
+candidate pantries. Both are explicitly bounded adaptations rather than full
+replications of their source papers. The simulator does not create or change
 live organization records. The saved walkthrough uses illustrative seed 2033.
 Its comparison begins with a six-pillar Balanced Total Impact index covering
 completed service, food recovery, net environmental benefit, distribution
