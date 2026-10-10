@@ -39,9 +39,7 @@ type RouteOption = {
   pantryDistributionFraction?: number;
   foodSavedKg?: number;
   collectedNotDistributedKg?: number;
-  bakeryUnusableFoodKg?: number;
-  pantryUndistributedFoodKg?: number;
-  bakeryRouteWasteKgCO2e?: number;
+  pantryResidualFoodKg?: number;
   pantryRouteWasteKgCO2e?: number;
   pantryLandfillFraction?: number;
   pantryPigFarmFraction?: number;
@@ -322,7 +320,7 @@ const comparisonPaperUrls: Record<string, string> = {
 const metricGroups: MetricGroup[] = [
   {
     title: "Pickup service and pantry reach",
-    description: "The same realized food-ready pickups, open pantries, and driver events are evaluated for all five policies.",
+    description: "Each approach is tested on the same simulated day.",
     metrics: [
       { key: "bakeryPickupCoverage", label: "Bakery pickup coverage", explanation: "Eligible food-ready pickup occurrences completed.", direction: "higher", format: (value) => percent(value) },
       { key: "completedDeliveries", label: "Completed deliveries", explanation: "Successful bakery-to-pantry deliveries.", direction: "higher", format: (value) => numeric(value, 0) },
@@ -339,17 +337,17 @@ const metricGroups: MetricGroup[] = [
   },
   {
     title: "Food recovery and waste",
-    description: "Recovered food always uses qᵣ × bakery usability × pantry distribution. Completed-route residual is split into bakery-unusable food and pantry-undistributed food.",
+    description: "How much food is recovered for people and how much is left over.",
     metrics: [
       { key: "foodSavedKg", label: "Food recovered", explanation: "Selected route food × bakery usability × pantry distribution fraction.", direction: "higher", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "foodWastedKg", label: "Food wasted", explanation: "Uncollected bakery food plus both completed-route residual streams.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "foodWastedKg", label: "Food wasted", explanation: "Uncollected bakery food plus pantry residual from completed deliveries.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
       { key: "uncollectedBakeryFoodKg", label: "Not picked up", explanation: "Food at available bakery occurrences with no completed delivery.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
-      { key: "collectedNotDistributedKg", label: "Completed-route residual", explanation: "Bakery-unusable food plus pantry-undistributed food on completed deliveries.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
+      { key: "collectedNotDistributedKg", label: "Pantry residual", explanation: "All collected food that is not ultimately distributed, disposed of through the destination pantry.", direction: "lower", format: (value) => `${numeric(value, 1)} kg` },
     ],
   },
   {
     title: "Environmental result",
-    description: "These values use one shared ledger. Xue–Zou minimizes direct CO₂e, BakedBoston balances net benefit with other goals, and Nair, Horner, and Rey do not receive CO₂e as a decision input.",
+    description: "Environmental results include travel and food that is not ultimately used.",
     metrics: [
       { key: "totalDirectKgCO2e", label: "Total direct CO₂e", explanation: "Transport plus the fixed waste-pathway results for both uncollected and residual food.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
       { key: "transportKgCO2e", label: "Transportation CO₂e", explanation: "Route cargo mass × route kilometres × the fixed transport coefficient.", direction: "lower", format: (value) => `${numeric(value, 2)} kg CO₂e` },
@@ -358,13 +356,13 @@ const metricGroups: MetricGroup[] = [
     ],
   },
   {
-    title: "Driver burden and projected selection",
-    description: "All final routes use the same transparent sigmoid. It scales BakedBoston's expected-impact objective and informs Horner's stochastic menus, but it is not an input to the Nair, Xue–Zou, or Rey selectors.",
+    title: "Driver experience",
+    description: "How convenient the selected routes are for volunteers.",
     metrics: [
       { key: "averageDriveMinutes", label: "Mean driving time", explanation: "Average driving minutes per selected route.", direction: "lower", format: (value) => `${numeric(value)} min` },
       { key: "averageDistanceMiles", label: "Mean distance", explanation: "Approximate average miles per selected route.", direction: "lower", format: (value) => `${numeric(value, 2)} mi` },
       { key: "averageTotalTripDurationMinutes", label: "Mean total trip duration", explanation: "Driving, waiting at facilities, pickup, and drop-off time combined.", direction: "lower", format: (value) => `${numeric(value)} min` },
-      { key: "expectedDriverAcceptanceRate", label: "Mean sigmoid acceptance", explanation: "Mean predicted probability based on drive burden and requested time/location fit.", direction: "higher", format: (value) => percent(value, 1) },
+      { key: "expectedDriverAcceptanceRate", label: "Estimated driver fit", explanation: "Mean predicted probability based on drive burden and requested time/location fit.", direction: "higher", format: (value) => percent(value, 1) },
       {
         key: "offersLikelyAccepted",
         label: "Likely accepted routes",
@@ -632,7 +630,7 @@ export function SimulatorClient({ data }: Props) {
         <nav className={styles.nav} aria-label="Simulator navigation">
           <a href="#replay">Replay</a>
           <a href="#comparison">Comparison</a>
-          <a href="#methodology">Methodology</a>
+          <a href="#methodology">About</a>
           <a href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">
             GitHub ↗
           </a>
@@ -708,12 +706,12 @@ export function SimulatorClient({ data }: Props) {
                 </span>
               </div>
               <button className={styles.runButton} disabled={isRunning} onClick={runCustomSimulation} type="button">
-                {isRunning ? "Gurobi is solving…" : "Run Gurobi simulation"}
+                {isRunning ? "Running simulation…" : "Run simulation"}
               </button>
             </div>
             <p className={styles.runStatus}>
               {resultMode === "custom"
-                ? "The custom Gurobi result is loaded below. Change any setting and run again to create a new experiment."
+                ? "Your custom result is shown below. Change any setting and run another experiment."
                 : "The saved example remains visible below until you run this custom experiment."}
             </p>
             {runError ? <p className={styles.runError} role="alert">{runError}</p> : null}
@@ -723,12 +721,11 @@ export function SimulatorClient({ data }: Props) {
 
       <section className={styles.hero}>
         <div>
-          <p className={styles.eyebrow}>ACADEMIC ROUTING LAB</p>
-          <h1 className={styles.heroTitle}>See every recommendation. Then see what the driver selected.</h1>
+          <p className={styles.eyebrow}>ROUTE SIMULATOR</p>
+          <h1 className={styles.heroTitle}>See how food-rescue routes are compared.</h1>
           <p className={styles.lede}>
-            Replay {payload.scenario.horizonDays} synthetic service days. At every decision time, BakedBoston generates feasible routes,
-            solves simultaneous driver conflicts with Gurobi, builds fair conflict-free menus, and selects the
-            highest-scoring recommendation shown to each driver.
+            Replay {payload.scenario.horizonDays} illustrative service days. At each decision time, BakedBoston checks available routes,
+            coordinates drivers, and recommends practical pickups and deliveries.
           </p>
         </div>
         <aside className={styles.heroCard}>
@@ -746,9 +743,9 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>INTERACTIVE REPLAY</p>
-            <h2>Walk through the rolling-horizon solve</h2>
+            <h2>Walk through route matching</h2>
           </div>
-          <span className={styles.solverPill}>Gurobi {payload.runtime.gurobiVersion} · {epoch.solver.status}</span>
+          <span className={styles.solverPill}>{epoch.solver.status}</span>
         </div>
 
         <div className={styles.dayTabs} aria-label="Simulation day">
@@ -789,12 +786,12 @@ export function SimulatorClient({ data }: Props) {
           <div className={styles.tracePanel}>
             <div className={styles.epochHeader}>
               <div>
-                <p className={styles.panelLabel}>SOLVE AT {formatClock(epoch.decisionEpoch).toUpperCase()}</p>
+                <p className={styles.panelLabel}>ROUTES AT {formatClock(epoch.decisionEpoch).toUpperCase()}</p>
                 <h3>{epoch.queueSize > 1 ? `${epoch.queueSize} drivers enter together` : "One driver enters the queue"}</h3>
                 <p>
                   {epoch.queueSize > 1
-                    ? "The model considers every feasible route jointly. Each bakery pickup can appear in only one driver's menu, and every feasible driver gets one option before anyone gets a second."
-                    : "The model filters for timing feasibility, scores every remaining route, and ranks the options."}
+                    ? "BakedBoston coordinates the requests together so the same bakery pickup is not offered twice."
+                    : "BakedBoston checks what is possible, then compares the available options."}
                 </p>
               </div>
               <div className={styles.solveStats}>
@@ -839,7 +836,7 @@ export function SimulatorClient({ data }: Props) {
                       ZIP {activeRequest.startZipCode ?? activeRequest.startLocation?.postalCode ?? "area"}
                       {` · within ${numeric(activeRequest.startRadiusMiles ?? 2, 0)} miles`}
                     </strong>
-                    <span>Bakery distance beyond the orange area is normalized across feasible routes</span>
+                    <span>Used to find a route that starts near the driver.</span>
                   </div>
                   <div>
                     <small>PREFERRED DESTINATION</small>
@@ -848,12 +845,11 @@ export function SimulatorClient({ data }: Props) {
                         ? `ZIP ${activeRequest.destinationZipCode ?? activeRequest.preferredDestination.postalCode ?? "area"} · within ${numeric(activeRequest.destinationRadiusMiles ?? 2, 0)} miles`
                         : "No destination preference"}
                     </strong>
-                    <span>{activeRequest.preferredDestination ? "Pantry distance beyond the green area is normalized across feasible routes" : "Destination fit is not scored"}</span>
+                    <span>{activeRequest.preferredDestination ? "Used to find a route that ends near the driver’s preferred area." : "No destination preference was provided."}</span>
                   </div>
                 </div>
                 <p>
-                  These preferences guide ranking rather than feasibility. BakedBoston may still recommend a route
-                  outside the interval or radii when it is the strongest available option.
+                  These preferences help rank options. A slightly different route may still be recommended when it offers more overall community benefit.
                 </p>
               </section>
             ) : null}
@@ -865,8 +861,8 @@ export function SimulatorClient({ data }: Props) {
                   <h3>{mapMode === "driver" ? "All routes shown to this driver" : "All selections in this decision window"}</h3>
                   <p>
                     {mapMode === "driver"
-                      ? "Dashed lines are alternatives. The solid orange line is the highest-scoring route selected by the driver."
-                      : "Each line is the rank-1 route selected by a driver solved in this shared decision window."}
+                      ? "Dashed lines show alternatives. The solid orange line is the recommended route."
+                      : "Each line shows a route recommended during this decision window."}
                   </p>
                 </div>
                 <div className={styles.mapMode} role="group" aria-label="Map view">
@@ -1139,23 +1135,14 @@ export function SimulatorClient({ data }: Props) {
                 <div className={styles.routeListHeading}>
                   <div>
                     <p className={styles.panelLabel}>ROUTES RECOMMENDED TO {compactDriver(activeDriver.driverId).toUpperCase()}</p>
-                    <h3>Ranked from highest to lowest expected impact</h3>
-                    <p>These are alternative choices for one delivery. Selecting one does not count the remaining choices as rejected offers.</p>
+                    <h3>Available pickup and delivery options</h3>
+                    <p>These are alternative options for one delivery. Only one route is chosen.</p>
                   </div>
                   <span>Top {activeDriver.routes.length}</span>
                 </div>
 
                 <div className={styles.routeList}>
                   {activeDriver.routes.map((route) => {
-                    const requestedWindowMinutes = route.requestedWindowMinutes
-                      ?? activeRequest?.requestedWindowMinutes
-                      ?? 30;
-                    const outsideWindowRatio = route.requestedTimeDeviationRatio
-                      ?? route.requestedTimeDeviationMinutes / requestedWindowMinutes;
-                    const pantryWasteAllocation = payload.network.pantries.find(
-                      (pantry) => pantry.name === route.pantryName,
-                    )?.wasteAllocation;
-
                     return (
                     <article className={`${styles.routeCard} ${route.selected ? styles.selectedRoute : ""}`} key={`${route.pickupId}-${route.pantryWindowId}`}>
                       <div className={styles.rank}>#{route.recommendationRank}</div>
@@ -1183,48 +1170,25 @@ export function SimulatorClient({ data }: Props) {
                           <span>Pantry {formatClock(route.pantryArrivalAt)}</span>
                           <span>Finish {formatClock(route.finishAt)}</span>
                           <span>{numeric(route.driveMinutes, 1)} drive min</span>
-                          <span>
-                            {route.withinPreferredWindow
-                              ? "Inside requested interval"
-                              : `${numeric(route.requestedTimeDeviationMinutes, 0)} min outside · ${numeric(outsideWindowRatio * 100, 1)}% of ${numeric(requestedWindowMinutes, 0)}-min request`}
-                          </span>
-                          <span>
-                            Start ZIP miss {numeric(route.originDeviationMiles, 2)} mi · {numeric(route.normalizedOriginDeviation * 100, 1)}% normalized
-                          </span>
-                          {activeRequest?.hasPreferredDestination ? (
-                            <span>
-                              Destination ZIP miss {numeric(route.destinationDeviationMiles, 2)} mi · {numeric(route.normalizedDestinationDeviation * 100, 1)}% normalized
-                            </span>
-                          ) : null}
-                          <span>
-                            Spatial penalty input {numeric(route.normalizedSpatialDeviation * 100, 1)}%
-                          </span>
-                          <span>Priority {numeric(route.pantryPriority, 2)}</span>
+                          <span>{route.withinPreferredWindow ? "Matches requested time" : "Outside requested time"}</span>
+                          <span>{numeric(route.originDeviationMiles, 1)} miles from requested start area</span>
+                          {activeRequest?.hasPreferredDestination ? <span>{numeric(route.destinationDeviationMiles, 1)} miles from requested destination area</span> : null}
                           {route.netEnvironmentalBenefitKgCO2e !== undefined ? (
                             <span>
-                              Net direct benefit {numeric(route.netEnvironmentalBenefitKgCO2e, 2)} kg CO₂e
+                              Environmental benefit {numeric(route.netEnvironmentalBenefitKgCO2e, 1)} kg CO₂e
                             </span>
                           ) : null}
                           {route.foodSavedKg !== undefined ? (
                             <span>
-                              Food saved {numeric(route.foodSavedKg, 1)} kg = bakery food × {percent(route.bakeryUsableFraction, 1)} usability × {percent(route.pantryDistributionFraction, 1)} pantry distribution
+                              Expected food recovered {numeric(route.foodSavedKg, 1)} kg
                             </span>
-                          ) : null}
-                          {route.bakeryUnusableFoodKg !== undefined ? (
-                            <span>Bakery-unusable residual {numeric(route.bakeryUnusableFoodKg, 1)} kg · {numeric(route.bakeryRouteWasteKgCO2e, 2)} kg CO₂e under the bakery mix</span>
-                          ) : null}
-                          {route.pantryUndistributedFoodKg !== undefined ? (
-                            <span>Pantry-undistributed residual {numeric(route.pantryUndistributedFoodKg, 1)} kg · {numeric(route.pantryRouteWasteKgCO2e, 2)} kg CO₂e</span>
-                          ) : null}
-                          {pantryWasteAllocation ? (
-                            <span>Pantry-undistributed food: {percent(pantryWasteAllocation.landfill)} landfill / {percent(pantryWasteAllocation.pig_farm)} pig farm / 0% compost</span>
                           ) : null}
                         </div>
                       </div>
                       <div className={styles.routeScore}>
-                        <small>EXPECTED IMPACT</small>
+                        <small>ROUTE SCORE</small>
                         <strong>{score(route.routeScore)}</strong>
-                        {route.selected ? <span>SELECTED · HIGHEST</span> : null}
+                        {route.selected ? <span>RECOMMENDED</span> : null}
                       </div>
                     </article>
                     );
@@ -1238,10 +1202,7 @@ export function SimulatorClient({ data }: Props) {
                       <p className={styles.panelLabel}>DRIVER SELECTION</p>
                       <h3>{selectedRoute.bakeryName} → {selectedRoute.pantryName}</h3>
                       <p>
-                        Rank #1 was selected because its acceptance-adjusted expected-impact score of {score(selectedRoute.routeScore)}{" "}is the highest among
-                        this driver&apos;s conflict-free recommendations. Pantry destinations may repeat across drivers,
-                        but bakery pickups cannot. The other recommendations remain unselected alternatives—not
-                        additional trips that the driver rejected.
+                        This route is the best overall available match for this driver, bakery, and pantry. Other routes shown are alternatives, not rejected trips.
                       </p>
                     </div>
                   </div>
@@ -1252,9 +1213,7 @@ export function SimulatorClient({ data }: Props) {
                 <span>∅</span>
                 <h3>No route was recommended to {activeDriver ? compactDriver(activeDriver.driverId) : "this driver"}.</h3>
                 <p>
-                  This is not the model choosing to give another driver extra routes instead. At this decision time,
-                  this driver had no institution-window-feasible route or there were fewer distinct feasible bakery pickups than
-                  simultaneous drivers{activeRequest ? ` before the wider search ended at ${formatClock(activeRequest.searchUntil)}` : ""}.
+                  At this decision time, there was no route that fit the available bakery, pantry, and driver schedules.
                 </p>
               </div>
             )}
@@ -1266,21 +1225,19 @@ export function SimulatorClient({ data }: Props) {
         <div className={styles.sectionHeading}>
           <div>
             <p className={styles.eyebrow}>MODEL COMPARISON</p>
-            <h2>{resultMode === "saved" ? "One illustrative scenario, five different formulations" : "One custom scenario, five different formulations"}</h2>
+            <h2>{resultMode === "saved" ? "One illustrative scenario, five routing approaches" : "One custom scenario, five routing approaches"}</h2>
           </div>
-          <p>All five policies receive the same {payload.scenario.horizonDays}-day surplus, pantry, driver, timing, and daily food draws.</p>
+          <p>Every approach sees the same {payload.scenario.horizonDays}-day scenario.</p>
         </div>
 
         <div className={styles.tradeoffCallout}>
           <div>
             <span className={styles.calloutIcon}>↔</span>
             <div>
-              <h3>Shared events and feasibility; different decision inputs.</h3>
+              <h3>Same scenario, different priorities.</h3>
               <p>
-                BakedBoston balances participation, food, fairness, environment, and driver fit. Nair protects pantry coverage.
-                Xue–Zou is direct-emissions-first. Horner optimizes personalized menus under stochastic driver willingness
-                before making a recourse assignment. Rey minimizes cumulative distributed-food disparity after protecting pickup service.
-                Every selected route is then measured by one shared evaluator.
+                Each approach puts more emphasis on a different goal, such as pantry coverage, environmental impact,
+                fair distribution, or volunteer choice. The results show those trade-offs side by side.
               </p>
             </div>
           </div>
@@ -1336,8 +1293,7 @@ export function SimulatorClient({ data }: Props) {
             })}
           </div>
           <p className={styles.impactCaveat}>
-            {payload.totalImpactMethodology?.caveat ??
-              "This scenario-relative communication index is not used by any optimizer. Detailed measurements remain the auditable result."}
+            A simple snapshot across service, food, environment, fairness, volunteer fit, and efficiency. The full results below show the trade-offs behind it.
           </p>
         </section>
 
@@ -1348,36 +1304,9 @@ export function SimulatorClient({ data }: Props) {
             return (
               <article className={result.policy === "bakedboston_mip" ? styles.primaryPolicyCard : ""} key={`policy-${result.policy}`}>
                 <span>{result.policy === "bakedboston_mip" ? "OPTIMIZATION POLICY" : "COMPARISON POLICY"}</span>
-                <h3>
-                  {paperUrl ? (
-                    <a className={styles.paperLink} href={paperUrl} target="_blank" rel="noreferrer" aria-label={`${label} original paper`}>
-                      {label} ↗
-                    </a>
-                  ) : label}
-                </h3>
+                <h3>{label}</h3>
                 <p>{payload.policyMetadata[result.policy]?.description}</p>
-                <p className={styles.policyDetail}><strong>Objective:</strong> {payload.policyMetadata[result.policy]?.objective}</p>
-                <p className={styles.policyDetail}><strong>Driver selection:</strong> {payload.policyMetadata[result.policy]?.selectionDescription}</p>
-                {result.policy === "horner_2021_slsf_noz" ? (
-                  <p className={styles.policyTrace}>
-                    <strong>Observed menu trace:</strong>{" "}
-                    {numeric(result.metrics.averageMenuSize, 2)} options per driver on average ·{" "}
-                    {numeric(result.metrics.menuOptionsOffered, 0)} total menu options ·{" "}
-                    {numeric(result.metrics.unhappyDrivers, 0)} willing drivers without a final assignment.
-                  </p>
-                ) : null}
-                {payload.policyMetadata[result.policy]?.inputsExcluded?.length ? (
-                  <p className={styles.policyBoundary}>
-                    <strong>Not used to choose its routes:</strong>{" "}
-                    {payload.policyMetadata[result.policy]?.inputsExcluded?.join(", ")}.
-                  </p>
-                ) : null}
-                {payload.policyMetadata[result.policy]?.adaptationBoundary ? (
-                  <p className={styles.policyBoundary}>
-                    <strong>Adaptation boundary:</strong>{" "}
-                    {payload.policyMetadata[result.policy]?.adaptationBoundary}
-                  </p>
-                ) : null}
+                {paperUrl ? <a className={styles.paperLink} href={paperUrl} target="_blank" rel="noreferrer">Read the source study ↗</a> : null}
               </article>
             );
           })}
@@ -1385,14 +1314,12 @@ export function SimulatorClient({ data }: Props) {
 
         <details className={styles.metricAudit}>
           <summary>
-            <span>Audit the detailed outcome metrics</span>
-            <small>Food, waste, emissions, fairness, distance, and driver diagnostics</small>
+            <span>See all results</span>
+            <small>Food, waste, environmental impact, fairness, distance, and driver experience</small>
           </summary>
           <div className={styles.metricAuditBody}>
             <p>
-              These measurements remain separate for auditability. Related rows should not be counted as independent
-              model victories: food recovery and waste are complements, while several emissions and travel rows are components
-              of the same underlying outcome.
+              Each measure is shown separately so you can see what every approach gained or gave up.
             </p>
             <div className={styles.metricGroups}>
               {metricGroups.map((group) => (
@@ -1407,8 +1334,8 @@ export function SimulatorClient({ data }: Props) {
                       {payload.results.map((result) => <span key={`header-${group.title}-${result.policy}`}>{payload.policyMetadata[result.policy]?.label ?? result.policy}</span>)}
                     </div>
                     {group.metrics.map((metric) => (
-                      <div className={styles.metricRow} role="row" key={metric.key}>
-                        <div><strong>{metric.label}</strong><small>{metric.explanation}</small></div>
+                        <div className={styles.metricRow} role="row" key={metric.key}>
+                        <div><strong>{metric.label}</strong></div>
                         {payload.results.map((result) => (
                           <span className={metricWinner(metric, result) ? styles.bestMetric : ""} key={`${metric.key}-${result.policy}`}>
                             {metric.format(result.metrics[metric.key], result)}
@@ -1425,19 +1352,12 @@ export function SimulatorClient({ data }: Props) {
         </details>
 
         <div className={styles.methodologyNote}>
-          <h3>How to interpret the comparison</h3>
-          <p><strong>BakedBoston allocation:</strong> {payload.selectionRule}</p>
-          {payload.recommendationAllocation?.zeroRecommendationRule ? (
-            <p>{payload.recommendationAllocation.zeroRecommendationRule}</p>
-          ) : null}
-          <p>{payload.metricMethodology?.actualSelection ?? "Every simulated driver selects rank #1."}</p>
-          <p>{payload.metricMethodology?.acceptanceModel}</p>
-          <p>{payload.metricMethodology?.comparison}</p>
-          <p><strong>Balanced Total Impact:</strong> {payload.totalImpactMethodology?.caveat}</p>
+          <h3>About this comparison</h3>
+          <p>Every model sees the same simulated day, so the results show how different routing priorities create different outcomes.</p>
+          <p>Use the detailed metrics to explore the trade-offs. The source-study links describe each comparison approach in depth.</p>
           {resultMode === "saved" ? (
             <p>
-              Seed {payload.scenario.seed} is an illustrative balanced-tradeoff walkthrough. It is not presented as proof
-              of average performance; multi-seed sensitivity analysis is the appropriate general comparison.
+              This saved example is an illustrative scenario, not proof of average performance.
             </p>
           ) : null}
           <div className={styles.experimentScale}>
@@ -1451,74 +1371,26 @@ export function SimulatorClient({ data }: Props) {
 
       <section className={styles.method} id="methodology">
         <div>
-          <p className={styles.eyebrow}>THE EXACT OPTIMIZATION OBJECTIVE</p>
-          <h2>Balance modeled participation and real-world impact in one objective.</h2>
+          <p className={styles.eyebrow}>HOW THE SIMULATOR WORKS</p>
+          <h2>Compare practical routes by their community impact.</h2>
         </div>
-        <div className={styles.objectiveExplainer}>
-          <div className={styles.objectiveFormulaCard}>
-            <div className={styles.objectiveStage}>
-              <small>Simultaneous network objective</small>
-              <strong>maximize Φ(x) = ωᵀψ(x; π), &nbsp;x ∈ 𝒳</strong>
-              <p>The feasible assignment x maximizes one acceptance-adjusted network feature vector ψ containing the food, fairness, environmental, pantry-priority, and driver-fit terms.</p>
-            </div>
-            <div className={styles.objectiveStage}>
-              <small>Single-driver interpretation</small>
-              <strong>r★ = arg max &#123; πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) &#125;</strong>
-              <p>Among driver d&apos;s feasible routes, completion likelihood πᵣ multiplies completed-impact value ωᵀφᵣ. An 80% route therefore does not automatically eliminate a 78% route with materially greater food or environmental value.</p>
-            </div>
-            <div className={styles.objectiveWhy}>
-              <strong>Why one objective?</strong>
-              <p>The sigmoid remains consequential, but its synthetic precision cannot veto almost every alternative. The optimizer chooses the feasible plan with the strongest overall expected result.</p>
-            </div>
-            <div className={styles.acceptanceFormula}>
-              <small>Synthetic completion-likelihood estimate</small>
-              <strong>πᵣ = σ(2.2 − 0.045mᵣ − 1.8wᵣ − 1.1sᵣ)</strong>
-              <p>mᵣ is drive time; wᵣ and sᵣ are normalized requested-time and requested-area misses. This is an academic scenario assumption—not a trained prediction.</p>
-            </div>
-            <div className={styles.formula}>
-              <span>Food saved:</span><strong>hᵣ = qᵣ · ηᵦ · δₚ</strong>
-              <span>Bakery-side waste:</span><strong>wᵣᴮ = qᵣ(1 − ηᵦ)eᵦ</strong>
-              <span>Pantry-side waste:</span><strong>wᵣᴾ = qᵣηᵦ(1 − δₚ)eₚ</strong>
-            </div>
-          </div>
-          <div className={styles.objectiveTerms}>
-            <h3>What every symbol contributes</h3>
-            <dl>
-              <div><dt>xᵣ</dt><dd>A binary decision: 1 when complete timed route r is selected; otherwise 0.</dd></div>
-              <div><dt>πᵣ · completion likelihood</dt><dd>A transparent synthetic probability based on driving burden and the share of requested time and location preferences missed. It scales impact and can later be recalibrated with observed pilot choices.</dd></div>
-              <div><dt>κᵣ · pantry coverage</dt><dd><b>10 points.</b> Acceptance-adjusted coverage credit divided by available pantry identities and capped once per pantry.</dd></div>
-              <div><dt>νᵣʳᵃʷ and εᵣʳᵃʷ · raw donations</dt><dd><b>10 + 10 points.</b> Acceptance-weighted bakery-food volume and evenness calculated from cumulative expected raw donations.</dd></div>
-              <div><dt>νᵣˢᵃᵛᵉᵈ and εᵣˢᵃᵛᵉᵈ · food saved</dt><dd><b>10 + 10 points.</b> Acceptance-weighted ultimate food saved and cumulative expected saved-food evenness. hᵣ = qᵣ · ηᵦ · δₚ.</dd></div>
-              <div><dt>ρᵣ · pantry priority</dt><dd><b>10 points.</b> Acceptance-weighted opportunity-history priority, normalized by the epoch&apos;s maximum feasible assignment count.</dd></div>
-              <div><dt>γᵣ · net direct CO₂ benefit</dt><dd><b>20 points.</b> Acceptance-weighted route net benefits are min–max normalized within the epoch and normalized by maximum assignments. Primary avoided-production substitution is 0%.</dd></div>
-              <div><dt>χᵣ · driver fit</dt><dd><b>20 points.</b> Acceptance-weighted fit based on normalized drive-time, requested-window, and requested-area burdens.</dd></div>
-              <div><dt>qᵣ, ηᵦ, and δₚ</dt><dd>qᵣ and ηᵦ are reproducible daily draws from each bakery&apos;s fixed triangular distributions. δₚ is a fixed pantry distribution fraction.</dd></div>
-              <div><dt>eᵦ and eₚ</dt><dd>eᵦ combines that bakery&apos;s landfill/pig-farm/compost shares. eₚ combines that pantry&apos;s unique landfill/pig-farm shares; pantry compost is always 0%.</dd></div>
-            </dl>
-          </div>
+        <div className={styles.methodologyNote}>
+          <h3>What you are seeing</h3>
+          <p>The simulator creates a shared, synthetic food-rescue day and asks each approach to make route decisions. BakedBoston checks whether a route can happen, then weighs food recovery, pantry service, environmental impact, and volunteer practicality.</p>
+          <p>The comparison is designed to show trade-offs, not to declare a single universal winner. It does not contact real partners or issue delivery assignments.</p>
+          <p>A full technical paper will be linked here when it is complete.</p>
         </div>
-        <p className={styles.formulaNote}>
-          The optimizer maximizes all eight normalized components together after acceptance-adjusting route contributions; it does not impose a 99%-of-best-acceptance constraint. Food-evenness terms use cumulative expected pantry totals and encourage balance without claiming envy-free allocation. Login time is the decision epoch—not a forced departure. The scheduler chooses a
-          just-in-time departure while confirmed bakery and pantry windows, pickup deadlines, latest permitted pantry
-          arrival, one route per driver, and one assignment per bakery pickup remain hard constraints. Requested time
-          and ZIP areas are soft preferences. An uncollected food-available bakery contributes all qᵣ under the bakery waste mix. On a completed route, qᵣ(1−ηᵦ) follows that bakery&apos;s landfill/pig-farm/compost mix, while qᵣηᵦ(1−δₚ) follows the destination pantry&apos;s unique landfill/pig-farm mix. Pantry compost is 0%, and transport uses 0.41947 kg CO₂e per tonne-km of usable cargo. These are academic assumptions adapted from{" "}
-          <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer">Guo et al. (2026) ↗</a>, not a Boston-calibrated inventory.
-        </p>
-        <p className={styles.githubInputsNote}>
-          The complete fixed bakery, pantry, distribution, waste-allocation, and environmental-coefficient tables are maintained with the model source in the{" "}
-          <a href="https://github.com/vapeyproductions/bakedboston-optimizer/blob/main/docs/institutions.md" target="_blank" rel="noreferrer">optimizer GitHub documentation ↗</a>.
-        </p>
         <div className={styles.researchFoundation}>
           <div>
-            <p className={styles.eyebrow}>RESEARCH-TO-MODEL MAP</p>
-            <h3>Built from established OR problem families.</h3>
-            <p>The cited papers motivate the structure; they do not supply BakedBoston&apos;s weights, simulated schedules, or acceptance coefficients.</p>
+            <p className={styles.eyebrow}>RESEARCH FOUNDATION</p>
+            <h3>Explore the studies behind the comparison.</h3>
+            <p>These studies inform the ideas represented in the simulator. Their links provide the underlying technical detail.</p>
           </div>
           <div className={styles.researchGrid}>
-            <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Allocation and routing with perishability and time constraints.</span></a>
-            <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equitable food rescue ↗</strong><span>Balancing operational efficiency with fair service across agencies.</span></a>
-            <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Occasional-driver menus ↗</strong><span>Offering coordinated route choices to volunteers instead of assuming a fixed fleet.</span></a>
-            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline · Guo et al. (2026) ↗</strong><span>Motivates food-quality, distribution-loss, waste-pathway, and transport accounting.</span></a>
+            <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Coordinating donors, agencies, and delivery timing.</span></a>
+            <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equitable food rescue ↗</strong><span>Balancing efficiency with fair service.</span></a>
+            <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Volunteer route menus ↗</strong><span>Coordinating options for occasional drivers.</span></a>
+            <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Environmental baseline · Guo et al. (2026) ↗</strong><span>Environmental considerations in food redistribution.</span></a>
           </div>
         </div>
       </section>

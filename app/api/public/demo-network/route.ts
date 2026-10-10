@@ -55,11 +55,9 @@ type CandidateRoute = {
   pantryDistributionFraction: number;
   foodSavedKg: number;
   collectedNotDistributedKg: number;
-  bakeryUnusableFoodKg: number;
-  pantryUndistributedFoodKg: number;
+  pantryResidualFoodKg: number;
   pantryLandfillFraction: number;
   pantryPigFarmFraction: number;
-  bakeryRouteWasteKgCO2e: number;
   pantryRouteWasteKgCO2e: number;
   uncollectedFoodKg: number;
   counterfactualWasteKgCO2e: number;
@@ -457,19 +455,17 @@ export async function GET() {
     if (!pantryWasteAllocation) throw new Error(`Missing pantry waste allocation for ${pantry.id}`);
     const usableFoodKg = bakeryInputs.rawFoodKg * bakeryInputs.usableFraction;
     const foodSavedKg = usableFoodKg * pantryDistributionFraction;
-    const bakeryUnusableFoodKg = bakeryInputs.rawFoodKg - usableFoodKg;
-    const pantryUndistributedFoodKg = usableFoodKg - foodSavedKg;
-    const collectedNotDistributedKg = bakeryUnusableFoodKg + pantryUndistributedFoodKg;
+    const pantryResidualFoodKg = bakeryInputs.rawFoodKg - foodSavedKg;
+    const collectedNotDistributedKg = pantryResidualFoodKg;
     const bakeryPathwayCoefficient = bakeryInputs.landfill * LANDFILL_KG_CO2E_PER_KG
       + bakeryInputs.pigFarm * PIG_FARM_KG_CO2E_PER_KG
       + bakeryInputs.compost * COMPOST_KG_CO2E_PER_KG;
     const pantryPathwayCoefficient = pantryWasteAllocation.landfill * LANDFILL_KG_CO2E_PER_KG
       + pantryWasteAllocation.pigFarm * PIG_FARM_KG_CO2E_PER_KG;
     const counterfactualWasteKgCO2e = bakeryInputs.rawFoodKg * bakeryPathwayCoefficient;
-    const bakeryRouteWasteKgCO2e = bakeryUnusableFoodKg * bakeryPathwayCoefficient;
-    const pantryRouteWasteKgCO2e = pantryUndistributedFoodKg * pantryPathwayCoefficient;
-    const routeWasteKgCO2e = bakeryRouteWasteKgCO2e + pantryRouteWasteKgCO2e;
-    const transportKgCO2e = TRANSPORT_KG_CO2E_PER_TONNE_KM * (usableFoodKg / 1000) * (distanceMiles * 1.60934);
+    const pantryRouteWasteKgCO2e = pantryResidualFoodKg * pantryPathwayCoefficient;
+    const routeWasteKgCO2e = pantryRouteWasteKgCO2e;
+    const transportKgCO2e = TRANSPORT_KG_CO2E_PER_TONNE_KM * (bakeryInputs.rawFoodKg / 1000) * (distanceMiles * 1.60934);
     const netEnvironmentalBenefitKgCO2e = counterfactualWasteKgCO2e - routeWasteKgCO2e - transportKgCO2e;
     const requestedTimeDeviationMinutes = Math.max(0, preferredStartMinutes - departureMinutes)
       + Math.max(0, finishMinutes - preferredFinishMinutes);
@@ -506,11 +502,9 @@ export async function GET() {
       pantryDistributionFraction,
       foodSavedKg,
       collectedNotDistributedKg,
-      bakeryUnusableFoodKg,
-      pantryUndistributedFoodKg,
+      pantryResidualFoodKg,
       pantryLandfillFraction: pantryWasteAllocation.landfill,
       pantryPigFarmFraction: pantryWasteAllocation.pigFarm,
-      bakeryRouteWasteKgCO2e,
       pantryRouteWasteKgCO2e,
       counterfactualWasteKgCO2e,
       routeWasteKgCO2e,
@@ -680,7 +674,7 @@ export async function GET() {
   ];
 
   const candidates: CandidateRoute[] = selectedPairs.map((pair, index) => {
-    const { bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, servedOpportunities, receivingOpportunities, facilityWaitMinutes, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, rawFoodKg, usableFoodKg, usableFraction, pantryDistributionFraction, foodSavedKg, collectedNotDistributedKg, bakeryUnusableFoodKg, pantryUndistributedFoodKg, pantryLandfillFraction, pantryPigFarmFraction, bakeryRouteWasteKgCO2e, pantryRouteWasteKgCO2e, counterfactualWasteKgCO2e, routeWasteKgCO2e, transportKgCO2e, netEnvironmentalBenefitKgCO2e, acceptanceProbability, driverFit, completedImpactValue, expectedImpactValue, objectiveComponents, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore } = pair;
+    const { bakery, pantry, distanceMiles, driverDistanceMiles, driveMinutes, priority, servedOpportunities, receivingOpportunities, facilityWaitMinutes, departureMinutes, pickupMinutes, arrivalMinutes, finishMinutes, rawFoodKg, usableFoodKg, usableFraction, pantryDistributionFraction, foodSavedKg, collectedNotDistributedKg, pantryResidualFoodKg, pantryLandfillFraction, pantryPigFarmFraction, pantryRouteWasteKgCO2e, counterfactualWasteKgCO2e, routeWasteKgCO2e, transportKgCO2e, netEnvironmentalBenefitKgCO2e, acceptanceProbability, driverFit, completedImpactValue, expectedImpactValue, objectiveComponents, requestedTimeDeviationMinutes, requestedTimeDeviationRatio, originDeviationMiles, destinationDeviationMiles, normalizedOriginDeviation, normalizedDestinationDeviation, normalizedSpatialDeviation, rawScore } = pair;
     const pantryPosition = toCanvasPosition(pantry.latitude, pantry.longitude);
     const bakeryPosition = toCanvasPosition(bakery.latitude, bakery.longitude);
     const bakeryLeft = Number(bakeryPosition.left.replace("%", ""));
@@ -719,11 +713,9 @@ export async function GET() {
       pantryDistributionFraction,
       foodSavedKg: round(foodSavedKg, 2),
       collectedNotDistributedKg: round(collectedNotDistributedKg, 2),
-      bakeryUnusableFoodKg: round(bakeryUnusableFoodKg, 2),
-      pantryUndistributedFoodKg: round(pantryUndistributedFoodKg, 2),
+      pantryResidualFoodKg: round(pantryResidualFoodKg, 2),
       pantryLandfillFraction,
       pantryPigFarmFraction,
-      bakeryRouteWasteKgCO2e: round(bakeryRouteWasteKgCO2e, 4),
       pantryRouteWasteKgCO2e: round(pantryRouteWasteKgCO2e, 4),
       uncollectedFoodKg: round(rawFoodKg, 2),
       counterfactualWasteKgCO2e: round(counterfactualWasteKgCO2e, 4),

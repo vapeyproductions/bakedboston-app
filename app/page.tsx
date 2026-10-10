@@ -13,7 +13,6 @@ type DemoStep = {
   mipTitle: string;
   mipBody: string;
   mipLines: string[];
-  mipEquation: string;
 };
 
 type DemoNode = {
@@ -67,11 +66,9 @@ type DemoRoute = {
   pantryDistributionFraction: number;
   foodSavedKg: number;
   collectedNotDistributedKg: number;
-  bakeryUnusableFoodKg: number;
-  pantryUndistributedFoodKg: number;
+  pantryResidualFoodKg: number;
   pantryLandfillFraction: number;
   pantryPigFarmFraction: number;
-  bakeryRouteWasteKgCO2e: number;
   pantryRouteWasteKgCO2e: number;
   uncollectedFoodKg: number;
   counterfactualWasteKgCO2e: number;
@@ -241,17 +238,6 @@ function getSpatialDeviationLines(route: DemoRoute, request: DemoRequest) {
 
 const demoPercent = (value: number, digits = 0) => `${(value * 100).toFixed(digits)}%`;
 
-const demoObjectiveParts: Array<{ key: keyof DemoObjectiveComponents; short: string; weight: number }> = [
-  { key: "pantryCoverage", short: "κ", weight: 10 },
-  { key: "rawFoodVolume", short: "νʳᵃʷ", weight: 10 },
-  { key: "rawFoodEvenness", short: "εʳᵃʷ", weight: 10 },
-  { key: "savedFoodVolume", short: "νˢᵃᵛᵉᵈ", weight: 10 },
-  { key: "savedFoodEvenness", short: "εˢᵃᵛᵉᵈ", weight: 10 },
-  { key: "pantryPriority", short: "ρ", weight: 10 },
-  { key: "environmentalBenefit", short: "γ", weight: 20 },
-  { key: "driverFit", short: "χ", weight: 20 },
-];
-
 const pins = [
   { label: "Flour & Field", type: "B", left: "18%", top: "28%", color: "#ef6548" },
   { label: "Harbor Pantry", type: "P", left: "67%", top: "18%", color: "#163d2d" },
@@ -264,73 +250,66 @@ const pins = [
 const demoSteps: DemoStep[] = [
   {
     id: "snapshot",
-    label: "1 · Database snapshot",
-    title: "The model reads the eligible partner network.",
-    description: "The walkthrough begins with registered, active, address-validated bakeries and pantries from the application database. It does not invent or register organizations.",
-    mipTitle: "Read-only operational state",
-    mipBody: "Names, coordinates, ZIP codes, and partner status come from the live database. The driver request and food realization below are synthetic demonstration events.",
-    mipLines: ["registered partner account required", "active organization required", "validated coordinates required", "no account, route, or notification is written"],
-    mipEquation: "B, P ← current eligible database records",
+    label: "1 · Available partners",
+    title: "Start with bakeries and pantries that are ready to participate.",
+    description: "The demo uses the current eligible partner network. It is read-only and never creates a route or sends a notification.",
+    mipTitle: "Partner check",
+    mipBody: "The system starts with active bakeries and pantries that have confirmed location information.",
+    mipLines: ["active partner accounts", "confirmed location details", "no changes are made by this demo"],
   },
   {
     id: "request",
     label: "2 · Driver request",
-    title: "A driver request joins a rolling decision epoch.",
-    description: "The driver supplies a preferred interval and soft start/destination areas. Login is when the model receives the request—not when the driver must depart. Production solves all requests entering the same epoch together; this trace isolates one driver for readability.",
-    mipTitle: "Synthetic driver input",
-    mipBody: "The demo creates one read-only request around the database network so the route-generation and selection logic can be inspected without creating a production offer.",
-    mipLines: ["simultaneous production requests are optimized jointly", "requested interval is at least 30 minutes", "start and destination radii are soft preferences", "a later just-in-time departure may be scheduled", "the outer search horizon remains a hard limit"],
-    mipEquation: "d = (login, preferred interval, origin area, destination area)",
+    title: "A volunteer shares when and where they can help.",
+    description: "The request includes a preferred time and travel area. This walkthrough follows one request so the recommendation is easy to see.",
+    mipTitle: "Volunteer preferences",
+    mipBody: "The system considers the driver’s requested time and travel area when looking for a good match.",
+    mipLines: ["preferred time", "starting area", "destination area"],
   },
   {
     id: "feasibility",
-    label: "3 · Candidate columns",
-    title: "The model shows what survives—and what does not.",
-    description: "Every driver–bakery–pantry combination is checked against the fixed bakery and pantry schedules plus the driver's hard search horizon. The audit below identifies each rejected pair and the first hard rule it fails; only the retained columns proceed to impact scoring.",
-    mipTitle: "Timed route construction",
-    mipBody: "Each surviving binary route column carries its own departure, pickup, pantry arrival, and finish. Rejected combinations never enter the objective, no matter how much food they might recover. Five minutes are reserved at each facility.",
-    mipLines: ["departure cannot precede login", "pickup must meet the bakery deadline", "pantry arrival must meet the latest arrival", "the complete trip must fit the hard search horizon", "one best timed column is retained per driver–bakery–pantry combination"],
-    mipEquation: "r = (d,b,p,tᵈᵉᵖ,tᵖⁱᶜᵏ,tᵃʳʳ,tᶠⁱⁿ); r ∈ R only when hard constraints hold",
+    label: "3 · Schedule check",
+    title: "Keep only routes that can realistically happen.",
+    description: "The system checks the driver’s availability, bakery pickup hours, pantry receiving hours, and travel time. Incompatible options are removed.",
+    mipTitle: "Route check",
+    mipBody: "Each option must fit the real operating schedules before it can be considered.",
+    mipLines: ["pickup is during bakery hours", "delivery is during pantry hours", "the full trip fits the driver’s availability"],
   },
   {
     id: "accounting",
-    label: "4 · Food + CO₂e",
-    title: "Each feasible route gets the same food and direct-CO₂e ledger.",
-    description: "For the selected database partners, the demo applies one synthetic daily food realization. The model compares the bakery's no-pickup waste outcome with separate bakery-unusable and pantry-undistributed route waste, then subtracts tonne-kilometre transportation emissions.",
-    mipTitle: "Route environmental coefficient",
-    mipBody: "The route is credited only for food ultimately distributed. The unusable bakery fraction remains bakery-side waste, and the pantry's undistributed fraction remains pantry-side waste.",
-    mipLines: ["qᵣ is the synthetic daily bakery donation", "ηᵦ is the bakery usability fraction", "δₚ is the pantry distribution fraction", "qᵣ(1−ηᵦ) follows the bakery landfill/pig/compost mix", "qᵣηᵦ(1−δₚ) follows the pantry landfill/pig mix", "primary avoided-production substitution remains 0%"],
-    mipEquation: "hᵣ=qᵣηᵦδₚ; γᵣ=qᵣeᵦ−[qᵣ(1−ηᵦ)eᵦ+qᵣηᵦ(1−δₚ)eₚ]−Tᵣ",
+    label: "4 · Community impact",
+    title: "Estimate what each route can save.",
+    description: "Every feasible route is evaluated for food delivered, pantry capacity, travel, and environmental impact.",
+    mipTitle: "Food and environmental impact",
+    mipBody: "The model compares the benefit of recovering food with the impact of travel and any food that cannot be distributed.",
+    mipLines: ["food delivered to the pantry", "food expected to reach community members", "waste and travel impact"],
   },
   {
     id: "participation",
-    label: "5 · Acceptance estimate",
-    title: "Estimate completion likelihood—without creating a veto.",
-    description: "The model converts route burden into a transparent synthetic acceptance estimate. This probability scales the route's broader impact; it is not optimized first and does not impose a 99%-of-best cutoff.",
-    mipTitle: "Modeled completion likelihood",
-    mipBody: "Driving time plus normalized time-window and spatial misses reduce the estimate. A burdensome option receives less expected-impact credit, while a slightly lower probability can still win when its food, fairness, or environmental value is stronger.",
-    mipLines: ["drive minutes enter directly", "requested-time miss is divided by requested-window length", "start/destination misses are normalized among alternatives", "estimated probabilities are clipped to 2%–98%"],
-    mipEquation: "πᵣ = σ(2.2 − .045mᵣ − 1.8wᵣ − 1.1sᵣ)",
+    label: "5 · Driver fit",
+    title: "Favor routes a volunteer is more likely to complete.",
+    description: "Shorter, better-timed routes that stay closer to a driver’s preferred area receive a stronger fit estimate.",
+    mipTitle: "Volunteer practicality",
+    mipBody: "Driver fit reflects travel time, schedule fit, and location fit.",
+    mipLines: ["driving time", "schedule fit", "location fit"],
   },
   {
     id: "objective",
-    label: "6 · Expected impact",
-    title: "Balance participation and real-world value in one score.",
-    description: "The one-driver trace multiplies each route's normalized completed-impact score by its modeled acceptance probability. Every component is bounded to [0,1] before its policy weight is applied.",
-    mipTitle: "Acceptance-adjusted impact objective",
-    mipBody: "The trace evaluates the same eight components used by a simultaneous network solve, including cumulative pantry food balance, and then scales that completed-route value by modeled acceptance.",
-    mipLines: ["10 pantry coverage + 10 raw-food volume + 10 raw-food evenness", "10 saved-food volume + 10 saved-food evenness + 10 pantry priority", "20 normalized direct environmental benefit", "20 normalized driver fit"],
-    mipEquation: "r★ = arg max { πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) }",
+    label: "6 · Compare options",
+    title: "Balance the benefits of every available route.",
+    description: "The recommendation considers food recovery, fair pantry service, environmental impact, and driver fit together.",
+    mipTitle: "Overall route impact",
+    mipBody: "No single measure decides the outcome. The best route is the one that creates the strongest overall benefit.",
+    mipLines: ["food recovery", "pantry coverage and fairness", "environmental impact", "driver fit"],
   },
   {
     id: "selection",
-    label: "7 · Route selected",
-    title: "The binary solution becomes a timed, conflict-free recommendation.",
-    description: "The selected route has the greatest acceptance-adjusted expected impact among feasible alternatives. Accepted assignments consume their bakery pickup; a rejection or timeout leaves it available for a later rolling solve.",
-    mipTitle: "Assignment constraints",
-    mipBody: "The full network model coordinates all simultaneous drivers. When choices are shown, menus are built one rank at a time so every driver gets a first conflict-free option before anyone gets a second. This trace holds the driver count at one so every candidate remains readable.",
-    mipLines: ["at most one route per driver request", "at most one route per physical driver", "at most one assignment per bakery pickup", "open pantry windows may receive multiple deliveries"],
-    mipEquation: "xᵣ ∈ {0,1}; selected route has xᵣ = 1",
+    label: "7 · Recommendation",
+    title: "Offer the strongest practical route.",
+    description: "The recommended route includes a bakery, pantry, and suggested schedule. If it is not accepted, food can be offered again while it is still available.",
+    mipTitle: "Route ready",
+    mipBody: "The system provides one clear pickup-and-delivery recommendation for the volunteer.",
+    mipLines: ["one volunteer", "one bakery pickup", "one pantry delivery"],
   },
 ];
 
@@ -513,7 +492,7 @@ export default function Home() {
         </div>
         <div className="steps">
           <div><span>01</span><div className="stepIcon">🥖</div><h3>Bakeries post surplus</h3><p>Pickup timing, confirmation status, and access details are added in under a minute.</p></div>
-          <div><span>02</span><div className="stepIcon">✦</div><h3>We optimize the match</h3><p>The MIP enforces complete route timing, protects expected completed pickups, then balances pantry reach and priority, raw and distributed food, equity, direct CO₂e benefit, and driver fit.</p></div>
+          <div><span>02</span><div className="stepIcon">✦</div><h3>We find a good match</h3><p>We check schedules and compare food recovery, community need, environmental impact, and driver fit.</p></div>
           <div><span>03</span><div className="stepIcon">🚙</div><h3>Neighbors drive the loop</h3><p>Volunteers claim a route and deliver food while it’s still fresh.</p></div>
         </div>
       </section>
@@ -524,70 +503,30 @@ export default function Home() {
           <h2>Less waste is<br />a solvable problem.</h2>
         </div>
         <div className="modelCopy">
-          <p>At each rolling decision epoch, BakedBoston uses a Gurobi mixed-integer model to choose jointly among complete, feasible driver–bakery–pantry plans. Each route column includes a just-in-time departure, five minutes to load at the bakery, the trip to the pantry, and five minutes to unload. The formulation is a research-informed academic prototype: operational constraints are explicit, while volunteer acceptance remains a transparent synthetic assumption until real participation data exists.</p>
-          <div className="modelObjective">
-            <div className="modelObjectiveStage">
-              <small>Simultaneous network objective</small>
-              <strong>maximize <b>Φ(x) = ωᵀψ(x; π)</b>, &nbsp;x ∈ 𝒳</strong>
-              <p>The feasible assignment x maximizes one acceptance-adjusted network feature vector ψ: pantry reach, raw and ultimately distributed food, evenness, opportunity priority, direct environmental benefit, and driver fit.</p>
-            </div>
-            <div className="modelObjectiveStage">
-              <small>One-driver route choice</small>
-              <strong><b>r★ = arg max &#123; πᵣ · (ωᵀφᵣ) | r ∈ ℛ(d) &#125;</b></strong>
-              <p>Among driver d&apos;s feasible routes ℛ(d), choose the route with the largest completion likelihood πᵣ times completed-impact value ωᵀφᵣ. There is no separate participation stage or 99%-of-best cutoff.</p>
-            </div>
-            <div className="modelObjectiveWhy">
-              <strong>Why combine them?</strong>
-              <p>A route that is unlikely to happen earns less expected-impact credit, but a small difference in a synthetic probability cannot automatically veto a route that rescues substantially more food or produces a fairer, cleaner result.</p>
-            </div>
-            <div className="modelRouteUtility">
-              <small>Completion likelihood</small>
-              <strong>πᵣ = σ(2.2 − 0.045mᵣ − 1.8wᵣ − 1.1sᵣ)</strong>
-              <p>mᵣ is drive time; wᵣ and sᵣ are normalized requested-time and requested-area misses. This is an auditable scenario assumption—not a trained behavioral model.</p>
-            </div>
-            <div className="modelRouteUtility">
-              <small>Food and direct environmental accounting</small>
-              <strong>hᵣ=qᵣηᵦδₚ;&nbsp; γᵣ=qᵣeᵦ−[qᵣ(1−ηᵦ)eᵦ+qᵣηᵦ(1−δₚ)eₚ]−Tᵣ</strong>
-              <p>Bakery-unusable food follows that bakery&apos;s landfill/pig-farm/compost mix. Pantry-undistributed food follows that pantry&apos;s unique landfill/pig-farm mix; pantry compost is zero.</p>
-            </div>
-          </div>
-          <p className="modelFactorIntro"><b>ω = (10, 10, 10, 10, 10, 10, 20, 20)ᵀ</b>. Every component in φᵣ is normalized to [0,1] before the policy weight is applied, and route contributions are adjusted by πᵣ. Hard feasibility is enforced first, so an attractive score can never override a closed window or missed deadline.</p>
-          <div className="modelFactorGrid">
-            <div className="modelFactor"><strong>xᵣ · assignment</strong><p>A binary variable: 1 when complete timed route r is selected, otherwise 0.</p></div>
-            <div className="modelFactor"><strong>πᵣ · completion likelihood</strong><p>A synthetic probability based on driving burden and driver time/location fit. It scales impact instead of serving as a hard preliminary objective.</p></div>
-            <div className="modelFactor"><strong>κᵣ · pantry coverage · 10</strong><p>Modeled completion credit for available unique pantry identities, capped once per pantry.</p></div>
-            <div className="modelFactor"><strong>νᵣʳᵃʷ + εᵣʳᵃʷ · raw food · 10 + 10</strong><p>Acceptance-weighted raw bakery-food volume plus evenness calculated from cumulative expected raw donations.</p></div>
-            <div className="modelFactor"><strong>νᵣˢᵃᵛᵉᵈ + εᵣˢᵃᵛᵉᵈ · saved food · 10 + 10</strong><p>Acceptance-weighted ultimately distributed food, where hᵣ = qᵣ · ηᵦ · δₚ, plus cumulative expected saved-food evenness.</p></div>
-            <div className="modelFactor"><strong>ρᵣ · opportunity priority · 10</strong><p>A pantry available but less often served receives more acceptance-adjusted credit through its smoothed recent-opportunity history.</p></div>
-            <div className="modelFactor"><strong>γᵣ · direct environmental benefit · 20</strong><p>The acceptance-weighted bakery no-pickup result minus bakery-unusable waste, pantry-undistributed waste, and usable-cargo tonne-kilometre transportation emissions, min–max normalized across candidates.</p></div>
-            <div className="modelFactor"><strong>χᵣ · driver fit · 20</strong><p>Acceptance-weighted fit: one minus the mean normalized drive-time, requested-window, and requested-area burdens.</p></div>
-          </div>
+          <p>BakedBoston is a research-informed routing tool for moving bakery surplus to local pantries while it can still be used. It finds routes that work in the real world, then recommends the option with the strongest overall community impact.</p>
           <div className="modelDetails">
-            <div><strong>Planned departure</strong><p>Login time is the decision epoch, not a forced departure. The model schedules the latest feasible departure, so planned lead time at the origin is not penalized.</p></div>
-            <div><strong>Hard constraints</strong><p>Confirmed partner windows, bakery pickup deadlines, pantry latest arrivals, full travel and service timing, at most one route per driver request, and at most one assignment per bakery pickup.</p></div>
-            <div><strong>Simultaneous network solve</strong><p>All requests entering the same decision epoch are optimized jointly. Each request, physical driver, and bakery pickup can appear in at most one selected assignment; an open pantry may receive multiple deliveries.</p></div>
-            <div><strong>Layered route menus</strong><p>Conflict-free options are allocated by rank: maximize how many drivers receive recommendation #1 before allocating recommendation #2, then optimize route utility within each layer.</p></div>
-            <div><strong>What remains soft</strong><p>Requested time and ZIP areas influence utility and modeled acceptance. A route may fall outside them and still be recommended when it is feasible and comparatively strong.</p></div>
+            <div><strong>Available when needed</strong><p>Only bakeries, pantries, and volunteers with compatible schedules are considered.</p></div>
+            <div><strong>Designed for impact</strong><p>Routes are compared by food recovery, pantry service, environmental impact, and driver practicality.</p></div>
+            <div><strong>Built for the community</strong><p>Multiple volunteer requests can be coordinated so one pickup is not offered twice.</p></div>
           </div>
           <div className="modelResearch">
             <span className="kicker light">RESEARCH FOUNDATION</span>
-            <p>The formulation adapts established problem families rather than claiming a new one from scratch. The exact BakedBoston weights, simulated schedules, and acceptance coefficients are original prototype choices and are not estimates reported by these papers.</p>
+            <p>BakedBoston draws on food-rescue, volunteer-routing, equity, and environmental research. Read the source studies for their methods and findings; the full BakedBoston technical paper will be linked here when it is complete.</p>
             <div className="modelResearchGrid">
-              <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>Nair et al. model donor–agency allocation and routing with perishability and time constraints.</span></a>
-              <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equity in food rescue ↗</strong><span>Rey, Almi’ani, and Nair show why routing efficiency and fair agency service must be considered together.</span></a>
-              <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Volunteer route menus ↗</strong><span>Horner, Pazour, and Mitchell optimize menu-style assignments for occasional drivers rather than assuming a fixed fleet.</span></a>
-              <a href="https://doi.org/10.1016/j.clscn.2025.100253" target="_blank" rel="noreferrer"><strong>Environmental food-delivery routing ↗</strong><span>Xue and Zou&apos;s Total-Curb model jointly accounts for food, waste, and transport emissions; it motivates the environmental-first comparison policy.</span></a>
-              <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution lifecycle assessment ↗</strong><span>Guo et al. assess global warming, acidification, eutrophication, energy demand, and water use. Their results motivate the model’s food-quality, redistribution-loss, disposal-pathway, and transport accounting. The primary score conservatively sets avoided-production substitution to zero.</span></a>
+              <a href="https://doi.org/10.1016/j.seps.2017.06.003" target="_blank" rel="noreferrer"><strong>Food-rescue scheduling ↗</strong><span>How donors, agencies, and delivery timing can be coordinated.</span></a>
+              <a href="https://doi.org/10.1016/j.tre.2018.02.001" target="_blank" rel="noreferrer"><strong>Equity in food rescue ↗</strong><span>Why fair service across agencies matters alongside efficiency.</span></a>
+              <a href="https://doi.org/10.1016/j.tre.2021.102419" target="_blank" rel="noreferrer"><strong>Volunteer route menus ↗</strong><span>How volunteer route options can be offered and coordinated.</span></a>
+              <a href="https://doi.org/10.1016/j.clscn.2025.100253" target="_blank" rel="noreferrer"><strong>Environmental food-delivery routing ↗</strong><span>How food recovery, waste, and transport can be assessed together.</span></a>
+              <a href="https://doi.org/10.3390/foods15040645" target="_blank" rel="noreferrer"><strong>Food-redistribution lifecycle assessment ↗</strong><span>Environmental considerations across donation and redistribution.</span></a>
             </div>
           </div>
-          <ul><li>Rolling-horizon joint decision epochs</li><li>Complete timed route-column generation</li><li>Hard pickup, receiving, and service feasibility</li><li>One acceptance-adjusted expected-impact objective</li><li>Opportunity-based pantry priority and cumulative food equity</li><li>Direct waste-pathway and transport CO₂e accounting</li><li>Conflict-free, coverage-first driver route menus</li><li>Soft requested-time and ZIP-area matching</li></ul>
-          <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Explore the optimization model on GitHub ↗</a>
+          <a className="modelGithub" href="https://github.com/vapeyproductions/bakedboston-optimizer" target="_blank" rel="noreferrer">Read the research notes and source code on GitHub ↗</a>
         </div>
         <div className="demoSection" id="live-demo">
           <div className="demoIntro">
-            <span className="kicker light">DATABASE-BACKED ONE-DRIVER MODEL TRACE</span>
-            <h3>Follow the current routing logic in seven auditable steps.</h3>
-            <p>{demoData.liveRouteContext} Partner identities and coordinates come from the live database; the driver request, food realization, and decision epoch are synthetic and read-only. This explanatory trace applies the current route accounting and acceptance-adjusted expected-impact selection without creating an offer; the production service solves simultaneous requests jointly with Gurobi.</p>
+            <span className="kicker light">LIVE ROUTE WALKTHROUGH</span>
+            <h3>See how BakedBoston finds one practical delivery.</h3>
+            <p>{demoData.liveRouteContext} Partner identities and locations come from the live database. The example request and daily food estimate are illustrative, and this walkthrough never creates an offer.</p>
           </div>
           {demoStatus !== "ready" ? (
             <div className="demoUnavailable" role="status">
@@ -700,10 +639,10 @@ export default function Home() {
                 <div className="demoFilterAudit">
                   <div className="demoFilterAuditHeader">
                     <div>
-                      <span>Hard-constraint filter audit</span>
-                      <strong>{generatedCombinationCount} generated pairs → {rejectedCombinationCount} rejected + {feasibleRouteCount} feasible</strong>
+                      <span>Schedule check</span>
+                      <strong>{generatedCombinationCount} options checked → {rejectedCombinationCount} unavailable + {feasibleRouteCount} available</strong>
                     </div>
-                    <small>Rejections happen before expected-impact scoring.</small>
+                    <small>Every route must fit partner hours and driver availability.</small>
                   </div>
                   <div className="demoFilterAuditGrid">
                     {demoData.filterAudit.map((entry) => (
@@ -722,37 +661,34 @@ export default function Home() {
               {["accounting", "participation", "objective", "selection"].includes(activeDemoStep.id) && (
                 <div className="demoRouteScorePanel">
                   <div className="demoRouteScoreHeader">
-                    <span>{activeDemoStep.id === "accounting" ? "Candidate food and environmental outcomes" : activeDemoStep.id === "participation" ? "Modeled completion likelihood" : activeDemoStep.id === "objective" ? "Acceptance-adjusted expected impact" : "Selected timed recommendation"}</span>
-                    <small>{activeDemoStep.id === "selection" ? "The selected route has the greatest expected impact—without a 99% participation filter." : "The same feasible route columns contribute to one combined objective."}</small>
+                    <span>{activeDemoStep.id === "accounting" ? "Food and environmental impact" : activeDemoStep.id === "participation" ? "Driver fit" : activeDemoStep.id === "objective" ? "Overall route impact" : "Recommended route"}</span>
+                    <small>{activeDemoStep.id === "selection" ? "The recommendation is the best overall available match." : "Each available route is compared using the same information."}</small>
                   </div>
                   <div className="demoRouteScoreGrid">
                     {demoData.candidates.map((route) => (
                         <div key={route.id} className={`demoRouteScoreItem demoRouteScoreItem${route.label} ${activeDemoStep.id === "selection" && route.id === chosenRouteId ? "isSelected" : ""}`}>
                           <div className="demoRouteScoreTop">
                             <b>Route {route.symbol}</b>
-                            <strong>{activeDemoStep.id === "accounting" ? `${route.foodSavedKg.toFixed(1)} kg` : activeDemoStep.id === "participation" ? demoPercent(route.acceptanceProbability, 1) : route.expectedImpactValue.toFixed(1)}</strong>
+                            <strong>{activeDemoStep.id === "accounting" ? `${route.foodSavedKg.toFixed(1)} kg` : activeDemoStep.id === "participation" ? demoPercent(route.acceptanceProbability, 1) : activeDemoStep.id === "selection" && route.id === chosenRouteId ? "Recommended" : route.expectedImpactValue.toFixed(1)}</strong>
                           </div>
                           <p>{route.bakery} → {route.pantry}</p>
                           {activeDemoStep.id === "accounting" && <>
-                            <small className="demoRouteEquation">hᵣ = {route.rawFoodKg.toFixed(1)} kg × {demoPercent(route.usableFraction, 1)} × {demoPercent(route.pantryDistributionFraction, 1)} = {route.foodSavedKg.toFixed(1)} kg ultimately distributed</small>
-                            <small className="demoRouteOperational">No pickup: {route.uncollectedFoodKg.toFixed(1)} kg at bakery · completed route: {route.bakeryUnusableFoodKg.toFixed(1)} kg bakery-side + {route.pantryUndistributedFoodKg.toFixed(1)} kg pantry-side · pantry mix {demoPercent(route.pantryLandfillFraction)} landfill / {demoPercent(route.pantryPigFarmFraction)} pig farm · waste-pathway change: {(route.counterfactualWasteKgCO2e - route.routeWasteKgCO2e).toFixed(2)} kg CO₂e · transport: {route.transportKgCO2e.toFixed(2)} kg CO₂e · net: {route.netEnvironmentalBenefitKgCO2e.toFixed(2)} kg CO₂e</small>
+                            <small className="demoRouteEquation">{route.foodSavedKg.toFixed(1)} kg is expected to reach community members.</small>
+                            <small className="demoRouteOperational">The comparison includes the impact of food recovery, food not distributed, and travel.</small>
                           </>}
                           {activeDemoStep.id === "participation" && <>
-                            <small className="demoRouteEquation">πᵣ = {demoPercent(route.acceptanceProbability, 1)} modeled completion likelihood</small>
-                            <small className="demoRouteOperational">{route.driveMinutes.toFixed(0)} drive min · {demoPercent(route.requestedTimeDeviationRatio)} requested-time miss · {demoPercent(route.normalizedSpatialDeviation)} normalized location miss · driver fit {demoPercent(route.driverFit, 1)}</small>
+                            <small className="demoRouteEquation">{demoPercent(route.acceptanceProbability, 1)} estimated fit for this driver.</small>
+                            <small className="demoRouteOperational">{route.driveMinutes.toFixed(0)} minutes of driving, with the driver’s schedule and area considered.</small>
                           </>}
                           {activeDemoStep.id === "objective" && <>
-                            <small className="demoRouteEquation">{demoPercent(route.acceptanceProbability, 1)} × {route.completedImpactValue.toFixed(1)} completed-impact points = {route.expectedImpactValue.toFixed(1)} expected-impact points</small>
-                            <div className="demoObjectiveBreakdown">
-                              {demoObjectiveParts.map((part) => <span key={part.key}><b>{part.short}</b>{(route.acceptanceProbability * route.objectiveComponents[part.key] * part.weight).toFixed(1)} expected</span>)}
-                            </div>
+                            <small className="demoRouteEquation">This score balances food recovery, pantry service, environmental impact, and driver fit.</small>
                           </>}
                           {activeDemoStep.id === "selection" && <>
-                            <small className="demoRouteEquation">{route.id === chosenRouteId ? "xᵣ = 1 · selected" : "xᵣ = 0 · not selected"} · expected impact {route.expectedImpactValue.toFixed(1)} = {demoPercent(route.acceptanceProbability, 1)} × {route.completedImpactValue.toFixed(1)}</small>
+                            <small className="demoRouteEquation">{route.id === chosenRouteId ? "This is the recommended route." : "This route was not the strongest overall match."}</small>
                             <small className="demoRouteOperational">Depart {route.departureLabel} → pickup {route.pickupLabel} → pantry {route.arrivalLabel} → finish {route.finishLabel}</small>
                           </>}
                           <small className="demoRouteOperational">
-                            {route.distanceMiles.toFixed(1)} route mi · pantry priority {demoPercent(route.priority, 1)} · depart {route.departureLabel}
+                            {route.distanceMiles.toFixed(1)} route miles · depart {route.departureLabel}
                           </small>
                         </div>
                     ))}
@@ -769,11 +705,11 @@ export default function Home() {
                   <span>Driver request</span>
                   <strong>{demoData.request.preferredStartLabel}–{demoData.request.preferredFinishLabel}</strong>
                   <small>Logged in {demoData.request.loginLabel} · {demoData.request.requestedWindowMinutes} minute interval</small>
-                  <small>Hard route-completion horizon: {demoData.request.searchUntilLabel}</small>
+                  <small>Available through {demoData.request.searchUntilLabel}</small>
                   <small>ZIP {demoData.request.startZipCode} start area → ZIP {demoData.request.destinationZipCode} destination area</small>
                 </div>
                 <div className="demoNetworkFunnel" aria-label="optimization network counts">
-                  <span>Optimization funnel</span>
+                  <span>Route progress</span>
                   <div className="demoNetworkCounts">
                     <div className={`demoNetworkCount ${activeFunnelMetric === "network" ? "isCurrent" : ""}`}>
                       <strong>{networkNodeCount}</strong>
@@ -781,15 +717,15 @@ export default function Home() {
                     </div>
                     <div className={`demoNetworkCount ${activeFunnelMetric === "generated" ? "isCurrent" : ""}`}>
                       <strong>{generatedCombinationCount}</strong>
-                      <small>Generated pairs</small>
+                      <small>Options checked</small>
                     </div>
                     <div className={`demoNetworkCount demoNetworkCountRejected ${activeDemoStep.id === "feasibility" ? "isCurrent" : ""}`}>
                       <strong>{rejectedCombinationCount}</strong>
-                      <small>Hard-rule rejections</small>
+                      <small>Unavailable options</small>
                     </div>
                     <div className={`demoNetworkCount ${activeFunnelMetric === "feasible" ? "isCurrent" : ""}`}>
                       <strong>{feasibleRouteCount}</strong>
-                      <small>Feasible columns</small>
+                      <small>Available routes</small>
                     </div>
                     <div className={`demoNetworkCount ${activeFunnelMetric === "selected" ? "isCurrent" : ""}`}>
                       <strong>{selectedRouteCount}</strong>
@@ -801,22 +737,9 @@ export default function Home() {
               <div className="demoMipCard">
                 <small>{activeDemoStep.mipTitle}</small>
                 <p>{activeDemoStep.mipBody}</p>
-                <div className="demoMipEquation">{activeDemoStep.mipEquation}</div>
                 <ul>
                   {activeDemoStep.mipLines.map((line) => <li key={line}>{line}</li>)}
                 </ul>
-                <div className="demoMipMatrix" aria-label="assignment matrix preview">
-                  {demoData.candidates.map((route) => {
-                    const active = activeDemoStep.id === "selection" && route.id === chosenRouteId;
-                    const eliminated = activeDemoStep.id === "selection" && route.id !== chosenRouteId;
-                    return (
-                      <div key={route.id} className={`demoMipMatrixRow ${active ? "isActive" : ""} ${eliminated ? "isDim" : ""}`}>
-                        <span>{route.symbol}</span>
-                        <b>{active ? "1" : "0"}</b>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             </div>
           </div>
